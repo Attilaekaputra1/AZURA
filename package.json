@@ -1,0 +1,29 @@
+{
+  "name": "azura-discord-bot",
+  "version": "0.1.0",
+  "description": "AZURA - Teman Discord yang punya otak AI",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "invite": "node -e \"const c=require('./src/config'); console.log('\\n=== AZURA INVITE LINK ===\\nhttps://discord.com/oauth2/authorize?client_id='+c.DISCORD_CLIENT_ID+'&permissions=274877990912&scope=bot%20applications.commands\\n');\""
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "ai",
+    "openai",
+    "azura"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7",
+    "libsodium-wrappers": "^0.8.4",
+    "node-edge-tts": "^1.2.10",
+    "openai": "^4.86.1"
+  }
+}

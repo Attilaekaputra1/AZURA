@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Environment Variables (Sangat Rahasia!)
+.env
+.env.local
+.env.production
+
+# Logs & Temporary files
+*.log
+npm-debug.log*
+.DS_Store
+data/

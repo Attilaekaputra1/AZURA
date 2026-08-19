@@ -65,14 +65,6 @@ const commands = [
         .setRequired(false)),
 
   new SlashCommandBuilder()
-    .setName('search')
-    .setDescription('Lakukan pencarian berita & web live dengan Tavily AI Engine')
-    .addStringOption(option =>
-      option.setName('query')
-        .setDescription('Apa yang ingin kamu cari di internet?')
-        .setRequired(true)),
-
-  new SlashCommandBuilder()
     .setName('crypto')
     .setDescription('Cek harga kripto / kurs USD real-time (CoinGecko & ExchangeRate-API)')
     .addStringOption(option =>
@@ -118,11 +110,7 @@ const commands = [
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan yang ingin dikirim ke channel server')
-        .setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('testupdate')
-    .setDescription('Cek verifikasiapakah VPS berhasil ter-update terbaru')
+        .setRequired(true))
 ];
 
 const fs = require('fs');
@@ -368,35 +356,6 @@ async function handleSlashCommand(interaction, startTime) {
       });
     }
 
-  } else if (commandName === 'search') {
-    const query = interaction.options.getString('query');
-    await interaction.deferReply();
-
-    try {
-      // Use Tavily directly for structured embed results
-      const { searchTavily } = require('./tavily');
-      const { filterSafeResults, containsGamblingContent } = require('./tavily');
-      
-      const response = await require('./tavily').searchTavily(query, 'general');
-
-      // Also get AI interpretation via askAzura with forceSearch
-      const aiSummary = await askAzura(user.id, `Berdasarkan pencarian web, rangkum secara singkat (2-3 kalimat) tentang: ${query}`, user.username, [], !interaction.guild, interaction.channelId, true);
-
-      // Build clean Discord Embed
-      const embed = new EmbedBuilder()
-        .setColor(0x00D4AA)
-        .setAuthor({ name: '🔍 AZURA Web Search', iconURL: interaction.client.user.displayAvatarURL() })
-        .setTitle(`Hasil Pencarian: "${query}"`)
-        .setDescription(aiSummary.slice(0, 400))
-        .setFooter({ text: 'Powered by Tavily AI Engine • Data real-time' })
-        .setTimestamp();
-
-      await interaction.editReply({ embeds: [embed] });
-    } catch (error) {
-      console.error('[Search Command Error]:', error.message || error);
-      await interaction.editReply('gagal melakukan pencarian web. coba lagi nanti ya!');
-    }
-
   } else if (commandName === 'crypto') {
     const coin = interaction.options.getString('koin');
     await interaction.deferReply();
@@ -473,12 +432,6 @@ async function handleSlashCommand(interaction, startTime) {
 
   } else if (commandName === 'sendch') {
     await handleSendChannelCommand(interaction);
-  } else if (commandName === 'testupdate') {
-    const nowStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-    await interaction.reply({
-      content: `🎉 **[VERIFIKASI SUCCESS]** VPS AZURA Berhasil Ter-update Sempurna! Waktu Server VPS: \`${nowStr} WIB\``,
-      flags: 64
-    });
   }
 }
 

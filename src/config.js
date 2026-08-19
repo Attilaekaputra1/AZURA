@@ -13,7 +13,7 @@ const config = {
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '').trim(),
 
   // AI Model Configuration
-  OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+  OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o',
 
   // Cost & Performance Parameters
   MAX_OUTPUT_TOKENS: parseInt(process.env.MAX_OUTPUT_TOKENS || '300', 10),

@@ -264,7 +264,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const client = getOpenAIClient();
 
-  const modelsToTry = [config.OPENAI_MODEL || 'gpt-5.6-luna', 'gpt-4o', 'gpt-4o-mini'];
+  const modelsToTry = [config.OPENAI_MODEL || 'gpt-4o', 'gpt-4o-mini'];
   let completion = null;
   let lastError = null;
 

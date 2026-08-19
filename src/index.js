@@ -201,8 +201,8 @@ client.on('messageCreate', async (message) => {
       }
     }
   } catch (error) {
-    console.error('[AZURA Message Error]:', error.message || error);
-    await message.reply('bentar, otak gw lagi error dikit. coba bentar lagi ya!');
+    console.error('[AZURA Message Error]:', error.stack || error.message || error);
+    await message.reply(`⚠️ **[SISTEM ERROR]**: \`${error.message || 'Gagal memproses pesan'}\`. Coba lagi sebentar lagi ya!`);
   }
 });
 

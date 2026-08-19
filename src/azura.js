@@ -275,7 +275,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       completion = await client.chat.completions.create({
         model: targetModel,
         messages: messages,
-        max_completion_tokens: config.MAX_OUTPUT_TOKENS
+        max_tokens: config.MAX_OUTPUT_TOKENS
       });
       if (completion?.choices?.[0]?.message?.content) {
         break; // Success!

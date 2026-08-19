@@ -373,9 +373,27 @@ async function handleSlashCommand(interaction, startTime) {
     await interaction.deferReply();
 
     try {
-      const response = await askAzura(user.id, `Cari info terbaru dari internet tentang: ${query}`, user.username, [], !interaction.guild, interaction.channelId);
-      await interaction.editReply(response);
+      // Use Tavily directly for structured embed results
+      const { searchTavily } = require('./tavily');
+      const { filterSafeResults, containsGamblingContent } = require('./tavily');
+      
+      const response = await require('./tavily').searchTavily(query, 'general');
+
+      // Also get AI interpretation via askAzura with forceSearch
+      const aiSummary = await askAzura(user.id, `Berdasarkan pencarian web, rangkum secara singkat (2-3 kalimat) tentang: ${query}`, user.username, [], !interaction.guild, interaction.channelId, true);
+
+      // Build clean Discord Embed
+      const embed = new EmbedBuilder()
+        .setColor(0x00D4AA)
+        .setAuthor({ name: '🔍 AZURA Web Search', iconURL: interaction.client.user.displayAvatarURL() })
+        .setTitle(`Hasil Pencarian: "${query}"`)
+        .setDescription(aiSummary.slice(0, 400))
+        .setFooter({ text: 'Powered by Tavily AI Engine • Data real-time' })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
     } catch (error) {
+      console.error('[Search Command Error]:', error.message || error);
       await interaction.editReply('gagal melakukan pencarian web. coba lagi nanti ya!');
     }
 

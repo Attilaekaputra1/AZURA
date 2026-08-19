@@ -130,16 +130,14 @@ function needsSearch(prompt) {
  * @param {Array<string>} imageUrls
  * @param {boolean} isDM
  * @param {string} channelId
+ * @param {boolean} forceSearch - Only true when triggered by /search command
  * @returns {Promise<string>}
  */
-async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null) {
+async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, forceSearch = false) {
   autoExtractFact(userId, userPrompt);
 
   const reminderResponse = await processSmartReminder(userId, userPrompt, channelId);
   if (reminderResponse) return reminderResponse;
-
-  // Tavily processTavilyIntelligence removed from direct chat pipeline
-  // Web search is only triggered via needsSearch() below for background context
 
   const financeResponse = await processFinanceIntelligence(userPrompt);
   if (financeResponse) return financeResponse;
@@ -148,9 +146,11 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const history = budgetGuard.getContext(contextKey);
   const systemPrompt = getSystemPrompt(userName, userId, isDM);
 
+  // Web search is ONLY triggered by /search command (forceSearch=true)
+  // Normal chat NEVER triggers Tavily — 100% pure AI brain
   let searchContext = null;
-  if (needsSearch(userPrompt) && imageUrls.length === 0) {
-    console.log(`[AZURA Web Search]: Auto-triggering Tavily search for prompt: "${userPrompt}"`);
+  if (forceSearch && imageUrls.length === 0) {
+    console.log(`[AZURA Web Search]: /search command triggered for: "${userPrompt}"`);
     searchContext = await searchWeb(userPrompt);
   }
 
@@ -169,8 +169,21 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     userContent = userPrompt;
   }
 
-  const systemMessage = searchContext 
-    ? `${systemPrompt}\n\nKonteks dari internet (gunakan sebagai referensi, sampaikan secara santai):\n${searchContext}`
+  // Strip Tavily formatting from search context so AI doesn't copy headers/format
+  let cleanSearchContext = null;
+  if (searchContext) {
+    cleanSearchContext = searchContext
+      .replace(/💡 \*\*Tavily AI Executive Summary:\*\*/g, '')
+      .replace(/🌐 \*\*Hasil Pencarian Web Terverifikasi \(Tavily Advanced Engine\):\*\*/g, '')
+      .replace(/🔗 Link:/g, 'URL:')
+      .replace(/📝 Ringkasan:/g, '')
+      .replace(/--------------------/g, '')
+      .replace(/\*\*/g, '')
+      .trim();
+  }
+
+  const systemMessage = cleanSearchContext 
+    ? `${systemPrompt}\n\n[DATA REFERENSI WEB - Gunakan sebagai fakta referensi saja. JANGAN menyalin format, header, atau menyebut nama Tavily/Engine. Jawablah murni sebagai dirimu sendiri (AZURA) dengan gaya santai Gen Z]:\n${cleanSearchContext}`
     : systemPrompt;
 
   const messages = [

@@ -122,9 +122,9 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 
   console.log(`[Image-to-Image Engine]: Synthesized Prompt (${sanitizedPrompt.length} chars): "${sanitizedPrompt.slice(0, 100)}..."`);
 
-  // Step 2: Generate edited image with gpt-image-2 model
+  // Step 2: Generate edited image strictly with gpt-image-2 model
   let imageResponse;
-  const imageModels = ['gpt-image-2', 'gpt-image-2.0', 'gpt-image-1.5', 'gpt-image-1', 'chatgpt-images-2.0', 'dall-e-3'];
+  const imageModels = ['gpt-image-2'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
@@ -134,9 +134,8 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
         model: imgModel,
         prompt: sanitizedPrompt,
         n: 1,
-        size: imgModel === 'dall-e-2' ? '1024x1024' : dimensions
+        size: dimensions
       };
-      if (imgModel === 'dall-e-3') payload.quality = 'standard';
 
       imageResponse = await openai.images.generate(payload);
       if (imageResponse?.data?.[0]?.url) {
@@ -165,7 +164,7 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 }
 
 /**
- * Text-to-Image Generation with gpt-image-2 model
+ * Text-to-Image Generation strictly with gpt-image-2 model
  * @param {string} prompt 
  * @param {string} [aspectRatio] - 'square' | 'landscape' | 'portrait'
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string, dimensions: string }>}
@@ -176,7 +175,7 @@ async function generateImage(prompt, aspectRatio = '') {
   const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 900);
 
   let imageResponse;
-  const imageModels = ['gpt-image-2', 'gpt-image-2.0', 'gpt-image-1.5', 'gpt-image-1', 'chatgpt-images-2.0', 'dall-e-3'];
+  const imageModels = ['gpt-image-2'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
@@ -186,9 +185,8 @@ async function generateImage(prompt, aspectRatio = '') {
         model: imgModel,
         prompt: sanitizedPrompt,
         n: 1,
-        size: imgModel === 'dall-e-2' ? '1024x1024' : dimensions
+        size: dimensions
       };
-      if (imgModel === 'dall-e-3') payload.quality = 'standard';
 
       imageResponse = await openai.images.generate(payload);
       if (imageResponse?.data?.[0]?.url) {

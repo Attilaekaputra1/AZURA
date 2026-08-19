@@ -122,9 +122,9 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 
   console.log(`[Image-to-Image Engine]: Synthesized Prompt (${sanitizedPrompt.length} chars): "${sanitizedPrompt.slice(0, 100)}..."`);
 
-  // Step 2: Generate edited image with ChatGPT Images 2.0 model
+  // Step 2: Generate edited image with GPT Image 1.5 model
   let imageResponse;
-  const imageModels = ['chatgpt-images-2.0', 'chatgpt-image-2.0', 'chatgpt-images-2', 'chatgpt-image-2', 'dall-e-3'];
+  const imageModels = ['gpt-image-1.5', 'gpt-image-1', 'gpt-image-2.0', 'chatgpt-images-2.0', 'dall-e-3'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
@@ -165,7 +165,7 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 }
 
 /**
- * Text-to-Image Generation with ChatGPT Images 2.0 model
+ * Text-to-Image Generation with GPT Image 1.5 model
  * @param {string} prompt 
  * @param {string} [aspectRatio] - 'square' | 'landscape' | 'portrait'
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string, dimensions: string }>}
@@ -176,7 +176,7 @@ async function generateImage(prompt, aspectRatio = '') {
   const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 900);
 
   let imageResponse;
-  const imageModels = ['chatgpt-images-2.0', 'chatgpt-image-2.0', 'chatgpt-images-2', 'chatgpt-image-2', 'dall-e-3'];
+  const imageModels = ['gpt-image-1.5', 'gpt-image-1', 'gpt-image-2.0', 'chatgpt-images-2.0', 'dall-e-3'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {

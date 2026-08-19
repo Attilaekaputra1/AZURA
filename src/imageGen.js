@@ -92,19 +92,23 @@ async function editReferenceImage(imageUrl, editInstruction) {
 
   // Step 2: Generate edited image with fallback models
   let imageResponse;
-  const imageModels = ['gpt-image-2', 'gpt-image-2.0', 'dall-e-3'];
+  const imageModels = ['gpt-image-2.0', 'gpt-image-2', 'dall-e-3'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
     try {
       console.log(`[Image Generation]: Attempting model: ${imgModel}...`);
-      imageResponse = await openai.images.generate({
+      const payload = {
         model: imgModel,
         prompt: synthesizedPrompt,
         n: 1,
         size: '1024x1024'
-      });
+      };
+      if (imgModel === 'dall-e-3') payload.quality = 'standard';
+
+      imageResponse = await openai.images.generate(payload);
       if (imageResponse?.data?.[0]?.url) {
+        console.log(`[Image Generation Success]: Model (${imgModel}) successfully generated image!`);
         break; // Success!
       }
     } catch (err) {
@@ -135,19 +139,23 @@ async function editReferenceImage(imageUrl, editInstruction) {
 async function generateImage(prompt) {
   const openai = getOpenAI();
   let imageResponse;
-  const imageModels = ['gpt-image-2', 'gpt-image-2.0', 'dall-e-3'];
+  const imageModels = ['gpt-image-2.0', 'gpt-image-2', 'dall-e-3'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
     try {
       console.log(`[Text-to-Image]: Attempting model: ${imgModel}...`);
-      imageResponse = await openai.images.generate({
+      const payload = {
         model: imgModel,
         prompt: prompt,
         n: 1,
         size: '1024x1024'
-      });
+      };
+      if (imgModel === 'dall-e-3') payload.quality = 'standard';
+
+      imageResponse = await openai.images.generate(payload);
       if (imageResponse?.data?.[0]?.url) {
+        console.log(`[Text-to-Image Success]: Model (${imgModel}) successfully generated image!`);
         break;
       }
     } catch (err) {

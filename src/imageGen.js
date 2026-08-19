@@ -122,25 +122,25 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 
   console.log(`[Image-to-Image Engine]: Synthesized Prompt (${sanitizedPrompt.length} chars): "${sanitizedPrompt.slice(0, 100)}..."`);
 
-  // Step 2: Generate edited image with fallback models
+  // Step 2: Generate edited image with official OpenAI DALL-E 3 engine
   let imageResponse;
-  const imageModels = ['dall-e-3', 'gpt-image-2.0', 'gpt-image-2'];
+  const imageModels = ['dall-e-3', 'dall-e-2'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
     try {
-      console.log(`[Image Generation]: Attempting model: ${imgModel} (size: ${dimensions})...`);
+      console.log(`[Image Generation]: Requesting official model: ${imgModel} (size: ${dimensions})...`);
       const payload = {
         model: imgModel,
         prompt: sanitizedPrompt,
         n: 1,
-        size: dimensions
+        size: imgModel === 'dall-e-2' ? '1024x1024' : dimensions
       };
       if (imgModel === 'dall-e-3') payload.quality = 'standard';
 
       imageResponse = await openai.images.generate(payload);
       if (imageResponse?.data?.[0]?.url) {
-        console.log(`[Image Generation Success]: Model (${imgModel}) successfully generated image!`);
+        console.log(`[Image Generation Success]: Model (${imgModel}) successfully rendered image!`);
         break; // Success!
       }
     } catch (err) {
@@ -165,7 +165,7 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 }
 
 /**
- * Text-to-Image Generation with silent fallback and dynamic aspect ratio
+ * Text-to-Image Generation with official OpenAI DALL-E 3 engine
  * @param {string} prompt 
  * @param {string} [aspectRatio] - 'square' | 'landscape' | 'portrait'
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string, dimensions: string }>}
@@ -176,23 +176,23 @@ async function generateImage(prompt, aspectRatio = '') {
   const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 900);
 
   let imageResponse;
-  const imageModels = ['dall-e-3', 'gpt-image-2.0', 'gpt-image-2'];
+  const imageModels = ['dall-e-3', 'dall-e-2'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
     try {
-      console.log(`[Text-to-Image]: Attempting model: ${imgModel} (size: ${dimensions})...`);
+      console.log(`[Text-to-Image]: Requesting official model: ${imgModel} (size: ${dimensions})...`);
       const payload = {
         model: imgModel,
         prompt: sanitizedPrompt,
         n: 1,
-        size: dimensions
+        size: imgModel === 'dall-e-2' ? '1024x1024' : dimensions
       };
       if (imgModel === 'dall-e-3') payload.quality = 'standard';
 
       imageResponse = await openai.images.generate(payload);
       if (imageResponse?.data?.[0]?.url) {
-        console.log(`[Text-to-Image Success]: Model (${imgModel}) successfully generated image!`);
+        console.log(`[Text-to-Image Success]: Model (${imgModel}) successfully rendered image!`);
         break;
       }
     } catch (err) {

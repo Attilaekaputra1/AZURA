@@ -112,14 +112,85 @@ Aturan Panjang Jawaban (ADAPTIF):
 `.trim();
 }
 
-// Keywords that trigger web search (refined to avoid false positives)
-const SEARCH_KEYWORDS = [
-  'search web', 'cariin info', 'googling', 'berita terkini', 'cuaca hari ini', 'cek berita'
+/**
+ * AZURA Smart Search Intent Classifier
+ * Determines if a user message genuinely needs real-time web data or can be answered by AI alone.
+ * 
+ * TRIGGERS WEB SEARCH:
+ * - Explicit search requests ("cariin", "googling", "search", "cek info")
+ * - Current events / breaking news ("berita hari ini", "kabar terbaru")
+ * - Real-time data questions (weather, prices, scores, schedules)
+ * - Fact-checking with temporal markers ("sekarang", "hari ini", "2026")
+ * - URLs shared in chat (auto-extract article)
+ * 
+ * DOES NOT TRIGGER WEB SEARCH:
+ * - Casual chat / greetings / basa-basi
+ * - Opinion / advice / curhat
+ * - General knowledge AI already knows
+ * - Coding / tech help
+ * - Creative writing / jokes
+ * - Personal conversations
+ */
+
+// Explicit search intent — user is clearly asking for web lookup
+const EXPLICIT_SEARCH = [
+  'cariin', 'carikan', 'tolong cari', 'coba cari', 'search', 'googling',
+  'cek info', 'cek berita', 'cari info', 'cari berita', 'cari tau',
+  'search web', 'browse', 'lookup'
 ];
 
+// Real-time data patterns — needs fresh data from the internet
+const REALTIME_PATTERNS = [
+  /berita\s+(hari ini|terbaru|terkini|barusan)/i,
+  /kabar\s+(terbaru|terkini)/i,
+  /cuaca\s+(hari ini|besok|sekarang|di\s+\w+)/i,
+  /harga\s+\w+\s+(hari ini|sekarang|terbaru|terkini)/i,
+  /kurs\s+(dollar|usd|euro|yen|rupiah|hari ini|sekarang)/i,
+  /nilai tukar/i,
+  /skor\s+(pertandingan|bola|liga)/i,
+  /jadwal\s+(pertandingan|bola|liga|kereta|pesawat|penerbangan)/i,
+  /update\s+(terbaru|terkini|hari ini)/i,
+  /hasil\s+(pemilu|pilpres|pilkada|pertandingan)/i,
+  /gempa\s+(bumi|terkini|hari ini)/i,
+  /trending\s+(topic|topik|hari ini)/i
+];
+
+// Anti-search patterns — these should NEVER trigger web search even if other keywords partially match
+const ANTI_SEARCH = [
+  /^(hai|halo|hello|hi|hey|yo|woi|p|hallo|assalamualaikum|selamat\s+(pagi|siang|sore|malam))/i,
+  /^(apa kabar|gmn kabar|how are you|kamu siapa|nama kamu)/i,
+  /^(makasih|thanks|thx|ok|oke|sip|yoi|wkwk|haha|lol)/i,
+  /(menurut\s*(kamu|lo|lu|gw|aku)|pendapat\s*(kamu|mu))/i,
+  /(ajarin|ajari\s+aku|gimana\s+cara|how\s+to|tutorial)/i,
+  /(curhat|galau|sedih|baper|kesel|marah|seneng|bahagia)/i,
+  /(bikin\s*(puisi|cerita|joke|pantun|quotes|caption))/i,
+  /(translate|terjemahkan|artinya\s+apa)/i
+];
+
+/**
+ * Smart Search Intent Classifier
+ * @param {string} prompt - User's message
+ * @returns {boolean} - true if web search is needed
+ */
 function needsSearch(prompt) {
-  const lower = prompt.toLowerCase();
-  return SEARCH_KEYWORDS.some(kw => lower.includes(kw)) || /https?:\/\/[^\s]+/i.test(prompt);
+  if (!prompt || prompt.trim().length < 5) return false;
+  
+  const lower = prompt.toLowerCase().trim();
+
+  // Rule 1: URLs always trigger extraction
+  if (/https?:\/\/[^\s]+/i.test(prompt)) return true;
+
+  // Rule 2: Anti-search patterns take priority — NEVER search for these
+  if (ANTI_SEARCH.some(pattern => pattern.test(lower))) return false;
+
+  // Rule 3: Explicit search intent — user is clearly asking for web data
+  if (EXPLICIT_SEARCH.some(kw => lower.includes(kw))) return true;
+
+  // Rule 4: Real-time data patterns — needs fresh internet data
+  if (REALTIME_PATTERNS.some(pattern => pattern.test(lower))) return true;
+
+  // Rule 5: Default — no search needed, let AI answer from its own knowledge
+  return false;
 }
 
 /**
@@ -130,7 +201,7 @@ function needsSearch(prompt) {
  * @param {Array<string>} imageUrls
  * @param {boolean} isDM
  * @param {string} channelId
- * @param {boolean} forceSearch - Only true when triggered by /search command
+ * @param {boolean} forceSearch - true when triggered by /search command
  * @returns {Promise<string>}
  */
 async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, forceSearch = false) {
@@ -146,11 +217,10 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const history = budgetGuard.getContext(contextKey);
   const systemPrompt = getSystemPrompt(userName, userId, isDM);
 
-  // Web search is ONLY triggered by /search command (forceSearch=true)
-  // Normal chat NEVER triggers Tavily — 100% pure AI brain
+  // Smart Search: triggered by /search (forceSearch) OR intelligent auto-detection
   let searchContext = null;
-  if (forceSearch && imageUrls.length === 0) {
-    console.log(`[AZURA Web Search]: /search command triggered for: "${userPrompt}"`);
+  if ((forceSearch || needsSearch(userPrompt)) && imageUrls.length === 0) {
+    console.log(`[AZURA Smart Search]: ${forceSearch ? '/search command' : 'Auto-detected search intent'} for: "${userPrompt}"`);
     searchContext = await searchWeb(userPrompt);
   }
 

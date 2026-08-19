@@ -71,7 +71,7 @@ client.on('messageCreate', async (message) => {
   // Instant Text Command Test (!ping) for VPS update verification
   if (message.content.toLowerCase().trim() === '!ping') {
     const nowStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-    return message.reply(`🏓 **PONG!** VPS AZURA Berhasil Ter-update Sempurna! (Waktu Server VPS: \`${nowStr} WIB\`)`);
+    return message.reply(`🐱 **KUCING!** VPS AZURA Berhasil Ter-update Sempurna! (Waktu Server VPS: \`${nowStr} WIB\`)`);
   }
 
   const isDM = !message.guild;

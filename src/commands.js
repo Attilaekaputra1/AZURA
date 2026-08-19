@@ -500,7 +500,7 @@ async function handleSlashCommand(interaction, startTime) {
       await interaction.editReply({ content: 'Selesai! Ini dia gambarnya ✨', embeds: [embed] });
     } catch (error) {
       console.error('[Draw Command Error]:', error.message || error);
-      await interaction.editReply('gagal memproses gambar. coba ulangi beberapa saat lagi ya!');
+      await interaction.editReply(`gagal memproses gambar: \`${error.message || 'Error API'}\`. coba sesuaikan prompt/ulangi lagi ya!`);
     }
   }
 }

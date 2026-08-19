@@ -115,12 +115,16 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
     });
   }
 
-  const synthesizedPrompt = visionResponse.choices[0]?.message?.content?.trim() || editInstruction;
-  console.log(`[Image-to-Image Engine]: Synthesized Prompt: "${synthesizedPrompt.slice(0, 100)}..."`);
+  // Clean & sanitize synthesized prompt for DALL-E (max 900 chars)
+  let sanitizedPrompt = (visionResponse.choices[0]?.message?.content?.trim() || editInstruction)
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 900);
+
+  console.log(`[Image-to-Image Engine]: Synthesized Prompt (${sanitizedPrompt.length} chars): "${sanitizedPrompt.slice(0, 100)}..."`);
 
   // Step 2: Generate edited image with fallback models
   let imageResponse;
-  const imageModels = ['gpt-image-2.0', 'gpt-image-2', 'dall-e-3'];
+  const imageModels = ['dall-e-3', 'gpt-image-2.0', 'gpt-image-2'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
@@ -128,7 +132,7 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
       console.log(`[Image Generation]: Attempting model: ${imgModel} (size: ${dimensions})...`);
       const payload = {
         model: imgModel,
-        prompt: synthesizedPrompt,
+        prompt: sanitizedPrompt,
         n: 1,
         size: dimensions
       };
@@ -146,16 +150,16 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
   }
 
   if (!imageResponse?.data?.[0]?.url) {
-    throw new Error(`Gagal menghasilkan gambar: ${lastImgErr?.message || 'Unknown error'}`);
+    throw new Error(`Gagal menghasilkan gambar (${lastImgErr?.message || 'API Error'})`);
   }
 
   const generatedImageUrl = imageResponse.data[0].url;
-  const revisedPrompt = imageResponse.data[0].revised_prompt || synthesizedPrompt;
+  const revisedPrompt = imageResponse.data[0].revised_prompt || sanitizedPrompt;
 
   return {
     generatedImageUrl,
     revisedPrompt,
-    synthesizedPrompt,
+    synthesizedPrompt: sanitizedPrompt,
     dimensions
   };
 }
@@ -169,9 +173,10 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 async function generateImage(prompt, aspectRatio = '') {
   const openai = getOpenAI();
   const dimensions = parseImageDimensions(aspectRatio, prompt);
+  const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 900);
 
   let imageResponse;
-  const imageModels = ['gpt-image-2.0', 'gpt-image-2', 'dall-e-3'];
+  const imageModels = ['dall-e-3', 'gpt-image-2.0', 'gpt-image-2'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
@@ -179,7 +184,7 @@ async function generateImage(prompt, aspectRatio = '') {
       console.log(`[Text-to-Image]: Attempting model: ${imgModel} (size: ${dimensions})...`);
       const payload = {
         model: imgModel,
-        prompt: prompt,
+        prompt: sanitizedPrompt,
         n: 1,
         size: dimensions
       };
@@ -197,12 +202,12 @@ async function generateImage(prompt, aspectRatio = '') {
   }
 
   if (!imageResponse?.data?.[0]?.url) {
-    throw new Error(`Gagal menghasilkan gambar: ${lastImgErr?.message || 'Unknown error'}`);
+    throw new Error(`Gagal menghasilkan gambar (${lastImgErr?.message || 'API Error'})`);
   }
 
   return {
     generatedImageUrl: imageResponse.data[0].url,
-    revisedPrompt: imageResponse.data[0].revised_prompt || prompt,
+    revisedPrompt: imageResponse.data[0].revised_prompt || sanitizedPrompt,
     dimensions
   };
 }

@@ -20,6 +20,13 @@ const IMAGE_EDIT_KEYWORDS = [
   'modifikasi', 'warnai', 'variasi', 'remake'
 ];
 
+// Keywords that indicate new image generation intent in natural chat
+const IMAGE_GEN_KEYWORDS = [
+  'bikin gambar', 'buatkan gambar', 'buat gambar', 'lukiskan', 'lukis',
+  'generate gambar', 'gambarkan', 'lukisin', 'bikin foto', 'buatkan foto',
+  'bikin ilustrasi', 'buatkan ilustrasi', 'render gambar', 'draw image'
+];
+
 /**
  * Detect if a prompt with an attached image is requesting an image-to-image edit
  * @param {string} prompt 
@@ -29,6 +36,17 @@ function isImageEditRequest(prompt) {
   if (!prompt) return false;
   const lower = prompt.toLowerCase();
   return IMAGE_EDIT_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+/**
+ * Detect if a prompt in chat is requesting to generate a new image
+ * @param {string} prompt 
+ * @returns {boolean}
+ */
+function isImageGenRequest(prompt) {
+  if (!prompt) return false;
+  const lower = prompt.toLowerCase();
+  return IMAGE_GEN_KEYWORDS.some(kw => lower.includes(kw));
 }
 
 /**
@@ -212,6 +230,7 @@ async function generateImage(prompt, aspectRatio = '') {
 
 module.exports = {
   isImageEditRequest,
+  isImageGenRequest,
   editReferenceImage,
   generateImage,
   parseImageDimensions

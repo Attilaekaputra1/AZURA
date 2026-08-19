@@ -143,9 +143,12 @@ client.on('messageCreate', async (message) => {
     // Show typing status in Discord channel
     await message.channel.sendTyping();
 
-    // Automatic Image-to-Image Editing detection: If image attached AND prompt asks to edit/modify/generate image
-    const { isImageEditRequest, editReferenceImage } = require('./imageGen');
-    if (imageUrls.length > 0 && isImageEditRequest(rawPrompt)) {
+    // Automatic Image Handling in Natural Chat (Image-to-Image OR Text-to-Image)
+    const { isImageEditRequest, isImageGenRequest, editReferenceImage, generateImage } = require('./imageGen');
+    const isEditMode = imageUrls.length > 0 && isImageEditRequest(rawPrompt);
+    const isGenMode = imageUrls.length === 0 && isImageGenRequest(rawPrompt);
+
+    if (isEditMode || isGenMode) {
       // Check Daily Server Quota (10 Generates / Day per Server)
       const { checkServerQuota, incrementServerQuota } = require('./imageQuota');
       const quota = checkServerQuota(message.guild?.id, message.author.id);
@@ -154,8 +157,14 @@ client.on('messageCreate', async (message) => {
         return message.reply(`⚠️ **[KUOTA GAMBAR SERVER HABIS]** Kuota harian pembuatan gambar untuk server ini hari ini sudah terpakai **${quota.count}/${quota.limit}**! Kuota akan di-reset kembali besok pukul 00:00 WIB. *(Khusus Owner tidak terbatas ✨)*`);
       }
 
-      console.log(`[AZURA Image Edit]: Triggered for user ${message.author.tag}`);
-      const editResult = await editReferenceImage(imageUrls[0], rawPrompt);
+      console.log(`[AZURA Natural Chat Image]: ${isEditMode ? 'Edit' : 'Generation'} triggered for ${message.author.tag}`);
+      
+      let imgResult;
+      if (isEditMode) {
+        imgResult = await editReferenceImage(imageUrls[0], rawPrompt);
+      } else {
+        imgResult = await generateImage(rawPrompt);
+      }
 
       incrementServerQuota(message.guild?.id, message.author.id);
       const remainingText = quota.isOwner ? 'Unlimited (Owner)' : `${quota.limit - (quota.count + 1)}/10 sisa hari ini`;
@@ -163,13 +172,13 @@ client.on('messageCreate', async (message) => {
       const { EmbedBuilder } = require('discord.js');
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
-        .setTitle('✨ Hasil Edit Gambar Referensi')
-        .setDescription(`**Instruksi**: "${rawPrompt}"\n• **Ukuran Rasio**: \`${editResult.dimensions || '1024x1024'}\`\n• **Kuota Server**: \`${remainingText}\``)
-        .setImage(editResult.generatedImageUrl)
-        .setFooter({ text: 'Powered by ChatGPT Images 2.0 & gpt-5.6-luna Vision' })
+        .setTitle(isEditMode ? '✨ Hasil Edit Gambar Referensi' : '🎨 Hasil Karya Gambar AZURA')
+        .setDescription(`**Prompt / Instruksi**: "${rawPrompt}"\n• **Ukuran Rasio**: \`${imgResult.dimensions || '1024x1024'}\`\n• **Kuota Server**: \`${remainingText}\``)
+        .setImage(imgResult.generatedImageUrl)
+        .setFooter({ text: 'Powered by gpt-image-2 & gpt-5.6-luna Vision' })
         .setTimestamp();
 
-      return message.reply({ content: 'Ini hasil edit gambar kamu yaa! ✨', embeds: [embed] });
+      return message.reply({ content: isEditMode ? 'Ini hasil edit gambar kamu yaa! ✨' : 'Selesai! Ini dia gambar yang kamu minta ✨', embeds: [embed] });
     }
 
     // Get user's display name from Discord profile

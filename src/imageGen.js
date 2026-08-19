@@ -122,14 +122,14 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 
   console.log(`[Image-to-Image Engine]: Synthesized Prompt (${sanitizedPrompt.length} chars): "${sanitizedPrompt.slice(0, 100)}..."`);
 
-  // Step 2: Generate edited image with official OpenAI DALL-E 3 engine
+  // Step 2: Generate edited image with ChatGPT Images 2.0 model
   let imageResponse;
-  const imageModels = ['dall-e-3', 'dall-e-2'];
+  const imageModels = ['chatgpt-images-2.0', 'chatgpt-image-2.0', 'chatgpt-images-2', 'chatgpt-image-2', 'dall-e-3'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
     try {
-      console.log(`[Image Generation]: Requesting official model: ${imgModel} (size: ${dimensions})...`);
+      console.log(`[Image Generation]: Requesting model API: ${imgModel} (size: ${dimensions})...`);
       const payload = {
         model: imgModel,
         prompt: sanitizedPrompt,
@@ -165,7 +165,7 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 }
 
 /**
- * Text-to-Image Generation with official OpenAI DALL-E 3 engine
+ * Text-to-Image Generation with ChatGPT Images 2.0 model
  * @param {string} prompt 
  * @param {string} [aspectRatio] - 'square' | 'landscape' | 'portrait'
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string, dimensions: string }>}
@@ -176,12 +176,12 @@ async function generateImage(prompt, aspectRatio = '') {
   const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 900);
 
   let imageResponse;
-  const imageModels = ['dall-e-3', 'dall-e-2'];
+  const imageModels = ['chatgpt-images-2.0', 'chatgpt-image-2.0', 'chatgpt-images-2', 'chatgpt-image-2', 'dall-e-3'];
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
     try {
-      console.log(`[Text-to-Image]: Requesting official model: ${imgModel} (size: ${dimensions})...`);
+      console.log(`[Text-to-Image]: Requesting model API: ${imgModel} (size: ${dimensions})...`);
       const payload = {
         model: imgModel,
         prompt: sanitizedPrompt,

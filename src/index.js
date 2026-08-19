@@ -166,7 +166,7 @@ client.on('messageCreate', async (message) => {
         .setTitle('✨ Hasil Edit Gambar Referensi')
         .setDescription(`**Instruksi**: "${rawPrompt}"\n• **Ukuran Rasio**: \`${editResult.dimensions || '1024x1024'}\`\n• **Kuota Server**: \`${remainingText}\``)
         .setImage(editResult.generatedImageUrl)
-        .setFooter({ text: 'Powered by GPT Image 2.0 & gpt-5.6-luna Vision' })
+        .setFooter({ text: 'Powered by ChatGPT Images 2.0 & gpt-5.6-luna Vision' })
         .setTimestamp();
 
       return message.reply({ content: 'Ini hasil edit gambar kamu yaa! ✨', embeds: [embed] });

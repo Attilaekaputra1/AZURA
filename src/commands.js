@@ -114,7 +114,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('draw')
-    .setDescription('Generate gambar baru atau Edit foto referensi dengan AI GPT Image 2.0')
+    .setDescription('Generate gambar baru atau Edit foto referensi dengan AI ChatGPT Images 2.0')
     .addStringOption(option =>
       option.setName('prompt')
         .setDescription('Deskripsi gambar / instruksi edit (contoh: "seekor kucing", "ubah style ke anime")')
@@ -480,7 +480,7 @@ async function handleSlashCommand(interaction, startTime) {
         await interaction.editReply('🎨 **[IMAGE-TO-IMAGE ENGINE]** AZURA sedang menganalisis gambar referensi & mengedit gambar kamu...');
         result = await editReferenceImage(attachment.url, prompt, aspectRasio);
       } else {
-        await interaction.editReply('🎨 **[GPT IMAGE 2.0 ENGINE]** AZURA sedang memproses dan melukis gambar kamu...');
+        await interaction.editReply('🎨 **[CHATGPT IMAGES 2.0 ENGINE]** AZURA sedang memproses dan melukis gambar kamu...');
         result = await generateImage(prompt, aspectRasio);
       }
 
@@ -494,7 +494,7 @@ async function handleSlashCommand(interaction, startTime) {
         .setTitle(attachment ? '✨ Hasil Edit Gambar Referensi' : '🎨 Hasil Karya Gambar AZURA')
         .setDescription(`**Prompt / Instruksi**: "${prompt}"\n• **Ukuran Rasio**: \`${result.dimensions || '1024x1024'}\`\n• **Kuota Server**: \`${remainingText}\``)
         .setImage(result.generatedImageUrl)
-        .setFooter({ text: 'Powered by GPT Image 2.0 & gpt-5.6-luna Vision' })
+        .setFooter({ text: 'Powered by ChatGPT Images 2.0 & gpt-5.6-luna Vision' })
         .setTimestamp();
 
       await interaction.editReply({ content: 'Selesai! Ini dia gambarnya ✨', embeds: [embed] });

@@ -143,6 +143,24 @@ client.on('messageCreate', async (message) => {
     // Show typing status in Discord channel
     await message.channel.sendTyping();
 
+    // Automatic Image-to-Image Editing detection: If image attached AND prompt asks to edit/modify/generate image
+    const { isImageEditRequest, editReferenceImage } = require('./imageGen');
+    if (imageUrls.length > 0 && isImageEditRequest(rawPrompt)) {
+      console.log(`[AZURA Image Edit]: Triggered for user ${message.author.tag}`);
+      const editResult = await editReferenceImage(imageUrls[0], rawPrompt);
+      
+      const { EmbedBuilder } = require('discord.js');
+      const embed = new EmbedBuilder()
+        .setColor(0xFF69B4)
+        .setTitle('✨ Hasil Edit Gambar Referensi')
+        .setDescription(`**Instruksi**: "${rawPrompt}"`)
+        .setImage(editResult.generatedImageUrl)
+        .setFooter({ text: 'Powered by DALL-E 3 & GPT-4o Vision' })
+        .setTimestamp();
+
+      return message.reply({ content: 'Ini hasil edit gambar kamu yaa! ✨', embeds: [embed] });
+    }
+
     // Get user's display name from Discord profile
     const userName = message.member?.displayName || message.author.displayName || message.author.username;
 

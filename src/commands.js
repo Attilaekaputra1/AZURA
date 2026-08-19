@@ -110,7 +110,19 @@ const commands = [
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan yang ingin dikirim ke channel server')
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('draw')
+    .setDescription('Generate gambar baru atau Edit foto referensi dengan AI DALL-E 3')
+    .addStringOption(option =>
+      option.setName('prompt')
+        .setDescription('Deskripsi gambar / instruksi edit (contoh: "ubah style ke anime", "seekor kucing pakai kacamata")')
         .setRequired(true))
+    .addAttachmentOption(option =>
+      option.setName('referensi')
+        .setDescription('Foto/Gambar referensi yang ingin diedit (Opsional untuk Image-to-Image)')
+        .setRequired(false))
 ];
 
 const fs = require('fs');
@@ -432,6 +444,37 @@ async function handleSlashCommand(interaction, startTime) {
 
   } else if (commandName === 'sendch') {
     await handleSendChannelCommand(interaction);
+
+  } else if (commandName === 'draw') {
+    const prompt = interaction.options.getString('prompt');
+    const attachment = interaction.options.getAttachment('referensi');
+    await interaction.deferReply();
+
+    try {
+      const { editReferenceImage, generateImage } = require('./imageGen');
+      let result;
+
+      if (attachment && attachment.contentType?.startsWith('image/')) {
+        await interaction.editReply('🎨 **[IMAGE-TO-IMAGE ENGINE]** AZURA sedang menganalisis gambar referensi & mengedit gambar kamu...');
+        result = await editReferenceImage(attachment.url, prompt);
+      } else {
+        await interaction.editReply('🎨 **[DALL-E 3 ENGINE]** AZURA sedang memproses dan melukis gambar kamu...');
+        result = await generateImage(prompt);
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0xFF69B4)
+        .setTitle(attachment ? '✨ Hasil Edit Gambar Referensi' : '🎨 Hasil Karya Gambar AZURA')
+        .setDescription(`**Prompt / Instruksi**: "${prompt}"`)
+        .setImage(result.generatedImageUrl)
+        .setFooter({ text: 'Powered by DALL-E 3 & GPT-4o Vision' })
+        .setTimestamp();
+
+      await interaction.editReply({ content: 'Selesai! Ini dia gambarnya ✨', embeds: [embed] });
+    } catch (error) {
+      console.error('[Draw Command Error]:', error.message || error);
+      await interaction.editReply('gagal memproses gambar. coba ulangi beberapa saat lagi ya!');
+    }
   }
 }
 

@@ -146,14 +146,25 @@ client.on('messageCreate', async (message) => {
     // Automatic Image-to-Image Editing detection: If image attached AND prompt asks to edit/modify/generate image
     const { isImageEditRequest, editReferenceImage } = require('./imageGen');
     if (imageUrls.length > 0 && isImageEditRequest(rawPrompt)) {
+      // Check Daily Server Quota (10 Generates / Day per Server)
+      const { checkServerQuota, incrementServerQuota } = require('./imageQuota');
+      const quota = checkServerQuota(message.guild?.id, message.author.id);
+
+      if (!quota.allowed) {
+        return message.reply(`⚠️ **[KUOTA GAMBAR SERVER HABIS]** Kuota harian pembuatan gambar untuk server ini hari ini sudah terpakai **${quota.count}/${quota.limit}**! Kuota akan di-reset kembali besok pukul 00:00 WIB. *(Khusus Owner tidak terbatas ✨)*`);
+      }
+
       console.log(`[AZURA Image Edit]: Triggered for user ${message.author.tag}`);
       const editResult = await editReferenceImage(imageUrls[0], rawPrompt);
+
+      incrementServerQuota(message.guild?.id, message.author.id);
+      const remainingText = quota.isOwner ? 'Unlimited (Owner)' : `${quota.limit - (quota.count + 1)}/10 sisa hari ini`;
       
       const { EmbedBuilder } = require('discord.js');
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('✨ Hasil Edit Gambar Referensi')
-        .setDescription(`**Instruksi**: "${rawPrompt}"`)
+        .setDescription(`**Instruksi**: "${rawPrompt}"\n• **Ukuran Rasio**: \`${editResult.dimensions || '1024x1024'}\`\n• **Kuota Server**: \`${remainingText}\``)
         .setImage(editResult.generatedImageUrl)
         .setFooter({ text: 'Powered by GPT Image 2.0 & gpt-5.6-luna Vision' })
         .setTimestamp();

@@ -114,15 +114,24 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('draw')
-    .setDescription('Generate gambar baru atau Edit foto referensi dengan AI DALL-E 3')
+    .setDescription('Generate gambar baru atau Edit foto referensi dengan AI GPT Image 2.0')
     .addStringOption(option =>
       option.setName('prompt')
-        .setDescription('Deskripsi gambar / instruksi edit (contoh: "ubah style ke anime", "seekor kucing pakai kacamata")')
+        .setDescription('Deskripsi gambar / instruksi edit (contoh: "seekor kucing", "ubah style ke anime")')
         .setRequired(true))
     .addAttachmentOption(option =>
       option.setName('referensi')
         .setDescription('Foto/Gambar referensi yang ingin diedit (Opsional untuk Image-to-Image)')
         .setRequired(false))
+    .addStringOption(option =>
+      option.setName('aspek_rasio')
+        .setDescription('Pilih bentuk ukuran gambar (Square 1:1, Landscape 16:9, Portrait 9:16)')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Square (1:1 / Kotak - 1024x1024)', value: 'square' },
+          { name: 'Landscape (16:9 / Melebar - 1792x1024)', value: 'landscape' },
+          { name: 'Portrait (9:16 / Memanjang - 1024x1792)', value: 'portrait' }
+        ))
 ];
 
 const fs = require('fs');
@@ -448,6 +457,19 @@ async function handleSlashCommand(interaction, startTime) {
   } else if (commandName === 'draw') {
     const prompt = interaction.options.getString('prompt');
     const attachment = interaction.options.getAttachment('referensi');
+    const aspectRasio = interaction.options.getString('aspek_rasio') || '';
+
+    // Check Daily Server Quota (10 Generates / Day per Server)
+    const { checkServerQuota, incrementServerQuota } = require('./imageQuota');
+    const quota = checkServerQuota(interaction.guildId, user.id);
+
+    if (!quota.allowed) {
+      return interaction.reply({
+        content: `⚠️ **[KUOTA GAMBAR SERVER HABIS]** Kuota harian pembuatan gambar untuk server ini hari ini sudah terpakai **${quota.count}/${quota.limit}**! Kuota akan di-reset kembali besok pukul 00:00 WIB. *(Khusus Owner tidak terbatas ✨)*`,
+        flags: 64
+      });
+    }
+
     await interaction.deferReply();
 
     try {
@@ -456,16 +478,21 @@ async function handleSlashCommand(interaction, startTime) {
 
       if (attachment && attachment.contentType?.startsWith('image/')) {
         await interaction.editReply('🎨 **[IMAGE-TO-IMAGE ENGINE]** AZURA sedang menganalisis gambar referensi & mengedit gambar kamu...');
-        result = await editReferenceImage(attachment.url, prompt);
+        result = await editReferenceImage(attachment.url, prompt, aspectRasio);
       } else {
-        await interaction.editReply('🎨 **[DALL-E 3 ENGINE]** AZURA sedang memproses dan melukis gambar kamu...');
-        result = await generateImage(prompt);
+        await interaction.editReply('🎨 **[GPT IMAGE 2.0 ENGINE]** AZURA sedang memproses dan melukis gambar kamu...');
+        result = await generateImage(prompt, aspectRasio);
       }
+
+      // Increment Server Quota upon successful generation
+      incrementServerQuota(interaction.guildId, user.id);
+
+      const remainingText = quota.isOwner ? 'Unlimited (Owner)' : `${quota.limit - (quota.count + 1)}/10 sisa hari ini`;
 
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle(attachment ? '✨ Hasil Edit Gambar Referensi' : '🎨 Hasil Karya Gambar AZURA')
-        .setDescription(`**Prompt / Instruksi**: "${prompt}"`)
+        .setDescription(`**Prompt / Instruksi**: "${prompt}"\n• **Ukuran Rasio**: \`${result.dimensions || '1024x1024'}\`\n• **Kuota Server**: \`${remainingText}\``)
         .setImage(result.generatedImageUrl)
         .setFooter({ text: 'Powered by GPT Image 2.0 & gpt-5.6-luna Vision' })
         .setTimestamp();

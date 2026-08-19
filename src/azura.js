@@ -264,24 +264,40 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const client = getOpenAIClient();
 
-  try {
-    const completion = await client.chat.completions.create({
-      model: config.OPENAI_MODEL,
-      messages: messages,
-      max_completion_tokens: config.MAX_OUTPUT_TOKENS
-    });
+  const modelsToTry = [config.OPENAI_MODEL || 'gpt-5.6-luna', 'gpt-4o', 'gpt-4o-mini'];
+  let completion = null;
+  let lastError = null;
 
-    const aiResponse = completion.choices[0]?.message?.content?.trim() || 'eh sori, otak gw blank bentar.';
+  for (const targetModel of modelsToTry) {
+    if (!targetModel) continue;
+    try {
+      console.log(`[AZURA Chat Engine]: Requesting OpenAI model: ${targetModel}...`);
+      completion = await client.chat.completions.create({
+        model: targetModel,
+        messages: messages,
+        max_completion_tokens: config.MAX_OUTPUT_TOKENS
+      });
+      if (completion?.choices?.[0]?.message?.content) {
+        break; // Success!
+      }
+    } catch (error) {
+      lastError = error;
+      console.warn(`[AZURA Model Fallback]: Model ${targetModel} failed (${error.message}). Retrying next model...`);
+    }
+  }
 
-    const historyPrompt = imageUrls.length > 0 ? `[${userName} - Mengirim gambar]: ${userPrompt}` : `[${userName}]: ${userPrompt}`;
-    budgetGuard.addMessageToContext(contextKey, 'user', historyPrompt);
-    budgetGuard.addMessageToContext(contextKey, 'assistant', aiResponse);
-
-    return aiResponse;
-  } catch (error) {
-    console.error('[AZURA Error - OpenAI API]:', error.message || error);
+  if (!completion?.choices?.[0]?.message?.content) {
+    console.error('[AZURA Error - OpenAI API All Models Failed]:', lastError?.message || lastError);
     return 'sabar bentar ya, koneksi AI lagi penyesuaian dikit. coba tanya lagi!';
   }
+
+  const aiResponse = completion.choices[0].message.content.trim();
+
+  const historyPrompt = imageUrls.length > 0 ? `[${userName} - Mengirim gambar]: ${userPrompt}` : `[${userName}]: ${userPrompt}`;
+  budgetGuard.addMessageToContext(contextKey, 'user', historyPrompt);
+  budgetGuard.addMessageToContext(contextKey, 'assistant', aiResponse);
+
+  return aiResponse;
 }
 
 module.exports = {

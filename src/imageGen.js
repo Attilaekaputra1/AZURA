@@ -45,38 +45,80 @@ async function editReferenceImage(imageUrl, editInstruction) {
 
   console.log(`[Image-to-Image Engine]: Analyzing reference image & edit request: "${editInstruction}"`);
 
-  // Step 1: Vision Analysis & Prompt Synthesis
-  const visionResponse = await openai.chat.completions.create({
-    model: config.OPENAI_MODEL || 'gpt-5.6-luna',
-    messages: [
-      {
-        role: 'system',
-        content: `You are an expert AI Image Editing Prompt Engineer. Your task is to analyze the provided reference image and the user's requested edit instruction. Create a detailed, high-quality DALL-E 3 prompt in English that preserves the subject, pose, facial structure, composition, and key details of the reference image while precisely applying the user's requested changes. Return ONLY the refined prompt text.`
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Describe how to recreate this image with the requested edits in DALL-E 3.` },
-          { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
-        ]
-      }
-    ],
-    max_tokens: 300
-  });
+  // Step 1: Vision Analysis & Prompt Synthesis (with fallback)
+  let visionResponse;
+  const primaryVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';
+  try {
+    visionResponse = await openai.chat.completions.create({
+      model: primaryVisionModel,
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert AI Image Editing Prompt Engineer. Your task is to analyze the provided reference image and the user's requested edit instruction. Create a detailed, high-quality DALL-E prompt in English that preserves the subject, pose, facial structure, composition, and key details of the reference image while precisely applying the user's requested changes. Return ONLY the refined prompt text.`
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Describe how to recreate this image with the requested edits.` },
+            { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
+          ]
+        }
+      ],
+      max_tokens: 300
+    });
+  } catch (visionErr) {
+    console.warn(`[Image-to-Image Vision Fallback]: Model ${primaryVisionModel} failed (${visionErr.message}). Retrying with gpt-4o...`);
+    visionResponse = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert AI Image Editing Prompt Engineer. Your task is to analyze the provided reference image and the user's requested edit instruction. Create a detailed, high-quality DALL-E prompt in English that preserves the subject, pose, facial structure, composition, and key details of the reference image while precisely applying the user's requested changes. Return ONLY the refined prompt text.`
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Describe how to recreate this image with the requested edits.` },
+            { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
+          ]
+        }
+      ],
+      max_tokens: 300
+    });
+  }
 
   const synthesizedPrompt = visionResponse.choices[0]?.message?.content?.trim() || editInstruction;
-  console.log(`[Image-to-Image Engine]: Synthesized DALL-E 3 Prompt: "${synthesizedPrompt.slice(0, 100)}..."`);
+  console.log(`[Image-to-Image Engine]: Synthesized Prompt: "${synthesizedPrompt.slice(0, 100)}..."`);
 
-  // Step 2: Generate edited image via GPT Image 2
-  const imageResponse = await openai.images.generate({
-    model: 'gpt-image-2',
-    prompt: synthesizedPrompt,
-    n: 1,
-    size: '1024x1024'
-  });
+  // Step 2: Generate edited image with fallback models
+  let imageResponse;
+  const imageModels = ['gpt-image-2', 'gpt-image-2.0', 'dall-e-3'];
+  let lastImgErr = null;
 
-  const generatedImageUrl = imageResponse.data[0]?.url;
-  const revisedPrompt = imageResponse.data[0]?.revised_prompt || synthesizedPrompt;
+  for (const imgModel of imageModels) {
+    try {
+      console.log(`[Image Generation]: Attempting model: ${imgModel}...`);
+      imageResponse = await openai.images.generate({
+        model: imgModel,
+        prompt: synthesizedPrompt,
+        n: 1,
+        size: '1024x1024'
+      });
+      if (imageResponse?.data?.[0]?.url) {
+        break; // Success!
+      }
+    } catch (err) {
+      lastImgErr = err;
+      console.warn(`[Image Generation Model ${imgModel} Failed]: ${err.message}`);
+    }
+  }
+
+  if (!imageResponse?.data?.[0]?.url) {
+    throw new Error(`Gagal menghasilkan gambar: ${lastImgErr?.message || 'Unknown error'}`);
+  }
+
+  const generatedImageUrl = imageResponse.data[0].url;
+  const revisedPrompt = imageResponse.data[0].revised_prompt || synthesizedPrompt;
 
   return {
     generatedImageUrl,
@@ -86,22 +128,41 @@ async function editReferenceImage(imageUrl, editInstruction) {
 }
 
 /**
- * Text-to-Image Generation (GPT Image 2)
+ * Text-to-Image Generation with silent fallback
  * @param {string} prompt 
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string }>}
  */
 async function generateImage(prompt) {
   const openai = getOpenAI();
-  const imageResponse = await openai.images.generate({
-    model: 'gpt-image-2',
-    prompt: prompt,
-    n: 1,
-    size: '1024x1024'
-  });
+  let imageResponse;
+  const imageModels = ['gpt-image-2', 'gpt-image-2.0', 'dall-e-3'];
+  let lastImgErr = null;
+
+  for (const imgModel of imageModels) {
+    try {
+      console.log(`[Text-to-Image]: Attempting model: ${imgModel}...`);
+      imageResponse = await openai.images.generate({
+        model: imgModel,
+        prompt: prompt,
+        n: 1,
+        size: '1024x1024'
+      });
+      if (imageResponse?.data?.[0]?.url) {
+        break;
+      }
+    } catch (err) {
+      lastImgErr = err;
+      console.warn(`[Text-to-Image Model ${imgModel} Failed]: ${err.message}`);
+    }
+  }
+
+  if (!imageResponse?.data?.[0]?.url) {
+    throw new Error(`Gagal menghasilkan gambar: ${lastImgErr?.message || 'Unknown error'}`);
+  }
 
   return {
-    generatedImageUrl: imageResponse.data[0]?.url,
-    revisedPrompt: imageResponse.data[0]?.revised_prompt || prompt
+    generatedImageUrl: imageResponse.data[0].url,
+    revisedPrompt: imageResponse.data[0].revised_prompt || prompt
   };
 }
 

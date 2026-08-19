@@ -467,7 +467,7 @@ async function handleSlashCommand(interaction, startTime) {
         .setTitle(attachment ? '✨ Hasil Edit Gambar Referensi' : '🎨 Hasil Karya Gambar AZURA')
         .setDescription(`**Prompt / Instruksi**: "${prompt}"`)
         .setImage(result.generatedImageUrl)
-        .setFooter({ text: 'Powered by DALL-E 3 & GPT-4o Vision' })
+        .setFooter({ text: 'Powered by DALL-E 3 & gpt-5.6-luna Vision' })
         .setTimestamp();
 
       await interaction.editReply({ content: 'Selesai! Ini dia gambarnya ✨', embeds: [embed] });

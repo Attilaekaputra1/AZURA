@@ -47,7 +47,7 @@ async function editReferenceImage(imageUrl, editInstruction) {
 
   // Step 1: Vision Analysis & Prompt Synthesis
   const visionResponse = await openai.chat.completions.create({
-    model: config.OPENAI_MODEL || 'gpt-4o',
+    model: config.OPENAI_MODEL || 'gpt-5.6-luna',
     messages: [
       {
         role: 'system',

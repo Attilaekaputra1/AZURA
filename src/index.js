@@ -155,7 +155,7 @@ client.on('messageCreate', async (message) => {
         .setTitle('✨ Hasil Edit Gambar Referensi')
         .setDescription(`**Instruksi**: "${rawPrompt}"`)
         .setImage(editResult.generatedImageUrl)
-        .setFooter({ text: 'Powered by DALL-E 3 & GPT-4o Vision' })
+        .setFooter({ text: 'Powered by DALL-E 3 & gpt-5.6-luna Vision' })
         .setTimestamp();
 
       return message.reply({ content: 'Ini hasil edit gambar kamu yaa! ✨', embeds: [embed] });

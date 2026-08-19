@@ -33,22 +33,27 @@ const END_OF_CHAT_PATTERNS = [
   /^[\s]*$/
 ];
 
+const { parseMessageStickers } = require('./stickers');
+
 /**
- * Check if a message text is an "end of chat" / closing / acknowledgement
+ * Check if a message text or sticker is an "end of chat" / closing / acknowledgement
  * that does NOT need an auto-reply from AZURA
  * @param {string} text 
  * @param {import('discord.js').Message} message
  * @returns {boolean}
  */
 function isEndOfChat(text, message) {
-  // Sticker-only messages (no text)
-  if ((!text || text.trim() === '') && message.stickers?.size > 0) return true;
+  // If message has stickers, check sticker sentiment & closing reaction flag
+  if (message.stickers?.size > 0) {
+    const stickerParsed = parseMessageStickers(message);
+    if (stickerParsed.isClosingReaction) return true; // Skip closing/reaction stickers
+  }
 
   // Attachment-only messages with no text (e.g., just sending an image/GIF reaction)
-  if ((!text || text.trim() === '') && message.attachments?.size > 0) return true;
+  if ((!text || text.trim() === '') && message.attachments?.size > 0 && (!message.stickers || message.stickers.size === 0)) return true;
 
   const cleaned = text.trim();
-  if (!cleaned) return true; // Empty message
+  if (!cleaned && (!message.stickers || message.stickers.size === 0)) return true; // Empty message
 
   // Check against all end-of-chat patterns
   return END_OF_CHAT_PATTERNS.some(pattern => pattern.test(cleaned));

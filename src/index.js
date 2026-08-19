@@ -113,9 +113,17 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  // Extract stickers & analyze sticker sentiment
+  const { parseMessageStickers } = require('./stickers');
+  const stickerParsed = parseMessageStickers(message);
+  let stickerPrompt = stickerParsed.textPrompt;
+
   let finalPrompt = rawPrompt;
   if (voicePrompt) {
-    finalPrompt = rawPrompt ? `${rawPrompt}\n${voicePrompt}` : voicePrompt;
+    finalPrompt = finalPrompt ? `${finalPrompt}\n${voicePrompt}` : voicePrompt;
+  }
+  if (stickerPrompt) {
+    finalPrompt = finalPrompt ? `${finalPrompt}\n${stickerPrompt}` : stickerPrompt;
   }
 
   // Handle empty mention (no text AND no images AND no voice)

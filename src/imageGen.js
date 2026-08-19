@@ -70,44 +70,48 @@ async function editReferenceImage(imageUrl, editInstruction, aspectRatio = '') {
   console.log(`[Image-to-Image Engine]: Analyzing reference image & edit request: "${editInstruction}" (Size: ${dimensions})`);
 
   // Step 1: Vision Analysis & Prompt Synthesis (with fallback)
+  const VISION_SYSTEM_PROMPT = `You are AZURA's Master AI Vision & Image Editing Architect.
+Your role is to perform deep visual comprehension of the provided reference image and synthesize a master prompt for image generation that perfectly merges the original image's identity with the user's edit commands.
+
+Follow these 3 steps in your prompt synthesis:
+1. VISUAL IDENTIFICATION: Carefully analyze the reference image (subject, facial features, pose, lighting, camera angle, clothing, and background environment).
+2. INTENT & MODIFICATION EXTRACTION: Parse the user's edit instruction (e.g., style transformation like anime/cyberpunk/3D/realistic, adding/removing objects, changing hair/outfit/background/expression).
+3. MASTER SYNTHESIS: Write a comprehensive, ultra-descriptive English prompt for image generation that maintains the visual identity, subject features, and camera angle of the reference photo while applying all requested edits seamlessly.
+
+OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTRO.`;
+
   let visionResponse;
   const primaryVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';
   try {
     visionResponse = await openai.chat.completions.create({
       model: primaryVisionModel,
       messages: [
-        {
-          role: 'system',
-          content: `You are an expert AI Image Editing Prompt Engineer. Your task is to analyze the provided reference image and the user's requested edit instruction. Create a detailed, high-quality DALL-E prompt in English that preserves the subject, pose, facial structure, composition, and key details of the reference image while precisely applying the user's requested changes. Return ONLY the refined prompt text.`
-        },
+        { role: 'system', content: VISION_SYSTEM_PROMPT },
         {
           role: 'user',
           content: [
-            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Describe how to recreate this image with the requested edits.` },
+            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Perform deep visual analysis and synthesize the prompt.` },
             { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
           ]
         }
       ],
-      max_tokens: 300
+      max_tokens: 350
     });
   } catch (visionErr) {
     console.warn(`[Image-to-Image Vision Fallback]: Model ${primaryVisionModel} failed (${visionErr.message}). Retrying with gpt-4o...`);
     visionResponse = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
-        {
-          role: 'system',
-          content: `You are an expert AI Image Editing Prompt Engineer. Your task is to analyze the provided reference image and the user's requested edit instruction. Create a detailed, high-quality DALL-E prompt in English that preserves the subject, pose, facial structure, composition, and key details of the reference image while precisely applying the user's requested changes. Return ONLY the refined prompt text.`
-        },
+        { role: 'system', content: VISION_SYSTEM_PROMPT },
         {
           role: 'user',
           content: [
-            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Describe how to recreate this image with the requested edits.` },
+            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Perform deep visual analysis and synthesize the prompt.` },
             { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
           ]
         }
       ],
-      max_tokens: 300
+      max_tokens: 350
     });
   }
 

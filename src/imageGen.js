@@ -67,9 +67,9 @@ async function editReferenceImage(imageUrl, editInstruction) {
   const synthesizedPrompt = visionResponse.choices[0]?.message?.content?.trim() || editInstruction;
   console.log(`[Image-to-Image Engine]: Synthesized DALL-E 3 Prompt: "${synthesizedPrompt.slice(0, 100)}..."`);
 
-  // Step 2: Generate edited image via GPT Image 2.0
+  // Step 2: Generate edited image via GPT Image 2
   const imageResponse = await openai.images.generate({
-    model: 'gpt-image-2.0',
+    model: 'gpt-image-2',
     prompt: synthesizedPrompt,
     n: 1,
     size: '1024x1024'
@@ -86,14 +86,14 @@ async function editReferenceImage(imageUrl, editInstruction) {
 }
 
 /**
- * Text-to-Image Generation (GPT Image 2.0)
+ * Text-to-Image Generation (GPT Image 2)
  * @param {string} prompt 
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string }>}
  */
 async function generateImage(prompt) {
   const openai = getOpenAI();
   const imageResponse = await openai.images.generate({
-    model: 'gpt-image-2.0',
+    model: 'gpt-image-2',
     prompt: prompt,
     n: 1,
     size: '1024x1024'

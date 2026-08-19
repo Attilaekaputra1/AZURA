@@ -118,7 +118,11 @@ const commands = [
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan yang ingin dikirim ke channel server')
-        .setRequired(true))
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('testupdate')
+    .setDescription('Cek verifikasiapakah VPS berhasil ter-update terbaru')
 ];
 
 const fs = require('fs');
@@ -451,6 +455,12 @@ async function handleSlashCommand(interaction, startTime) {
 
   } else if (commandName === 'sendch') {
     await handleSendChannelCommand(interaction);
+  } else if (commandName === 'testupdate') {
+    const nowStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    await interaction.reply({
+      content: `🎉 **[VERIFIKASI SUCCESS]** VPS AZURA Berhasil Ter-update Sempurna! Waktu Server VPS: \`${nowStr} WIB\``,
+      flags: 64
+    });
   }
 }
 

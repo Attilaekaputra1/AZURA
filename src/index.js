@@ -62,7 +62,7 @@ client.once('ready', async () => {
 
 // Event: Message Created (@AZURA mention listener & DM listener)
 client.on('messageCreate', async (message) => {
-  // Track owner mentions and start 2-minute countdown auto-reply
+  // Track owner mentions and start 5-minute countdown auto-reply
   handleOwnerMentionTracking(message);
 
   // Ignore messages from bots or mass mentions (@everyone / @here)
@@ -130,12 +130,7 @@ client.on('messageCreate', async (message) => {
     return message.reply(emptyGreeting);
   }
 
-  // Rate limit / cooldown guard
-  const rateLimit = budgetGuard.checkRateLimit(message.author.id);
-  if (rateLimit.isLimited) {
-    const sec = (rateLimit.remainingMs / 1000).toFixed(1);
-    return message.reply(`sabar bentar ya, tunggu ${sec} detik lagi.`);
-  }
+
 
   // Developer console logging
   const startTime = Date.now();

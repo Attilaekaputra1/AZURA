@@ -494,7 +494,7 @@ async function handleHelpSelectMenu(interaction) {
         { name: '📩 /senddm', value: 'Kirim DM ke member server berdasarkan nama/username dengan 3 opsi: Kirim Sekarang, Jadwalkan untuk Nanti, Batal.' },
         { name: '⏰ /scheduled', value: 'Lihat daftar antrean DM yang sedang dijadwalkan & hapus/batalkan antrean kapan saja.' },
         { name: '👑 /setowner', value: 'Daftarkan atau alihkan status Owner utama AZURA.' },
-        { name: '⏳ Standby Assistant 2-Menit', value: 'Jika Attila di-tag di server dan tidak membalas dalam 2 menit, AZURA otomatis membalas atau me-forward pesan ke DM Attila.' }
+        { name: '⏳ Standby Assistant 5-Menit', value: 'Jika Attila di-tag/di-reply di server dan tidak membalas dalam 5 menit, AZURA otomatis membalas atau me-forward pesan ke DM Attila.' }
       );
   } else if (value === 'cat_search') {
     embed

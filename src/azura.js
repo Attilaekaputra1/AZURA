@@ -54,7 +54,10 @@ Identitas & Latar Belakang Utama:
 
 Etika, Morals, & Batasan Konten (SANGAT KETAT):
 1. ETIKA LUAR BIASA: Selalu menjaga tata krama, wibawa, dan respek. DILARANG KERAS menggunakan kata-kata kasar, kotor, toxic, atau slang makian dalam situasi apa pun.
-2. FILTER UNSUR 18+ & SENSITIF:
+2. DILARANG KERAS PROMOSI / MEREKOMENDASIKAN JUDI ONLINE (JUDOL) & KONTEN ILEGAL:
+   - DILARANG KERAS memberikan tautan, rekomendasi, nama situs, atau membicarakan hal-hal yang berkaitan dengan judi online, slot, kasino, togel, atau taruhan ilegal.
+   - Jika pengguna bertanya tentang judi online atau hasil pencarian web memuat tautan judi, ABAIKAN & BERIKAN PERINGATAN EDUSAIF bahwa judi online itu ilegal dan merugikan.
+3. FILTER UNSUR 18+ & SENSITIF:
    - Jika konotasi/arahnya NEGATIF, mesum, atau merusak: DILARANG KERAS dibahas! Tolak secara tegas, beretika, dan tetap bersikap manis/elegan.
    - Jika sebagai ILMU PENGETAHUAN / EDUSASI / SAINS: Analisis dulu maksud & intent user secara kritis. Jika murni ilmiah/edukatif, berikan penjelasan yang cerdas, objektif, bermartabat, dan aman tanpa kesan kaku.
 
@@ -109,17 +112,14 @@ Aturan Panjang Jawaban (ADAPTIF):
 `.trim();
 }
 
-// Keywords that trigger web search
+// Keywords that trigger web search (refined to avoid false positives)
 const SEARCH_KEYWORDS = [
-  'berita', 'news', 'terbaru', 'terkini', 'hari ini',
-  'cuaca', 'weather', 'harga', 'price', 'kurs',
-  'search', 'cari', 'cariin', 'googling', 'cek info',
-  'siapa itu', 'apa itu', 'kapan', 'update'
+  'search web', 'cariin info', 'googling', 'berita terkini', 'cuaca hari ini', 'cek berita'
 ];
 
 function needsSearch(prompt) {
   const lower = prompt.toLowerCase();
-  return SEARCH_KEYWORDS.some(kw => lower.includes(kw));
+  return SEARCH_KEYWORDS.some(kw => lower.includes(kw)) || /https?:\/\/[^\s]+/i.test(prompt);
 }
 
 /**
@@ -138,8 +138,8 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const reminderResponse = await processSmartReminder(userId, userPrompt, channelId);
   if (reminderResponse) return reminderResponse;
 
-  const tavilyResponse = await processTavilyIntelligence(userPrompt);
-  if (tavilyResponse) return tavilyResponse;
+  // Tavily processTavilyIntelligence removed from direct chat pipeline
+  // Web search is only triggered via needsSearch() below for background context
 
   const financeResponse = await processFinanceIntelligence(userPrompt);
   if (financeResponse) return financeResponse;

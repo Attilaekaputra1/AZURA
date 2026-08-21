@@ -166,20 +166,29 @@ async function editReferenceImage(imageUrl, editInstruction, aspectRatio = '') {
 
   console.log(`[Image-to-Image Engine]: Analyzing reference image & edit request: "${editInstruction}" (Size: ${dimensions})`);
 
-  const VISION_SYSTEM_PROMPT = `You are a specialized Image-to-Image Prompt Synthesizer machine component.
-Your job is to analyze the attached reference image and synthesize an English image generation prompt for gpt-image-2 based on the user's edit instruction.
+  const VISION_SYSTEM_PROMPT = `You are AZURA's Master Image-to-Image Character & Subject Preservation Engine.
+Your job is to analyze the attached reference image and synthesize an ultra-precise English prompt for the image generator (gpt-image-2).
 
-Instructions:
-1. Identify the key subject and visual style in the reference image (character design, clothing, art style, details).
-2. Incorporate the user's requested modifications (e.g. changing pose to sitting on a patio, changing background, adding objects, changing lighting/atmosphere).
-3. Output ONLY the raw descriptive English prompt. NEVER speak conversationally. NEVER say "Here is the prompt", "Bisa", or add conversational quotes. Output pure prompt text only.`;
+STRICT SUBJECT PRESERVATION RULES (CRITICAL):
+1. SUBJECT / CHARACTER IDENTITY LOCK:
+   - Unless the user EXPLICITLY asks to change or replace the character/subject, you MUST PRESERVE THE EXACT SAME CHARACTER IDENTITY, visual features, face, hair, outfit, clothing design, color palette, accessories, stockings, shoes, and art style from the reference image.
+   - Describe the reference character's exact visual appearance in exhaustive detail (e.g. hair style/color, exact dress/costume design, golden ornaments, colors, proportions, stockings, footwear) so the generator reproduces the EXACT SAME character.
+   - DO NOT invent a new character or change their identity.
+
+2. SITUATION & ENVIRONMENT MODIFICATION:
+   - Apply ONLY the modifications specifically requested by the user (e.g. new pose such as sitting on a terrace, new setting/background, new lighting, new atmosphere, or adding specified objects).
+   - Place the exact character from the reference into this new requested situation/pose/environment seamlessly.
+
+3. OUTPUT FORMAT:
+   - Output ONLY the synthesized descriptive English prompt.
+   - NEVER speak conversationally, NEVER say "Here is...", NEVER use conversational quotes. Output raw prompt description only.`;
 
   const visionMessages = [
     { role: 'system', content: VISION_SYSTEM_PROMPT },
     {
       role: 'user',
       content: [
-        { type: 'text', text: `Reference image attached. User's modification instruction: "${editInstruction || 'Recreate and enhance this image with high detail'}". Output pure descriptive English prompt only.` },
+        { type: 'text', text: `Reference image attached. User's modification instruction: "${editInstruction || 'Recreate the exact same character with high detail in the new situation'}". Preserve the exact subject identity and apply the situation/pose change. Output pure descriptive English prompt only.` },
         { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
       ]
     }
@@ -197,7 +206,7 @@ Instructions:
       visionResponse = await openai.chat.completions.create({
         model: vm.model,
         messages: visionMessages,
-        [vm.tokenParam]: 500
+        [vm.tokenParam]: 1200
       });
       if (visionResponse?.choices?.[0]?.message?.content) {
         console.log(`[Vision Engine]: Model ${vm.model} analysis successful.`);

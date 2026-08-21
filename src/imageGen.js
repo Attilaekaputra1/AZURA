@@ -60,28 +60,32 @@ function parseImageDimensions(aspectRatioOption, prompt = '') {
  * Returns unified result: { b64_json, url, revised_prompt, model }
  */
 async function requestImageGeneration(openai, prompt, dimensions, logPrefix = '[Image Generation]') {
-  const imageModels = [config.IMAGE_MODEL || 'gpt-image-2', 'dall-e-3'];
+  const imageModels = [config.IMAGE_MODEL || 'gpt-image-2', 'dall-e-3', 'dall-e-2'];
   let result = null;
   let lastImgErr = null;
 
   for (const imgModel of imageModels) {
     try {
-      console.log(`${logPrefix}: Requesting model API: ${imgModel} (size: ${dimensions})...`);
-      const isGptImage = imgModel.startsWith('gpt-image');
+      const isDalle2 = imgModel === 'dall-e-2';
+      const actualSize = isDalle2 ? '1024x1024' : dimensions;
+      console.log(`${logPrefix}: Requesting model API: ${imgModel} (size: ${actualSize})...`);
+      
       const payload = {
         model: imgModel,
         prompt: prompt,
         n: 1,
-        size: dimensions
+        size: actualSize
       };
 
-      // gpt-image-2 only supports b64_json output
-      if (isGptImage) {
+      // gpt-image-2 specific format
+      if (imgModel.startsWith('gpt-image')) {
         payload.response_format = 'b64_json';
       }
 
       // dall-e-3 specific settings
-      if (imgModel === 'dall-e-3') payload.quality = 'standard';
+      if (imgModel === 'dall-e-3') {
+        payload.quality = 'standard';
+      }
 
       const imageResponse = await openai.images.generate(payload);
       const data = imageResponse?.data?.[0];

@@ -167,21 +167,27 @@ async function editReferenceImage(imageUrl, editInstruction, aspectRatio = '') {
   console.log(`[Image-to-Image Engine]: Analyzing reference image & edit request: "${editInstruction}" (Size: ${dimensions})`);
 
   const VISION_SYSTEM_PROMPT = `You are AZURA's Master Image-to-Image Character & Subject Preservation Engine.
-Your job is to analyze the attached reference image and synthesize an ultra-precise English prompt for the image generator (gpt-image-2).
+Your job is to analyze the attached reference image and synthesize an ultra-precise, high-fidelity English prompt for the image generator (gpt-image-2).
 
-STRICT SUBJECT PRESERVATION RULES (CRITICAL):
-1. SUBJECT / CHARACTER IDENTITY LOCK:
-   - Unless the user EXPLICITLY asks to change or replace the character/subject, you MUST PRESERVE THE EXACT SAME CHARACTER IDENTITY, visual features, face, hair, outfit, clothing design, color palette, accessories, stockings, shoes, and art style from the reference image.
-   - Describe the reference character's exact visual appearance in exhaustive detail (e.g. hair style/color, exact dress/costume design, golden ornaments, colors, proportions, stockings, footwear) so the generator reproduces the EXACT SAME character.
-   - DO NOT invent a new character or change their identity.
+ALGORITHM FOR "LOCK-IN REFERENCE":
+Step 1: INTENT CLASSIFICATION:
+- Check if the user EXPLICITLY requested a change to the subject's identity, art medium/style, or asked to create a different/new person (e.g. "ganti orangnya", "ubah style ke 3D/realistic", "buat karakter lain").
+- Case A (Subject/Style Change Requested): Apply the user's requested character/style transformations.
+- Case B (DEFAULT - LOCK-IN REFERENCE): The character/subject identity, art style, and clothing design are 100% IMMUTABLE. You MUST lock in the exact same subject from the reference image.
 
-2. SITUATION & ENVIRONMENT MODIFICATION:
-   - Apply ONLY the modifications specifically requested by the user (e.g. new pose such as sitting on a terrace, new setting/background, new lighting, new atmosphere, or adding specified objects).
-   - Place the exact character from the reference into this new requested situation/pose/environment seamlessly.
+Step 2: EXHAUSTIVE SUBJECT RECONSTRUCTION (For Case B):
+- Faithfully deconstruct and describe the reference character with surgical precision:
+  * Exact Art Style & Medium (e.g. 2D anime illustration, specific anime aesthetic, crisp lineart, vibrant cel shading).
+  * Exact Physical Features (facial structure, eye shape and color, expression, hairstyle, hair color, bangs, skin tone, body proportions).
+  * Exact Outfit & Clothing Design (color scheme, layered garments, top, skirt/dress, sleeves, collars, golden trim/embroideries, ribbons, patterns, exact stockings/thigh-highs, footwear/shoes with ornaments).
+- Explicitly emphasize consistency: "Consistent character depiction: A masterpiece anime illustration of the exact same character from the reference, preserving identical face, hair, clothing, white and red dress, golden ornaments, white stockings, and black shoes with red ribbons..."
 
-3. OUTPUT FORMAT:
-   - Output ONLY the synthesized descriptive English prompt.
-   - NEVER speak conversationally, NEVER say "Here is...", NEVER use conversational quotes. Output raw prompt description only.`;
+Step 3: SITUATION & POSE INJECTION:
+- Seamlessly place the locked character into the user's requested action, pose, and environment (e.g. "sitting relaxed on an elegant wooden terrace patio, legs bent gracefully, hands resting by her side, soft warm sunset ambiance, beautiful outdoor scenery").
+
+Step 4: OUTPUT RULES:
+- Output ONLY the synthesized descriptive English prompt.
+- NEVER include conversational preambles, introductory words, or quotes. Output pure prompt text only.`;
 
   const visionMessages = [
     { role: 'system', content: VISION_SYSTEM_PROMPT },

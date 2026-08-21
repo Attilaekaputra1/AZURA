@@ -16,7 +16,7 @@ const config = {
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o',
 
   // Cost & Performance Parameters
-  MAX_OUTPUT_TOKENS: parseInt(process.env.MAX_OUTPUT_TOKENS || '300', 10),
+  MAX_OUTPUT_TOKENS: Math.min(parseInt(process.env.MAX_OUTPUT_TOKENS || '1000', 10), 4096),
   MAX_CONTEXT_MESSAGES: parseInt(process.env.MAX_CONTEXT_MESSAGES || '10', 10),
   RATE_LIMIT_COOLDOWN_MS: parseInt(process.env.RATE_LIMIT_COOLDOWN_MS || '500', 10),
   MONTHLY_BUDGET_TARGET: parseFloat(process.env.MONTHLY_BUDGET_TARGET || '5'),

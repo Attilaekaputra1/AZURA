@@ -262,27 +262,38 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     { role: 'user', content: userContent }
   ];
 
-  const client = getOpenAIClient();
-
-  const modelsToTry = [config.OPENAI_MODEL || 'gpt-4o', 'gpt-4o-mini'];
+  const safeMaxTokens = Math.min(parseInt(config.MAX_OUTPUT_TOKENS || '1000', 10), 4096);
+  const modelsToTry = [config.OPENAI_MODEL || 'gpt-4o', 'gpt-4o', 'gpt-4o-mini'];
   let completion = null;
   let lastError = null;
 
   for (const targetModel of modelsToTry) {
     if (!targetModel) continue;
-    try {
-      console.log(`[AZURA Chat Engine]: Requesting OpenAI model: ${targetModel}...`);
-      completion = await client.chat.completions.create({
-        model: targetModel,
-        messages: messages,
-        max_tokens: config.MAX_OUTPUT_TOKENS
-      });
-      if (completion?.choices?.[0]?.message?.content) {
-        break; // Success!
+
+    // Dynamically try both parameter styles (max_tokens vs max_completion_tokens)
+    for (const tokenParam of ['max_tokens', 'max_completion_tokens']) {
+      try {
+        console.log(`[AZURA Chat Engine]: Requesting OpenAI model: ${targetModel} (${tokenParam}: ${safeMaxTokens})...`);
+        const payload = {
+          model: targetModel,
+          messages: messages,
+          [tokenParam]: safeMaxTokens
+        };
+        completion = await client.chat.completions.create(payload);
+        if (completion?.choices?.[0]?.message?.content) {
+          break; // Success!
+        }
+      } catch (error) {
+        lastError = error;
+        console.warn(`[AZURA Model Try]: Model ${targetModel} with ${tokenParam} failed (${error.message}).`);
+        if (!error.message?.includes('Unsupported parameter') && !error.message?.includes('not supported with this model')) {
+          break; // Don't retry tokenParam if error is unrelated to parameter format
+        }
       }
-    } catch (error) {
-      lastError = error;
-      console.warn(`[AZURA Model Fallback]: Model ${targetModel} failed (${error.message}). Retrying next model...`);
+    }
+
+    if (completion?.choices?.[0]?.message?.content) {
+      break; // Success!
     }
   }
 

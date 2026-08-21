@@ -162,7 +162,7 @@ async function registerSlashCommands(client) {
   const commandBody = commands.map(c => c.toJSON());
 
   try {
-    console.log('[AZURA]: Memperbarui slash commands (/help, /scheduled, /reset, /status, /remindme, /vn, /memory, /search, /crypto, /anime, /model, /senddm)...');
+    console.log('[AZURA]: Memperbarui slash commands (/help, /scheduled, /reset, /status, /remindme, /vn, /memory, /crypto, /anime, /senddm, /sendch)...');
     await rest.put(
       Routes.applicationCommands(config.DISCORD_CLIENT_ID),
       { body: commandBody }
@@ -209,12 +209,12 @@ async function handleSlashCommand(interaction, startTime) {
     if (isOwner) {
       helpEmbed.addFields({
         name: '👑 Fitur Khusus Owner (Attila)',
-        value: '`/senddm` • `/scheduled` • `/setowner` • Standby 2-Min Assistant'
+        value: '`/senddm` • `/sendch` • `/scheduled` • `/setowner` • Standby 5-Min Assistant'
       });
     }
 
     helpEmbed.addFields(
-      { name: '🌐 Pencarian Live & Data', value: '`/search` • `/crypto` • `/anime` • Tavily Engine' },
+      { name: '🌐 Pencarian Live & Data', value: 'Pencarian Otomatis di Chat • `/crypto` • `/anime` • Tavily Engine' },
       { name: '⏰ Memori & Produktivitas', value: '`/memory` • `/remindme` • `/vn` • `/reset` • `/status`' }
     );
 
@@ -472,7 +472,7 @@ async function handleHelpSelectMenu(interaction) {
       .setTitle('🌐 Fitur Pencarian Live & Utility')
       .setDescription('Akses data real-time dari internet & media:')
       .addFields(
-        { name: '🔍 /search <query>', value: 'Cari berita, cuaca, atau info terkini dari internet menggunakan Tavily AI Engine.' },
+        { name: '🌐 Pencarian Web Real-Time (Tavily AI Engine)', value: 'Ketik langsung di chat/DM (contoh: *"tolong cari berita hari ini"*, *"cek cuaca Jakarta"*, *"cari info tentang..."*), AZURA akan mencari data terbaru di internet secara otomatis.' },
         { name: '🪙 /crypto <koin/usd>', value: 'Cek harga kripto (BTC, ETH, SOL) atau kurs USD ke IDR real-time.' },
         { name: '🎬 /anime <judul/rekomendasi>', value: 'Cari detail anime atau rekomendasi anime terpopuler di MyAnimeList.' }
       );

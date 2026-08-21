@@ -22,12 +22,11 @@ async function checkDailyDigest(client) {
   if (!ownerId) return;
 
   const now = new Date();
-  const options = { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false };
-  const timeStr = now.toLocaleTimeString('id-ID', options); // e.g. "21:00"
+  const jakartaHour = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta', hour: 'numeric', hour12: false });
   const dateStr = now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta' });
 
-  // Only trigger once per day around 21:00 WIB
-  if (timeStr.startsWith('21:00') && stats.lastDigestDate !== dateStr) {
+  // Only trigger once per day during the 21:00 hour (9 PM WIB)
+  if (jakartaHour === '21' && stats.lastDigestDate !== dateStr) {
     stats.lastDigestDate = dateStr;
 
     try {

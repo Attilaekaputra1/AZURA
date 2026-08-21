@@ -275,7 +275,7 @@ function needsSearch(prompt) {
 async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, forceSearch = false) {
   autoExtractFact(userId, userPrompt);
 
-  const reminderResponse = await processSmartReminder(userId, userPrompt, channelId);
+  const reminderResponse = await processSmartReminder(userId, channelId, userPrompt);
   if (reminderResponse) return reminderResponse;
 
   const financeResponse = await processFinanceIntelligence(userPrompt);

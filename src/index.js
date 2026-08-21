@@ -35,7 +35,7 @@ const client = new Client({
 
 
 // Event: Client Ready
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log('\n==================================================');
   console.log(`🤖 AZURA Online!`);
   console.log(`• Username : ${client.user.tag}`);

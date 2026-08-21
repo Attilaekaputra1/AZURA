@@ -173,12 +173,22 @@ client.on('messageCreate', async (message) => {
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle(isEditMode ? '✨ Hasil Edit Gambar Referensi' : '🎨 Hasil Karya Gambar AZURA')
-        .setDescription(`**Prompt / Instruksi**: "${rawPrompt}"\n• **Ukuran Rasio**: \`${imgResult.dimensions || '1024x1024'}\`\n• **Kuota Server**: \`${remainingText}\``)
-        .setImage(imgResult.generatedImageUrl)
+        .setDescription(`**Prompt / Instruksi**: "${rawPrompt}"\n• **Ukuran Rasio**: \`${imgResult.dimensions || '1024x1024'}\`\n• **Model**: \`${imgResult.model || 'gpt-image-2'}\`\n• **Kuota Server**: \`${remainingText}\``)
+        .setImage(imgResult.imageSource)
         .setFooter({ text: 'Powered by gpt-image-2 & gpt-5.6-luna Vision' })
         .setTimestamp();
 
-      return message.reply({ content: isEditMode ? 'Ini hasil edit gambar kamu yaa! ✨' : 'Selesai! Ini dia gambar yang kamu minta ✨', embeds: [embed] });
+      const replyPayload = {
+        content: isEditMode ? 'Ini hasil edit gambar kamu yaa!' : 'Selesai! Ini dia gambar yang kamu minta',
+        embeds: [embed]
+      };
+
+      // If image is from gpt-image-2 (b64_json), attach the file
+      if (imgResult.attachment) {
+        replyPayload.files = [imgResult.attachment];
+      }
+
+      return message.reply(replyPayload);
     }
 
     // Get user's display name from Discord profile

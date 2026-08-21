@@ -77,12 +77,6 @@ async function requestImageGeneration(openai, prompt, dimensions, logPrefix = '[
         size: actualSize
       };
 
-      // gpt-image-2 specific format
-      if (imgModel.startsWith('gpt-image')) {
-        payload.response_format = 'b64_json';
-      }
-
-      // dall-e-3 specific settings
       if (imgModel === 'dall-e-3') {
         payload.quality = 'standard';
       }
@@ -118,7 +112,7 @@ async function requestImageGeneration(openai, prompt, dimensions, logPrefix = '[
  * If b64_json (gpt-image-2), creates an AttachmentBuilder.
  * If url (dall-e-3), returns the URL string directly.
  * Returns: { imageSource, attachment, model }
- * - imageSource: URL string for embed .setImage()
+ * - imageSource: URL string for embed .setImage() or null
  * - attachment: AttachmentBuilder or null
  */
 function prepareDiscordImage(result) {
@@ -131,8 +125,15 @@ function prepareDiscordImage(result) {
       model: result.model
     };
   }
+  if (result.url) {
+    return {
+      imageSource: result.url,
+      attachment: null,
+      model: result.model
+    };
+  }
   return {
-    imageSource: result.url,
+    imageSource: null,
     attachment: null,
     model: result.model
   };

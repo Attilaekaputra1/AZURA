@@ -13,13 +13,36 @@ function getOpenAI() {
   return openaiClient;
 }
 
-// Keywords that indicate image editing / image-to-image intent
+// Keywords that indicate image editing / image-to-image intent when an image is attached
 const IMAGE_EDIT_KEYWORDS = [
   'edit', 'ubah', 'ganti', 'tambahkan', 'tambah', 'revisi',
   'versi', 'bikin versi', 'jadiin', 'jadikan', 'gaya', 'style',
   'modifikasi', 'warnai', 'variasi', 'remake', 'manipulasi',
-  'transform', 'konversi', 'sulap', 'rubah'
+  'transform', 'konversi', 'sulap', 'rubah', 'buatin', 'bikin',
+  'buat', 'buatkan', 'gambar', 'gambarin', 'lukis', 'lukiskan',
+  'render', 'lagi', 'pose', 'posisi', 'situasi', 'latar', 'background',
+  'suasana', 'pake', 'pakai', 'kostum', 'outfit', 'baju', 'rambut',
+  'karakter', 'orang ini', 'foto ini', 'gambar ini', 'objek ini',
+  'duduk', 'berdiri', 'jalan', 'terbang', 'tidur', 'senyum'
 ];
+
+// Keywords indicating pure Vision analytical Q&A (NOT image generation)
+const PURE_VISION_QA_PATTERNS = [
+  /\b(ini apa|apa ini|siapa ini|ini siapa|jelaskan gambar|analisis gambar|baca teks|artinya apa|maksud gambar|terjemahkan gambar)\b/i
+];
+
+function isImageEditRequest(prompt) {
+  if (!prompt) return false;
+  const lower = prompt.toLowerCase();
+  
+  // If user is explicitly asking a pure analytical question about the image, let Vision LLM answer
+  if (PURE_VISION_QA_PATTERNS.some(pattern => pattern.test(lower)) && !lower.includes('bikin') && !lower.includes('buat') && !lower.includes('buatin') && !lower.includes('edit')) {
+    return false;
+  }
+
+  // Check against comprehensive edit, creation, or general generation keywords
+  return IMAGE_EDIT_KEYWORDS.some(kw => lower.includes(kw)) || isImageGenRequest(prompt);
+}
 
 // Keywords that indicate new image generation intent in natural chat
 const IMAGE_GEN_KEYWORDS = [
@@ -28,12 +51,6 @@ const IMAGE_GEN_KEYWORDS = [
   'bikin ilustrasi', 'buatkan ilustrasi', 'render gambar', 'draw image',
   'buatin gambar', 'tolong gambar', 'coba gambar', 'generate image'
 ];
-
-function isImageEditRequest(prompt) {
-  if (!prompt) return false;
-  const lower = prompt.toLowerCase();
-  return IMAGE_EDIT_KEYWORDS.some(kw => lower.includes(kw));
-}
 
 function isImageGenRequest(prompt) {
   if (!prompt) return false;
@@ -149,22 +166,20 @@ async function editReferenceImage(imageUrl, editInstruction, aspectRatio = '') {
 
   console.log(`[Image-to-Image Engine]: Analyzing reference image & edit request: "${editInstruction}" (Size: ${dimensions})`);
 
-  const VISION_SYSTEM_PROMPT = `You are AZURA's Master AI Vision & Image Editing Architect.
-Your role is to perform deep visual comprehension of the provided reference image and synthesize a master prompt for image generation that perfectly merges the original image's identity with the user's edit commands.
+  const VISION_SYSTEM_PROMPT = `You are a specialized Image-to-Image Prompt Synthesizer machine component.
+Your job is to analyze the attached reference image and synthesize an English image generation prompt for gpt-image-2 based on the user's edit instruction.
 
-Follow these 3 steps:
-1. VISUAL IDENTIFICATION: Carefully analyze the reference image (subject, facial features, pose, lighting, camera angle, clothing, background).
-2. INTENT & MODIFICATION EXTRACTION: Parse the user's edit instruction (style transformation, adding/removing objects, changing hair/outfit/background/expression, manipulating visual situations).
-3. MASTER SYNTHESIS: Write a comprehensive, ultra-descriptive English prompt for image generation that maintains the visual identity while applying all requested edits seamlessly.
-
-OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. NO PREAMBLE.`;
+Instructions:
+1. Identify the key subject and visual style in the reference image (character design, clothing, art style, details).
+2. Incorporate the user's requested modifications (e.g. changing pose to sitting on a patio, changing background, adding objects, changing lighting/atmosphere).
+3. Output ONLY the raw descriptive English prompt. NEVER speak conversationally. NEVER say "Here is the prompt", "Bisa", or add conversational quotes. Output pure prompt text only.`;
 
   const visionMessages = [
     { role: 'system', content: VISION_SYSTEM_PROMPT },
     {
       role: 'user',
       content: [
-        { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Perform deep visual analysis and synthesize the prompt.` },
+        { type: 'text', text: `Reference image attached. User's modification instruction: "${editInstruction || 'Recreate and enhance this image with high detail'}". Output pure descriptive English prompt only.` },
         { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
       ]
     }
@@ -197,7 +212,12 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. NO PREAMBLE.`;
     throw new Error('Gagal menganalisis gambar referensi. Semua model Vision gagal.');
   }
 
-  let sanitizedPrompt = (visionResponse.choices[0].message.content.trim() || editInstruction)
+  let rawContent = visionResponse.choices[0].message.content.trim();
+  // Strip any accidental conversational preamble or quotes
+  rawContent = rawContent.replace(/^[^"]*"([^"]+)"[\s\S]*$/i, '$1');
+  rawContent = rawContent.replace(/^(here is the prompt|prompt|sure|bisa)[\s\S]*?:/i, '').trim();
+
+  let sanitizedPrompt = (rawContent || editInstruction)
     .replace(/[\r\n]+/g, ' ')
     .slice(0, 4000);
 

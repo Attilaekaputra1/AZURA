@@ -13,10 +13,11 @@ const config = {
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '').trim(),
 
   // AI Model Configuration
-  OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o',
+  OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+  IMAGE_MODEL: process.env.IMAGE_MODEL || 'gpt-image-2',
 
   // Cost & Performance Parameters
-  MAX_OUTPUT_TOKENS: Math.min(parseInt(process.env.MAX_OUTPUT_TOKENS || '1000', 10), 4096),
+  MAX_OUTPUT_TOKENS: parseInt(process.env.MAX_OUTPUT_TOKENS || '50000', 10),
   MAX_CONTEXT_MESSAGES: parseInt(process.env.MAX_CONTEXT_MESSAGES || '10', 10),
   RATE_LIMIT_COOLDOWN_MS: parseInt(process.env.RATE_LIMIT_COOLDOWN_MS || '500', 10),
   MONTHLY_BUDGET_TARGET: parseFloat(process.env.MONTHLY_BUDGET_TARGET || '5'),

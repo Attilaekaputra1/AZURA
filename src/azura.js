@@ -262,38 +262,34 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     { role: 'user', content: userContent }
   ];
 
-  const safeMaxTokens = Math.min(parseInt(config.MAX_OUTPUT_TOKENS || '1000', 10), 4096);
-  const modelsToTry = [config.OPENAI_MODEL || 'gpt-4o', 'gpt-4o', 'gpt-4o-mini'];
+  const client = getOpenAIClient();
+
+  // Model configurations: each model has its own token parameter name and limit
+  const modelConfigs = [
+    { model: config.OPENAI_MODEL || 'gpt-5.6-luna', tokenParam: 'max_completion_tokens', maxTokens: config.MAX_OUTPUT_TOKENS },
+    { model: 'gpt-4o', tokenParam: 'max_tokens', maxTokens: Math.min(config.MAX_OUTPUT_TOKENS, 16384) },
+    { model: 'gpt-4o-mini', tokenParam: 'max_tokens', maxTokens: Math.min(config.MAX_OUTPUT_TOKENS, 16384) }
+  ];
+
   let completion = null;
   let lastError = null;
 
-  for (const targetModel of modelsToTry) {
-    if (!targetModel) continue;
-
-    // Dynamically try both parameter styles (max_tokens vs max_completion_tokens)
-    for (const tokenParam of ['max_tokens', 'max_completion_tokens']) {
-      try {
-        console.log(`[AZURA Chat Engine]: Requesting OpenAI model: ${targetModel} (${tokenParam}: ${safeMaxTokens})...`);
-        const payload = {
-          model: targetModel,
-          messages: messages,
-          [tokenParam]: safeMaxTokens
-        };
-        completion = await client.chat.completions.create(payload);
-        if (completion?.choices?.[0]?.message?.content) {
-          break; // Success!
-        }
-      } catch (error) {
-        lastError = error;
-        console.warn(`[AZURA Model Try]: Model ${targetModel} with ${tokenParam} failed (${error.message}).`);
-        if (!error.message?.includes('Unsupported parameter') && !error.message?.includes('not supported with this model')) {
-          break; // Don't retry tokenParam if error is unrelated to parameter format
-        }
+  for (const mc of modelConfigs) {
+    try {
+      console.log(`[AZURA Chat Engine]: Requesting OpenAI model: ${mc.model} (${mc.tokenParam}: ${mc.maxTokens})...`);
+      const payload = {
+        model: mc.model,
+        messages: messages,
+        [mc.tokenParam]: mc.maxTokens
+      };
+      completion = await client.chat.completions.create(payload);
+      if (completion?.choices?.[0]?.message?.content) {
+        console.log(`[AZURA Chat Engine]: Model ${mc.model} responded successfully.`);
+        break; // Success!
       }
-    }
-
-    if (completion?.choices?.[0]?.message?.content) {
-      break; // Success!
+    } catch (error) {
+      lastError = error;
+      console.warn(`[AZURA Model Fallback]: Model ${mc.model} failed (${error.message}). Trying next model...`);
     }
   }
 

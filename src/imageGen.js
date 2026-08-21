@@ -17,14 +17,16 @@ function getOpenAI() {
 const IMAGE_EDIT_KEYWORDS = [
   'edit', 'ubah', 'ganti', 'tambahkan', 'tambah', 'revisi',
   'versi', 'bikin versi', 'jadiin', 'jadikan', 'gaya', 'style',
-  'modifikasi', 'warnai', 'variasi', 'remake'
+  'modifikasi', 'warnai', 'variasi', 'remake', 'manipulasi',
+  'transform', 'konversi', 'sulap', 'rubah'
 ];
 
 // Keywords that indicate new image generation intent in natural chat
 const IMAGE_GEN_KEYWORDS = [
   'bikin gambar', 'buatkan gambar', 'buat gambar', 'lukiskan', 'lukis',
   'generate gambar', 'gambarkan', 'lukisin', 'bikin foto', 'buatkan foto',
-  'bikin ilustrasi', 'buatkan ilustrasi', 'render gambar', 'draw image'
+  'bikin ilustrasi', 'buatkan ilustrasi', 'render gambar', 'draw image',
+  'buatin gambar', 'tolong gambar', 'coba gambar', 'generate image'
 ];
 
 /**
@@ -50,7 +52,7 @@ function isImageGenRequest(prompt) {
 }
 
 /**
- * Map aspect ratio string/option or prompt keywords to DALL-E image size
+ * Map aspect ratio string/option or prompt keywords to image size
  * Supported sizes: '1024x1024' (square), '1792x1024' (landscape), '1024x1792' (portrait)
  * @param {string} [aspectRatioOption] - Explicit aspect ratio ('square', 'landscape', 'portrait')
  * @param {string} [prompt] - User prompt to detect keywords
@@ -72,12 +74,58 @@ function parseImageDimensions(aspectRatioOption, prompt = '') {
 }
 
 /**
+ * Generate image using gpt-image-2 model with fallback to dall-e-3
+ * @param {object} openai - OpenAI client instance
+ * @param {string} prompt - Sanitized prompt text
+ * @param {string} dimensions - Image dimensions (e.g. '1024x1024')
+ * @param {string} logPrefix - Log prefix for console output
+ * @returns {Promise<object>} - Image response from OpenAI API
+ */
+async function requestImageGeneration(openai, prompt, dimensions, logPrefix = '[Image Generation]') {
+  const imageModels = [config.IMAGE_MODEL || 'gpt-image-2', 'dall-e-3'];
+  let imageResponse = null;
+  let lastImgErr = null;
+
+  for (const imgModel of imageModels) {
+    try {
+      console.log(`${logPrefix}: Requesting model API: ${imgModel} (size: ${dimensions})...`);
+      const payload = {
+        model: imgModel,
+        prompt: prompt,
+        n: 1,
+        size: dimensions
+      };
+      // dall-e-3 specific settings
+      if (imgModel === 'dall-e-3') payload.quality = 'standard';
+
+      imageResponse = await openai.images.generate(payload);
+      if (imageResponse?.data?.[0]) {
+        console.log(`${logPrefix} Success: Model (${imgModel}) successfully rendered image!`);
+        break; // Success!
+      }
+    } catch (err) {
+      lastImgErr = err;
+      console.warn(`${logPrefix} Model ${imgModel} Failed: ${err.message}`);
+    }
+  }
+
+  if (!imageResponse?.data?.[0]) {
+    throw new Error(`Gagal menghasilkan gambar (${lastImgErr?.message || 'API Error'})`);
+  }
+
+  return imageResponse;
+}
+
+/**
  * Image-to-Image / Reference-Based Image Editing
- * Uses GPT-4o Vision to analyze the original reference image and synthesize a precise DALL-E 3 prompt
- * incorporating the user's requested modifications.
+ * Uses gpt-5.6-luna Vision to analyze the original reference image and synthesize
+ * a precise prompt for gpt-image-2 incorporating the user's requested modifications.
+ * 
+ * Supports: art style transformation, object addition/removal, background manipulation,
+ * visual situation changes, outfit/expression edits, and more.
  * 
  * @param {string} imageUrl - Reference image URL
- * @param {string} editInstruction - User's edit prompt (e.g. "ubah style ke anime", "tambahkan kacamata hitam")
+ * @param {string} editInstruction - User's edit prompt
  * @param {string} [aspectRatio] - 'square' | 'landscape' | 'portrait'
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string, synthesizedPrompt: string, dimensions: string }>}
  */
@@ -87,91 +135,66 @@ async function editReferenceImage(imageUrl, editInstruction, aspectRatio = '') {
 
   console.log(`[Image-to-Image Engine]: Analyzing reference image & edit request: "${editInstruction}" (Size: ${dimensions})`);
 
-  // Step 1: Vision Analysis & Prompt Synthesis (with fallback)
+  // Step 1: Vision Analysis & Prompt Synthesis using gpt-5.6-luna (with gpt-4o fallback)
   const VISION_SYSTEM_PROMPT = `You are AZURA's Master AI Vision & Image Editing Architect.
 Your role is to perform deep visual comprehension of the provided reference image and synthesize a master prompt for image generation that perfectly merges the original image's identity with the user's edit commands.
 
 Follow these 3 steps in your prompt synthesis:
 1. VISUAL IDENTIFICATION: Carefully analyze the reference image (subject, facial features, pose, lighting, camera angle, clothing, and background environment).
-2. INTENT & MODIFICATION EXTRACTION: Parse the user's edit instruction (e.g., style transformation like anime/cyberpunk/3D/realistic, adding/removing objects, changing hair/outfit/background/expression).
+2. INTENT & MODIFICATION EXTRACTION: Parse the user's edit instruction (e.g., style transformation like anime/cyberpunk/3D/realistic, adding/removing objects, changing hair/outfit/background/expression, manipulating visual situations).
 3. MASTER SYNTHESIS: Write a comprehensive, ultra-descriptive English prompt for image generation that maintains the visual identity, subject features, and camera angle of the reference photo while applying all requested edits seamlessly.
 
 OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTRO.`;
 
+  const visionMessages = [
+    { role: 'system', content: VISION_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Perform deep visual analysis and synthesize the prompt.` },
+        { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
+      ]
+    }
+  ];
+
   let visionResponse;
-  const primaryVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';
-  try {
-    visionResponse = await openai.chat.completions.create({
-      model: primaryVisionModel,
-      messages: [
-        { role: 'system', content: VISION_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Perform deep visual analysis and synthesize the prompt.` },
-            { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
-          ]
-        }
-      ],
-      max_tokens: 350
-    });
-  } catch (visionErr) {
-    console.warn(`[Image-to-Image Vision Fallback]: Model ${primaryVisionModel} failed (${visionErr.message}). Retrying with gpt-4o...`);
-    visionResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: VISION_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: `Reference image attached. User's edit instruction: "${editInstruction || 'Enhance and recreate this image with high detail'}". Perform deep visual analysis and synthesize the prompt.` },
-            { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
-          ]
-        }
-      ],
-      max_tokens: 350
-    });
-  }
+  const visionModels = [
+    { model: config.OPENAI_MODEL || 'gpt-5.6-luna', tokenParam: 'max_completion_tokens' },
+    { model: 'gpt-4o', tokenParam: 'max_tokens' }
+  ];
 
-  // Clean & sanitize synthesized prompt for DALL-E (max 900 chars)
-  let sanitizedPrompt = (visionResponse.choices[0]?.message?.content?.trim() || editInstruction)
-    .replace(/[\r\n]+/g, ' ')
-    .slice(0, 900);
-
-  console.log(`[Image-to-Image Engine]: Synthesized Prompt (${sanitizedPrompt.length} chars): "${sanitizedPrompt.slice(0, 100)}..."`);
-
-  // Step 2: Generate edited image with official production OpenAI DALL-E 3 engine
-  let imageResponse;
-  const imageModels = ['dall-e-3', 'dall-e-2'];
-  let lastImgErr = null;
-
-  for (const imgModel of imageModels) {
+  for (const vm of visionModels) {
     try {
-      console.log(`[Image Generation]: Requesting model API: ${imgModel} (size: ${dimensions})...`);
-      const payload = {
-        model: imgModel,
-        prompt: sanitizedPrompt,
-        n: 1,
-        size: imgModel === 'dall-e-2' ? '1024x1024' : dimensions
-      };
-      if (imgModel === 'dall-e-3') payload.quality = 'standard';
-
-      imageResponse = await openai.images.generate(payload);
-      if (imageResponse?.data?.[0]?.url) {
-        console.log(`[Image Generation Success]: Model (${imgModel}) successfully rendered image!`);
-        break; // Success!
+      console.log(`[Vision Engine]: Analyzing with model: ${vm.model}...`);
+      visionResponse = await openai.chat.completions.create({
+        model: vm.model,
+        messages: visionMessages,
+        [vm.tokenParam]: 500
+      });
+      if (visionResponse?.choices?.[0]?.message?.content) {
+        console.log(`[Vision Engine]: Model ${vm.model} analysis successful.`);
+        break;
       }
-    } catch (err) {
-      lastImgErr = err;
-      console.warn(`[Image Generation Model ${imgModel} Failed]: ${err.message}`);
+    } catch (visionErr) {
+      console.warn(`[Vision Fallback]: Model ${vm.model} failed (${visionErr.message}). Trying next...`);
     }
   }
 
-  if (!imageResponse?.data?.[0]?.url) {
-    throw new Error(`Gagal menghasilkan gambar (${lastImgErr?.message || 'API Error'})`);
+  if (!visionResponse?.choices?.[0]?.message?.content) {
+    throw new Error('Gagal menganalisis gambar referensi. Semua model Vision gagal.');
   }
 
-  const generatedImageUrl = imageResponse.data[0].url;
+  // Clean & sanitize synthesized prompt (max 4000 chars for gpt-image-2)
+  let sanitizedPrompt = (visionResponse.choices[0].message.content.trim() || editInstruction)
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 4000);
+
+  console.log(`[Image-to-Image Engine]: Synthesized Prompt (${sanitizedPrompt.length} chars): "${sanitizedPrompt.slice(0, 100)}..."`);
+
+  // Step 2: Generate edited image with gpt-image-2 (fallback dall-e-3)
+  const imageResponse = await requestImageGeneration(openai, sanitizedPrompt, dimensions, '[Image-to-Image]');
+
+  const generatedImageUrl = imageResponse.data[0].url || imageResponse.data[0].b64_json;
   const revisedPrompt = imageResponse.data[0].revised_prompt || sanitizedPrompt;
 
   return {
@@ -183,7 +206,7 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 }
 
 /**
- * Text-to-Image Generation strictly with official production OpenAI DALL-E 3 engine
+ * Text-to-Image Generation with gpt-image-2 model (fallback dall-e-3)
  * @param {string} prompt 
  * @param {string} [aspectRatio] - 'square' | 'landscape' | 'portrait'
  * @returns {Promise<{ generatedImageUrl: string, revisedPrompt: string, dimensions: string }>}
@@ -191,40 +214,12 @@ OUTPUT ONLY THE REFINED ENGLISH PROMPT TEXT. DO NOT INCLUDE ANY PREAMBLE OR INTR
 async function generateImage(prompt, aspectRatio = '') {
   const openai = getOpenAI();
   const dimensions = parseImageDimensions(aspectRatio, prompt);
-  const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 900);
+  const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 4000);
 
-  let imageResponse;
-  const imageModels = ['dall-e-3', 'dall-e-2'];
-  let lastImgErr = null;
-
-  for (const imgModel of imageModels) {
-    try {
-      console.log(`[Text-to-Image]: Requesting model API: ${imgModel} (size: ${dimensions})...`);
-      const payload = {
-        model: imgModel,
-        prompt: sanitizedPrompt,
-        n: 1,
-        size: imgModel === 'dall-e-2' ? '1024x1024' : dimensions
-      };
-      if (imgModel === 'dall-e-3') payload.quality = 'standard';
-
-      imageResponse = await openai.images.generate(payload);
-      if (imageResponse?.data?.[0]?.url) {
-        console.log(`[Text-to-Image Success]: Model (${imgModel}) successfully rendered image!`);
-        break;
-      }
-    } catch (err) {
-      lastImgErr = err;
-      console.warn(`[Text-to-Image Model ${imgModel} Failed]: ${err.message}`);
-    }
-  }
-
-  if (!imageResponse?.data?.[0]?.url) {
-    throw new Error(`Gagal menghasilkan gambar (${lastImgErr?.message || 'API Error'})`);
-  }
+  const imageResponse = await requestImageGeneration(openai, sanitizedPrompt, dimensions, '[Text-to-Image]');
 
   return {
-    generatedImageUrl: imageResponse.data[0].url,
+    generatedImageUrl: imageResponse.data[0].url || imageResponse.data[0].b64_json,
     revisedPrompt: imageResponse.data[0].revised_prompt || sanitizedPrompt,
     dimensions
   };

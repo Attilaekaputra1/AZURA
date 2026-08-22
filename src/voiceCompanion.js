@@ -573,8 +573,9 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   try {
     const askAzura = getAskAzura();
     const voicePrompt =
-      `[KAMU SEDANG NGOBROL DI VOICE CHANNEL. JAWAB SANGAT SINGKAT, MAKSIMAL 2 KALIMAT PENDEK. ` +
-      `JANGAN PAKAI EMOJI, MARKDOWN, ATAU FORMAT APAPUN. BALAS NATURAL SEPERTI NGOBROL BIASA]: ${transcript}`;
+      `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA. JAWAB DENGAN GAYA CEWEK 22 TAHUN YANG EKSPRESIF, MANIS, DAN SANTAI (MAKSIMAL 1-2 KALIMAT). ` +
+      `BISA SEDIKIT PLAYFUL/BERCANDA SEPERTI NADA MANJA, "EHEHE", ATAU TEASING "ARA-ARA~" JIKA RELEVAN/DIMINTA. ` +
+      `GUNAKAN TANDA BACA SEPERTI KOMA DAN TITIK DENGAN RAPI AGAR TEMPO SUARA TIDAK TERBURU-BURU, SERTA JANGAN GUNAKAN EMOJI ATAU MARKDOWN]: ${transcript}`;
 
     const aiResponse = await askAzura(userId, voicePrompt, 'Attila', [], false, null);
 
@@ -721,7 +722,7 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
  */
 async function playGreeting(guildId) {
   await new Promise(r => setTimeout(r, 800));
-  const resource = await textToAudioResource('halo aku azura, salam kenal yaa');
+  const resource = await textToAudioResource('halo... aku Azura. salam kenal yaa~');
   if (resource) {
     console.log('[Voice Companion]: Playing voice greeting with Kak Ceria voice...');
     await playInVC(guildId, resource);

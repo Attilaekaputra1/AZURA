@@ -72,22 +72,18 @@ client.on('messageCreate', async (message) => {
   const isMentioned = message.mentions.has(client.user.id);
   const userName = message.member?.displayName || message.author.displayName || message.author.username;
 
-  // Check if AZURA is in Voice Companion mode in this guild
-  const { isInCompanionMode } = require('./voiceCompanion');
-  const inVCMode = !isDM && message.guild && isInCompanionMode(message.guild.id);
-
-  // Check if message calls "azura" by name (case-insensitive) — triggers response in VC text chat
-  const calledByName = inVCMode && /\bazura\b/i.test(message.content);
+  // Check if message calls AZURA by name (Azura / Ara / Zura) — triggers response without needing @mention
+  const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
 
   // Record ambient server channel messages into sliding window memory for multi-user context
-  if (!isDM && message.channel.id && message.content && !isMentioned) {
+  if (!isDM && message.channel.id && message.content && !isMentioned && !calledByName) {
     const rawText = message.content.replace(/<@!?\d+>/g, '').trim();
     if (rawText) {
       budgetGuard.addMessageToContext(`channel_${message.channel.id}`, 'user', `[${userName}]: ${rawText}`);
     }
   }
 
-  // If it's not a DM and not mentioned and not called by name in VC mode, ignore
+  // If it's not a DM and not mentioned and not called by name (Azura / Ara / Zura), ignore
   if (!isDM && !isMentioned && !calledByName) return;
 
   // Clean prompt by removing bot mention tag

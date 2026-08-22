@@ -183,7 +183,8 @@ client.on('messageCreate', async (message) => {
         /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(fullText);
 
       const isLeaveTrigger =
-        /\b(?:keluar\s+vc|leave\s+vc|keluar\s+voice|leave\s+voice|keluar\s+dari\s+vc|cabut\s+dari\s+vc|keluar\s+dulu\s+dari\s+vc|keluar\s+dulu|leave\s+dulu)\b/i.test(fullText);
+        /\b(?:keluar\s+sekarang|keluar\s+skrg|keluar\s+skrng|leave\s+sekarang|cabut\s+sekarang)\b/i.test(fullText) ||
+        /\b(?:keluar\s+vc|leave\s+vc|keluar\s+voice|leave\s+voice|keluar\s+dari\s+vc|cabut\s+dari\s+vc|keluar\s+dulu\s+dari\s+vc|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(fullText);
 
       if (isJoinTrigger) {
         console.log(`[VC Controller]: Attila triggered Join VC from text chat (${message.channel.name || 'DM'}).`);

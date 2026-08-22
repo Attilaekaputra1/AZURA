@@ -589,13 +589,16 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── Step 3: Intent Classification ──
 
-  // --- INTENT A: Leave VC Command (Ultra Broad & Bulletproof Deterministic Matching) ---
+  // --- INTENT A: Leave VC Command (Explicit "keluar sekarang" + Broad Deterministic Matching) ---
   const normalizedForLeave = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+  const isExplicitKeluarSekarang = /\b(?:keluar|leave|cabut)\s+(?:sekarang|skrg|skrng|now|saat\s+ini)\b/i.test(normalizedForLeave);
   const isLeaveIntent =
+    isExplicitKeluarSekarang ||
+    /\b(?:keluar\s+sekarang|keluar\s+skrg|keluar\s+skrng|keluar\s+vc|leave\s+vc|cabut\s+vc|keluar\s+dulu|leave\s+dulu|cabut\s+dulu|off\s+dulu|udahan\s+dulu)\b/i.test(normalizedForLeave) ||
     /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(normalizedForLeave);
 
   if (isLeaveIntent) {
-    console.log(`[Voice Pipeline]: 🚪 Detected Leave VC command ("${transcript}") from Attila!`);
+    console.log(`[Voice Pipeline]: 🚪 Trigger Leave VC ("${transcript}") detected from Attila! Explicit "keluar sekarang": ${isExplicitKeluarSekarang}`);
 
     const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
     const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';

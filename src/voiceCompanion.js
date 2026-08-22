@@ -793,9 +793,9 @@ ATURAN WAJIB VOICE OBROLAN (SANGAT KETAT):
 
   try {
     const res = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.OPENAI_MODEL,
       messages,
-      max_completion_tokens: 70,
+      max_completion_tokens: 100,
       temperature: 0.85
     });
 

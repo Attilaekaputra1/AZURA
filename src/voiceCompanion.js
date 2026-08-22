@@ -128,6 +128,7 @@ async function transcribeVoice(wavBuffer) {
 
 /**
  * Generate TTS audio and wrap it as a Discord AudioResource.
+ * Primary: ElevenLabs (Bella) — Fallback 1: OpenAI TTS (nova) — Fallback 2: Edge TTS
  */
 async function textToAudioResource(text) {
   const clean = text
@@ -138,9 +139,33 @@ async function textToAudioResource(text) {
     .trim();
   if (!clean) return null;
 
-  const tempPath = path.join(TEMP_DIR, `vc_tts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp3`);
+  // 1. Primary: ElevenLabs Multilingual v2 (Bella / Custom Voice)
+  if (config.ELEVENLABS_API_KEY) {
+    try {
+      console.log('[Voice TTS]: Generating audio via ElevenLabs (Bella)...');
+      const { generateElevenLabsTTS } = require('./elevenlabs');
+      const audioBuffer = await generateElevenLabsTTS(clean);
+      return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
+    } catch (elevenErr) {
+      console.warn('[Voice TTS Warning]: ElevenLabs failed, falling back to OpenAI TTS (nova):', elevenErr.message);
+    }
+  }
 
-  // --- Primary: Microsoft Edge Neural TTS (free, natural) ---
+  // 2. Fallback 1: OpenAI TTS-1 (nova - natural Gen Z female)
+  try {
+    const openai = getOpenAI();
+    if (openai) {
+      console.log('[Voice TTS]: Generating audio via OpenAI TTS (nova)...');
+      const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'nova', input: clean });
+      const buf = Buffer.from(await mp3.arrayBuffer());
+      return createAudioResource(Readable.from(buf), { inputType: StreamType.Arbitrary });
+    }
+  } catch (err) {
+    console.warn('[Voice TTS Warning]: OpenAI TTS failed, falling back to Edge TTS:', err.message);
+  }
+
+  // 3. Fallback 2: Microsoft Edge Neural TTS (Free)
+  const tempPath = path.join(TEMP_DIR, `vc_tts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp3`);
   try {
     const { EdgeTTS } = require('node-edge-tts');
     const tts = new EdgeTTS({
@@ -153,19 +178,8 @@ async function textToAudioResource(text) {
     fs.unlink(tempPath, () => {});
     return createAudioResource(Readable.from(buf), { inputType: StreamType.Arbitrary });
   } catch (edgeErr) {
-    console.warn('[Voice TTS]: EdgeTTS failed, trying OpenAI TTS:', edgeErr.message);
-    fs.unlink(tempPath, () => {});
-  }
-
-  // --- Fallback: OpenAI TTS-1 ---
-  try {
-    const openai = getOpenAI();
-    if (!openai) return null;
-    const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'shimmer', input: clean });
-    const buf = Buffer.from(await mp3.arrayBuffer());
-    return createAudioResource(Readable.from(buf), { inputType: StreamType.Arbitrary });
-  } catch (err) {
-    console.error('[Voice TTS Fallback Error]:', err.message);
+    console.error('[Voice TTS Fallback Error]: EdgeTTS failed:', edgeErr.message);
+    if (fs.existsSync(tempPath)) fs.unlink(tempPath, () => {});
     return null;
   }
 }

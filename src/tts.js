@@ -4,6 +4,7 @@ const { OpenAI } = require('openai');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { generateElevenLabsTTS } = require('./elevenlabs');
 
 const openai = new OpenAI({
   apiKey: config.OPENAI_API_KEY
@@ -41,18 +42,47 @@ function detectLanguage(text) {
 }
 
 /**
- * Generate Voice Note (MP3) using Free Microsoft Edge Neural Cloud API (Dynamic ID / JP / ZH Voice)
+ * Generate Voice Note (MP3) using ElevenLabs Multilingual v2 with fallbacks
  * @param {string} text 
  * @returns {Promise<AttachmentBuilder>}
  */
 async function generateVoiceNote(text) {
-  // Truncate text to max 400 chars for fast response
-  const cleanText = text.slice(0, 400).replace(/<[^>]+>/g, '').trim();
-  const tempPath = path.join(TEMP_DIR, `azura_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`);
+  const cleanText = text
+    .slice(0, 400)
+    .replace(/<[^>]+>/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/[*_~`#]/g, '')
+    .trim();
 
-  // Detect language for voice selection
+  // 1. Primary: ElevenLabs Multilingual v2 (Bella / Custom Voice)
+  if (config.ELEVENLABS_API_KEY) {
+    try {
+      console.log('[AZURA TTS]: Generating voice via ElevenLabs (Multilingual v2)...');
+      const audioBuffer = await generateElevenLabsTTS(cleanText);
+      return new AttachmentBuilder(audioBuffer, { name: 'azura_voice.mp3' });
+    } catch (err) {
+      console.warn('[AZURA TTS Warning]: ElevenLabs failed, falling back to OpenAI TTS (nova):', err.message);
+    }
+  }
+
+  // 2. Fallback 1: OpenAI TTS-1 with nova voice (natural 20s female)
+  if (config.OPENAI_API_KEY) {
+    try {
+      console.log('[AZURA TTS]: Generating voice via OpenAI TTS (nova)...');
+      const mp3 = await openai.audio.speech.create({
+        model: 'tts-1',
+        voice: 'nova',
+        input: cleanText
+      });
+      const buffer = Buffer.from(await mp3.arrayBuffer());
+      return new AttachmentBuilder(buffer, { name: 'azura_voice.mp3' });
+    } catch (openAiErr) {
+      console.warn('[AZURA TTS Warning]: OpenAI TTS failed, falling back to Edge TTS:', openAiErr.message);
+    }
+  }
+
+  // 3. Fallback 2: Microsoft Edge Neural TTS (Free)
   const langMode = detectLanguage(cleanText);
-
   let selectedVoice = 'id-ID-GadisNeural';
   let selectedLang = 'id-ID';
 
@@ -60,43 +90,24 @@ async function generateVoiceNote(text) {
     selectedVoice = 'ja-JP-NanamiNeural';
     selectedLang = 'ja-JP';
   } else if (langMode === 'zh') {
-    selectedVoice = 'zh-CN-XiaoxiaoNeural'; // Warm, soft & natural Chinese female voice
+    selectedVoice = 'zh-CN-XiaoxiaoNeural';
     selectedLang = 'zh-CN';
   }
 
+  const tempPath = path.join(TEMP_DIR, `azura_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`);
   try {
-    console.log(`[AZURA TTS]: Generating voice via Microsoft Edge Cloud (${selectedVoice})...`);
     const edgeTts = new EdgeTTS({
       voice: selectedVoice,
       lang: selectedLang,
       outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
     });
-
     await edgeTts.ttsPromise(cleanText, tempPath);
-
     const buffer = fs.readFileSync(tempPath);
-
-    // Clean up temp file silently
     fs.unlink(tempPath, () => {});
-
-    const attachment = new AttachmentBuilder(buffer, { name: 'azura_voice.mp3' });
-    return attachment;
-
-  } catch (edgeError) {
-    console.warn('[AZURA TTS Warning]: EdgeTTS error/timeout, falling back to OpenAI TTS:', edgeError.message || edgeError);
-
-    // Clean up temp file if exists
-    if (fs.existsSync(tempPath)) fs.unlink(tempPath, () => {});
-
-    // Fallback: OpenAI TTS-1 API
-    const mp3 = await openai.audio.speech.create({
-      model: 'tts-1',
-      voice: 'shimmer',
-      input: cleanText
-    });
-
-    const buffer = Buffer.from(await mp3.arrayBuffer());
     return new AttachmentBuilder(buffer, { name: 'azura_voice.mp3' });
+  } catch (edgeError) {
+    if (fs.existsSync(tempPath)) fs.unlink(tempPath, () => {});
+    throw edgeError;
   }
 }
 

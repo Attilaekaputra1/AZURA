@@ -48,21 +48,32 @@ async function streamMusicDirect(guildId, query, player, textChannel, requesterN
   await initPlayDl();
 
   try {
-    console.log(`[Music Streamer]: 🔍 Searching for "${query}"...`);
-    const results = await play.search(query, { source: { soundcloud: 'tracks' }, limit: 1 });
+    const cleanQuery = query.replace(/[.,!?;:"'()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
+    console.log(`[Music Streamer]: 🔍 Searching for "${cleanQuery}"...`);
+    const results = await play.search(cleanQuery, { source: { soundcloud: 'tracks' }, limit: 1 });
 
     if (!results || results.length === 0) {
-      return { success: false, message: `Maaf, aku nggak nemu lagu dengan judul "${query}".` };
+      console.warn(`[Music Streamer]: No track found for "${cleanQuery}"`);
+      if (textChannel) {
+        textChannel.send(`Maaf ${requesterName}, aku nggak nemu lagu **${cleanQuery}** di database musik.`).catch(() => {});
+      }
+      return { success: false, message: `Maaf, aku nggak nemu lagu dengan judul "${cleanQuery}".` };
     }
 
     const track = results[0];
     console.log(`[Music Streamer]: 🎵 Found track: "${track.name}" (${track.url})`);
 
     const stream = await play.stream(track.url);
+    console.log(`[Music Streamer]: Audio stream extracted successfully (type: ${stream.type}). Creating AudioResource...`);
+
     const audioResource = createAudioResource(stream.stream, { inputType: stream.type });
+    audioResource.playStream.on('error', (err) => {
+      console.error('[Music Stream Resource Error]:', err.message);
+    });
 
     // Play on the AudioPlayer
     player.play(audioResource);
+    console.log(`[Music Streamer]: ▶️ AudioPlayer started playing "${track.name}" in guild ${guildId}`);
 
     guildMusicSessions.set(guildId, {
       currentTrack: track,

@@ -562,7 +562,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
 
   // Clean transcript for intent matching
-  const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|kak azura|kak ara)\b/gi, '').trim();
+  const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|jura|juraa|zuraa|kak azura|kak ara)\b/gi, '').trim();
 
   // ── Step 3: Intent Classification ──
 

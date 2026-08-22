@@ -37,7 +37,7 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
 
     const req = https.request({
       hostname: 'api.elevenlabs.io',
-      path: `/v1/text-to-speech/${selectedVoice}?optimize_streaming_latency=3`,
+      path: `/v1/text-to-speech/${selectedVoice}`,
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,

@@ -593,23 +593,29 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   // ── Step 3: Intent Classification ──
 
   // --- INTENT A: Leave VC Command ---
-  const leavePattern = /(?:keluar|leave|cabut|disconnect|tutup|stop|selesai|udahan)\s*(?:dari\s*)?(?:voice|vc|channel|obrolan)?$/i;
-  const directLeavePattern = /^(?:tolong\s+)?(?:keluar|leave|cabut|disconnect)\s*(?:vc|voice)?$/i;
+  const isLeaveIntent =
+    /(?:keluar|leave|cabut|disconnect|tutup|stop|udahan|off|pamit)\s+(?:dari\s+)?(?:vc|voice|channel|room|sini)/i.test(transcript) ||
+    /(?:keluar|leave|cabut|off)\s+(?:dulu|dong|ya)/i.test(transcript) ||
+    /\b(?:keluar\s+dari\s+vc|leave\s+vc|cabut\s+dari\s+vc|keluar\s+vc)\b/i.test(transcript) ||
+    leavePattern.test(cleanTranscript) || directLeavePattern.test(cleanTranscript);
 
-  if (leavePattern.test(cleanTranscript) || directLeavePattern.test(cleanTranscript) || /keluar\s+dari\s+voice/i.test(transcript)) {
-    console.log('[Voice Pipeline]: Detected Leave VC voice command.');
+  if (isLeaveIntent) {
+    console.log('[Voice Pipeline]: Detected Leave VC voice command from Attila.');
+
+    const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
+    const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
     // Record to session log
     recordSessionEntry(guildId, 'Attila', transcript);
-    recordSessionEntry(guildId, 'AZURA', 'aku off dluan ya gais thank u');
+    recordSessionEntry(guildId, 'AZURA', textLeave);
 
     // Send parting text message to text channel before leaving
     const textChannel = companionTextChannels.get(guildId) || voiceChannel;
     if (textChannel) {
-      await textChannel.send('aku off dluan ya gais thank u').catch(() => {});
+      await textChannel.send(textLeave).catch(() => {});
     }
 
-    const audioResource = await textToAudioResource('aku off dluan ya gais, thank you!');
+    const audioResource = await textToAudioResource(spokenLeave, client);
     if (audioResource) {
       await playInVC(guildId, audioResource);
     }
@@ -1141,9 +1147,144 @@ function isInCompanionMode(guildId) {
   return activeConnections.has(guildId);
 }
 
+/**
+ * Programmatically join the Voice Channel where Attila is located
+ * @param {import('discord.js').Client} client 
+ * @returns {Promise<{ success: boolean, message: string }>}
+ */
+async function joinAttilaVoiceChannel(client) {
+  const ownerId = config.OWNER_DISCORD_ID;
+  if (!ownerId) {
+    return { success: false, message: 'Owner ID belum diset di .env' };
+  }
+
+  let targetVoiceChannel = null;
+  let targetGuild = null;
+
+  for (const guild of client.guilds.cache.values()) {
+    const member = await guild.members.fetch(ownerId).catch(() => null);
+    if (member && member.voice && member.voice.channel) {
+      targetVoiceChannel = member.voice.channel;
+      targetGuild = guild;
+      break;
+    }
+  }
+
+  if (!targetVoiceChannel || !targetGuild) {
+    return {
+      success: false,
+      message: 'Attila sayang, kamu belum masuk Voice Channel mana pun nih. Masuk dulu ke salah satu VC yaa, nanti aku langsung nyusul! [laughs]'
+    };
+  }
+
+  const guildId = targetGuild.id;
+  const existingConn = activeConnections.get(guildId);
+  if (existingConn) {
+    await cleanupGuild(guildId, client);
+  }
+
+  try {
+    voiceSessions.set(guildId, {
+      startTime: new Date(),
+      channelName: targetVoiceChannel.name,
+      guildName: targetGuild.name,
+      entries: []
+    });
+
+    const connection = joinVoiceChannel({
+      channelId: targetVoiceChannel.id,
+      guildId: guildId,
+      adapterCreator: targetGuild.voiceAdapterCreator,
+      selfMute: false,
+      selfDeaf: false,
+    });
+
+    await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+    activeConnections.set(guildId, connection);
+
+    const player = createAudioPlayer();
+    audioPlayers.set(guildId, player);
+    connection.subscribe(player);
+
+    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+        ]);
+      } catch {
+        await cleanupGuild(guildId, client);
+      }
+    });
+
+    const textChannel = findBestTextChannel(targetGuild, targetVoiceChannel, client);
+    if (textChannel) {
+      companionTextChannels.set(guildId, textChannel);
+      await textChannel.send('aku ikut kamu yaa').catch(() => {});
+    }
+
+    startVoiceListener(connection, guildId, client, targetVoiceChannel);
+
+    // Play requested greeting: "Yeyy, join lagi, Makasih Attila! [laughs]"
+    const joinGreeting = 'Yeyy, join lagi, Makasih Attila! [laughs]';
+    const audioResource = await textToAudioResource(joinGreeting, client);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+
+    resetIdleTimer(guildId);
+
+    return {
+      success: true,
+      message: `Yeyy, join lagi, Makasih Attila! [laughs] (AZURA masuk ke #${targetVoiceChannel.name})`
+    };
+  } catch (err) {
+    console.error('[Join VC Error]:', err.message);
+    return {
+      success: false,
+      message: `Gagal join ke VC: ${err.message}`
+    };
+  }
+}
+
+/**
+ * Programmatically leave Voice Channel
+ * @param {import('discord.js').Client} client 
+ * @param {string} guildId 
+ * @returns {Promise<{ success: boolean, message: string }>}
+ */
+async function leaveVoiceChannel(client, guildId = null) {
+  const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
+  const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
+
+  if (guildId && activeConnections.has(guildId)) {
+    const textChannel = companionTextChannels.get(guildId);
+    if (textChannel) {
+      await textChannel.send(textLeave).catch(() => {});
+    }
+
+    const audioResource = await textToAudioResource(spokenLeave, client);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+
+    await cleanupGuild(guildId, client);
+    return { success: true, message: textLeave };
+  }
+
+  // If no guild specified, leave all
+  for (const [gid] of activeConnections) {
+    await cleanupGuild(gid, client);
+  }
+  return { success: true, message: textLeave };
+}
+
 module.exports = {
   handleVoiceStateUpdate,
   getCompanionTextChannel,
   isInCompanionMode,
-  handleMusicButton
+  handleMusicButton,
+  joinAttilaVoiceChannel,
+  leaveVoiceChannel
 };
+

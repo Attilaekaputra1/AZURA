@@ -168,6 +168,21 @@ client.on('messageCreate', async (message) => {
     const guildId = message.guild?.id || null;
     const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
 
+    // Direct Voice Channel Join & Leave trigger for Attila
+    if (isOwner) {
+      const lowerPrompt = finalPrompt.toLowerCase().trim();
+      if (/\b(?:masuk\s+vc|join\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc)\b/i.test(lowerPrompt)) {
+        const { joinAttilaVoiceChannel } = require('./voiceCompanion');
+        const joinRes = await joinAttilaVoiceChannel(client);
+        return message.reply(joinRes.message);
+      }
+      if (/\b(?:keluar\s+vc|leave\s+vc|keluar\s+voice|leave\s+voice|keluar\s+dari\s+vc|cabut\s+dari\s+vc|keluar\s+dulu\s+dari\s+vc)\b/i.test(lowerPrompt)) {
+        const { leaveVoiceChannel } = require('./voiceCompanion');
+        const leaveRes = await leaveVoiceChannel(client, message.guild?.id || null);
+        return message.reply(leaveRes.message);
+      }
+    }
+
     // Call OpenAI API via AZURA module (with optional images for Vision)
     const response = await askAzura(message.author.id, finalPrompt, userName, imageUrls, isDM, message.channel.id, guildId, isOwner);
 

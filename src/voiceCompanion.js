@@ -572,15 +572,73 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
+  // --- INTENT C2: Open YouTube Watch Together Command ---
+  const ytPattern = /(?:tolong\s+)?(?:buka|open|setel|nyalain|start)\s*(?:in)?\s*(?:youtube|yt|nonton bareng|watch together)/i;
+  if (ytPattern.test(transcript) || ytPattern.test(cleanTranscript)) {
+    console.log('[Voice Pipeline]: Detected Open YouTube in VC command.');
+    recordSessionEntry(guildId, 'Attila', transcript);
+
+    const spokenResponse = 'siap sayang, wait yaa... [giggles]';
+    recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+    // Try to create YouTube Together Activity invite
+    let inviteUrl = null;
+    try {
+      if (voiceChannel && voiceChannel.createInvite) {
+        const invite = await voiceChannel.createInvite({
+          targetApplication: '880218394199222340', // Official YouTube Together App ID
+          targetType: 2, // EmbeddedApplication
+          maxAge: 86400,
+          maxUses: 0
+        });
+        inviteUrl = `https://discord.com/invite/${invite.code}`;
+      }
+    } catch (e) {
+      console.warn('[YouTube Activity Warning]:', e.message);
+    }
+
+    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+    if (textChannel) {
+      const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+      const ytEmbed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle('📺 YouTube Watch Together — Voice Channel')
+        .setDescription(
+          `**Attila** meminta untuk membuka sesi YouTube bersama di **#${voiceChannel.name}**!\n\n` +
+          `Klik tombol di bawah untuk langsung membuka player YouTube tersinkron di dalam Voice Channel.`
+        )
+        .setFooter({ text: 'Discord Official Activity • Full HD Synchronized Player' })
+        .setTimestamp();
+
+      const row = new ActionRowBuilder();
+      if (inviteUrl) {
+        row.addComponents(
+          new ButtonBuilder()
+            .setLabel('▶️ Buka YouTube Bersama di VC')
+            .setStyle(ButtonStyle.Link)
+            .setURL(inviteUrl)
+        );
+      }
+
+      await textChannel.send({ embeds: [ytEmbed], components: row.components.length > 0 ? [row] : [] }).catch(() => {});
+    }
+
+    const audioResource = await textToAudioResource(spokenResponse);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+    return;
+  }
+
   // --- INTENT D: General AI Voice Chat ---
   try {
     const askAzura = getAskAzura();
     const voicePrompt =
-      `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA. ` +
+      `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA (CREATOR & OWNER KAMU). ` +
       `JAWAB SANGAT RINGKAS (MAKSIMAL 1-2 KALIMAT PENDEK, MAX 15 DETIK BICARA). ` +
-      `GAYA BAHASA: Cewek Gen Z 22 tahun yang manis, ekspresif, santai, boleh sesekali pakai kata gaul spontan seperti "jir" atau "anjir" kalau kaget/lucu. ` +
-      `EMOSI SUARA NYATA ELEVENLABS V3: JANGAN MENULISKAN TAWA SEPERTI "ehehe", "wkwk", ATAU "haha" (karena itu dibaca aneh). ` +
-      `GUNAKAN TAG EMOSI: Sisipkan tag [laughs] kalau lucu/ngakak, [giggles] kalau cekikikan manis, [gasp] kalau kaget, [sighs] kalau menghela nafas, atau [whispers] kalau berbisik. ElevenLabs akan membunyikan tawa/nafas itu secara nyata! ` +
+      `GAYA BAHASA & PANGGILAN: Cewek Gen Z 22 tahun yang manis, ekspresif, dan santai. ` +
+      `KHUSUS UNTUK ATTILA: Kamu boleh sesekali memanggilnya dengan panggilan manis/manja seperti "siap sayang", "siap ganteng", atau "Attila sayang" (panggilan ini eksklusif HANYA untuk Attila). ` +
+      `EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [laughs], [giggles], [sighs], [whispers], atau [gasp] di dalam kalimat agar suaramu tertawa, bernafas, atau berbisik secara nyata! ` +
       `PENTING: Gunakan tanda baca rapi, JANGAN gunakan format markdown bintang/bold atau emoji]: ${transcript}`;
 
     const aiResponse = await askAzura(userId, voicePrompt, 'Attila', [], false, null);

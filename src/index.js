@@ -191,6 +191,21 @@ client.on('messageCreate', async (message) => {
         const leaveRes = await leaveVoiceChannel(client, message.guild?.id || null);
         return message.reply(leaveRes.message);
       }
+
+      // Direct Play Music trigger from chat
+      const musicMatch = fullText.match(/(?:setel|puterin|putar|mainkan|setelin)\s+(?:lagu|musik|lagunya)?\s*(.+)/i);
+      if (musicMatch) {
+        let songTitle = musicMatch[1]
+          .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot)\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (songTitle.length > 1) {
+          console.log(`[Music Dispatcher]: Attila triggered music from text: "${songTitle}"`);
+          const { playMusicAutonomous } = require('./voiceCompanion');
+          await playMusicAutonomous(client, guildId, message.channel, songTitle, userName);
+          return message.reply(`Siap ${userName} sayang! Udah aku setelin lagu **${songTitle}** di bot musik server yaa! 🎶✨`);
+        }
+      }
     }
 
     // Call OpenAI API via AZURA module (with optional images for Vision)

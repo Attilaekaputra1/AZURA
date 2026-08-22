@@ -273,107 +273,43 @@ function resetIdleTimer(guildId) {
 // ============================================================
 
 /**
- * Trigger music confirmation in Owner DM
+ * Autonomous Music Bot Dispatcher:
+ * Sends commands for standard Discord music bots (!play, /play, -play, ,play)
+ * directly in the companion/active text channel, accompanied by an aesthetic Now Playing embed.
  */
-async function triggerVoiceMusicPlay(client, guildId, channel, songTitle, requesterId) {
-  const pendingId = `music_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+async function playMusicAutonomous(client, guildId, channel, songTitle, requesterName = 'Attila') {
+  if (!channel) return false;
 
-  pendingMusic.set(pendingId, {
-    songTitle,
-    guildId,
-    channelId: channel?.id || null,
-    channelName: channel?.name || 'voice-channel',
-    requesterId
-  });
+  try {
+    const musicEmbed = new EmbedBuilder()
+      .setTitle('🎶 AZURA Autonomous Music Controller')
+      .setDescription(
+        `🎧 **Lagu yang Disetel:** \`${songTitle}\`\n` +
+        `👤 **Diminta oleh:** **${requesterName}**\n\n` +
+        `*AZURA telah otomatis mengirimkan instruksi ke Bot Musik server...*`
+      )
+      .setColor(0x9B59B6)
+      .setFooter({ text: 'Voice Companion • Autonomous Music Controller' })
+      .setTimestamp();
 
-  const previewEmbed = new EmbedBuilder()
-    .setTitle('🎵 Konfirmasi Perintah Suara: Putar Musik')
-    .setDescription(
-      `Kamu meminta pemutaran lagu melalui perintah suara di Voice Channel:\n\n` +
-      `🎶 **Judul Lagu / Musik:** \`${songTitle}\`\n` +
-      `🏠 **Target Saluran:** #${channel?.name || 'voice-channel'}\n\n` +
-      `**Pilih tombol di bawah untuk memutar sekarang:**`
-    )
-    .setColor(0x9B59B6)
-    .setFooter({ text: 'Perintah Suara Voice Channel • Music Bot Controller' })
-    .setTimestamp();
+    await channel.send({ embeds: [musicEmbed] }).catch(() => {});
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`confirm_playmusic_${pendingId}`)
-      .setLabel('▶️ Putar Musik Sekarang')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`cancel_playmusic_${pendingId}`)
-      .setLabel('❌ Batal')
-      .setStyle(ButtonStyle.Danger)
-  );
+    // Dispatch standard music bot commands
+    await channel.send(`/play ${songTitle}`).catch(() => {});
+    await channel.send(`!play ${songTitle}`).catch(() => {});
+    await channel.send(`-play ${songTitle}`).catch(() => {});
+    await channel.send(`,play ${songTitle}`).catch(() => {});
 
-  const owner = await client.users.fetch(requesterId);
-  if (owner) {
-    await owner.send({
-      embeds: [previewEmbed],
-      components: [row]
-    });
+    console.log(`[Music Dispatcher]: Sent autonomous play commands for "${songTitle}" in #${channel.name || 'channel'}`);
     return true;
+  } catch (err) {
+    console.error('[Music Dispatcher Error]:', err.message);
+    return false;
   }
-  return false;
 }
 
-/**
- * Handle button clicks for voice music play confirmation
- */
 async function handleMusicButton(interaction) {
-  const ownerId = config.OWNER_DISCORD_ID;
-  if (!ownerId || interaction.user.id !== ownerId) {
-    return interaction.reply({ content: '🔒 Akses ditolak.', flags: 64 });
-  }
-
-  const customId = interaction.customId;
-  const isConfirm = customId.startsWith('confirm_playmusic_');
-  const isCancel = customId.startsWith('cancel_playmusic_');
-  const pendingId = customId.replace('confirm_playmusic_', '').replace('cancel_playmusic_', '');
-
-  const data = pendingMusic.get(pendingId);
-  if (!data) {
-    return interaction.update({
-      content: '⚠️ Permintaan musik ini sudah kadaluarsa atau tidak ditemukan.',
-      embeds: [],
-      components: []
-    });
-  }
-
-  if (isCancel) {
-    pendingMusic.delete(pendingId);
-    return interaction.update({
-      content: `❌ **Pemutaran Musik Dibatalkan.** Permintaan lagu \`${data.songTitle}\` dibatalkan.`,
-      embeds: [],
-      components: []
-    });
-  }
-
-  if (isConfirm) {
-    pendingMusic.delete(pendingId);
-    const targetChannel = interaction.client.channels.cache.get(data.channelId) || companionTextChannels.get(data.guildId);
-
-    if (targetChannel) {
-      // Send standard music bot trigger command in the channel
-      await targetChannel.send(`/play ${data.songTitle}`).catch(() => {});
-      await targetChannel.send(`!play ${data.songTitle}`).catch(() => {});
-
-      return interaction.update({
-        content: `✅ **Musik Diputar!** AZURA telah mengirimkan perintah pemutaran lagu \`${data.songTitle}\` di #${data.channelName}.`,
-        embeds: [],
-        components: []
-      });
-    } else {
-      return interaction.update({
-        content: `⚠️ Saluran text #${data.channelName} tidak ditemukan untuk mengirim perintah musik.`,
-        embeds: [],
-        components: []
-      });
-    }
-  }
+  return interaction.reply({ content: 'Musik sudah otomatis disetelkan oleh AZURA.', flags: 64 });
 }
 
 // ============================================================
@@ -713,28 +649,33 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // --- INTENT C: Play Music Command ---
-  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan)\s+(?:musik|lagu|song)\s+(.+)/i;
-  const musicPattern2 = /(?:tolong\s+)?(?:puterin|putar|setel)\s+(?:lagunya|lagu)\s+(.+)/i;
-  const musicMatch = transcript.match(musicPattern) || transcript.match(musicPattern2) || cleanTranscript.match(musicPattern);
+  // --- INTENT C: Play Music Command (Direct Autonomous Bot Controller) ---
+  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan|setelin)\s+(?:musik|lagu|song|lagunya)?\s*(.+)/i;
+  const musicMatch = transcript.match(musicPattern) || cleanTranscript.match(musicPattern);
 
   if (musicMatch) {
-    const songTitle = musicMatch[1].trim();
-    console.log(`[Voice Pipeline]: Detected Play Music command -> Song: "${songTitle}"`);
+    let songTitle = musicMatch[1]
+      .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-    recordSessionEntry(guildId, 'Attila', transcript);
+    if (songTitle.length > 1) {
+      console.log(`[Voice Pipeline]: 🎶 Autonomous Music Controller triggered -> Song: "${songTitle}"`);
 
-    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
-    await triggerVoiceMusicPlay(client, guildId, textChannel, songTitle, userId);
+      recordSessionEntry(guildId, 'Attila', transcript);
 
-    const spokenResponse = `siap, konfirmasi putar lagu ${songTitle} udah aku kirim ke DM kamu yaa`;
-    recordSessionEntry(guildId, 'AZURA', spokenResponse);
+      const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+      await playMusicAutonomous(client, guildId, textChannel, songTitle, 'Attila');
 
-    const audioResource = await textToAudioResource(spokenResponse);
-    if (audioResource) {
-      await playInVC(guildId, audioResource);
+      const spokenResponse = `Siap Attila sayang, lagi aku setelin lagu ${songTitle} nih, selamat dengerin yaa! [giggles]`;
+      recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+      const audioResource = await textToAudioResource(spokenResponse, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+      return;
     }
-    return;
   }
 
   // --- INTENT C2: Open YouTube Watch Together Command ---
@@ -1375,6 +1316,7 @@ module.exports = {
   isInCompanionMode,
   handleMusicButton,
   joinAttilaVoiceChannel,
-  leaveVoiceChannel
+  leaveVoiceChannel,
+  playMusicAutonomous
 };
 

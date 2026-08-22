@@ -202,9 +202,6 @@ client.on('messageCreate', async (message) => {
       return message.reply(replyPayload);
     }
 
-    // Get user's display name from Discord profile
-    const userName = message.member?.displayName || message.author.displayName || message.author.username;
-
     // Call OpenAI API via AZURA module (with optional images for Vision)
     const response = await askAzura(message.author.id, finalPrompt, userName, imageUrls, isDM, message.channel.id);
 

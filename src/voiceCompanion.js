@@ -580,15 +580,15 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   const nonBotMembers = voiceChannel?.members ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
   const isCrowded = nonBotMembers > 1; // 2 or more users in VC
 
-  const hasWakeWord = /\b(?:azura|zura|asura|ajura)\b/i.test(transcript);
+  const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|kak azura|kak ara)\b/i.test(transcript);
 
   if (isCrowded && !hasWakeWord) {
-    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word "Azura" not called. Ignoring.`);
+    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word ("Azura" / "Ara" / "Zura") not called. Ignoring.`);
     return;
   }
 
   // Clean transcript for intent matching
-  const cleanTranscript = transcript.replace(/\b(?:azura|zura|asura|ajura)\b/gi, '').trim();
+  const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura)\b/gi, '').trim();
 
   // ── Step 3: Intent Classification ──
 
@@ -735,7 +735,10 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     const askAzura = getAskAzura();
     const voicePrompt =
       `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA (CREATOR & OWNER KAMU). ` +
+      `KAMU MENGENALI PANGGILAN NAMAMU SEPERTI "Azura", "Ara", ATAU "Zura". ` +
       `JAWAB SANGAT RINGKAS (MAKSIMAL 1-2 KALIMAT PENDEK, MAX 15 DETIK BICARA). ` +
+      `KEMAMPUAN MULTILINGUAL VOICE: Kamu fasih berbicara dalam berbagai bahasa (Bahasa Indonesia, English, 日本語 / Japanese, dsb). ` +
+      `JIKA ATTILA MEMINTA KAMU GANTI BAHASA (misal "Azura ngomong bahasa inggris" / "ganti bahasa jepang") ATAU BICARA DALAM BAHASA LAIN, BALASLAH MENGGUNAKAN BAHASA TERSEBUT DENGAN FASIH DAN ALAMI! ` +
       `GAYA BAHASA & PANGGILAN: Cewek Gen Z 22 tahun yang manis, ekspresif, dan santai. ` +
       `KHUSUS UNTUK ATTILA: Kamu boleh sesekali memanggilnya dengan panggilan manis/manja seperti "siap sayang", "siap ganteng", atau "Attila sayang" (panggilan ini eksklusif HANYA untuk Attila). ` +
       `EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [laughs], [giggles], [sighs], [whispers], atau [gasp] di dalam kalimat agar suaramu tertawa, bernafas, atau berbisik secara nyata! ` +

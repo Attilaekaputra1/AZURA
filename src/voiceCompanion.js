@@ -28,7 +28,7 @@ const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 // Configuration
 // ============================================================
 const VOICE_COOLDOWN_MS = 1000;       // 1s cooldown for regular members (0ms for Owner)
-const SILENCE_DURATION_MS = 600;       // 0.6s silence = speech ended (crisp & responsive)
+const SILENCE_DURATION_MS = 350;       // 0.35s silence = speech ended (ultra responsive & snappy)
 const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
 const MAX_RECORDING_MS = 15000;       // Max 15s recording per turn
 const MAX_NORMAL_CHARS = 1000;        // ~1 minute of normal TTS speech (max 1 min)
@@ -616,13 +616,13 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       textChannel.send(textLeave).catch(() => {});
     }
 
-    // Play TTS farewell with ElevenLabs v3 in VC (with 3.5s timeout race so it never hangs)
+    // Play TTS farewell with ElevenLabs v3 in VC (allow full speech without cutoff)
     try {
       const audioResource = await textToAudioResource(spokenLeave, client);
       if (audioResource) {
         await Promise.race([
           playInVC(guildId, audioResource),
-          new Promise(r => setTimeout(r, 3500))
+          new Promise(r => setTimeout(r, 9000))
         ]);
       }
     } catch (err) {

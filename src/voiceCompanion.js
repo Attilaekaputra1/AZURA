@@ -757,7 +757,7 @@ async function playGreeting(guildId, voiceChannel) {
     // ── Kategori 3: Ramai (3+ Orang Lain di Room) ──
     greetingOptions = [
       '[gasp] Buset rame bener! [laughs] Halo semuanya, aku sama Attila ikut nimbrung ya gais~',
-      '[laughs] Anjir rame banget di sini! [giggles] Lagi pada heboh apa nih? Aku sama Attila ikutan yaa!',
+      '[laughs] Anjir rame banget di sini! [giggles] Lagi ada apa gais? Aku sama Attila ikutan yaa!',
       '[whispers] Pssst... [laughs] buset rame amat room ini! Halo semuanya, salam kenal dari aku sama Attila ya gais!'
     ];
   }

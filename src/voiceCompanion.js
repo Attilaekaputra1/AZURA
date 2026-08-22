@@ -3,6 +3,7 @@ const {
   EndBehaviorType, createAudioPlayer, createAudioResource,
   AudioPlayerStatus, StreamType
 } = require('@discordjs/voice');
+const { AttachmentBuilder } = require('discord.js');
 const { Readable } = require('stream');
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +18,7 @@ const audioPlayers = new Map();           // guildId -> AudioPlayer
 const activeRecordings = new Set();       // userIds currently being recorded
 const voiceCooldowns = new Map();         // userId -> last response timestamp
 const isBotSpeaking = new Set();          // guildIds where bot is speaking
+const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
 
 // ============================================================
 // Configuration
@@ -345,6 +347,20 @@ async function processVoiceSpeech(guildId, userId, pcmChunks) {
     if (!spoken) return;
     console.log(`[Voice Pipeline]: 💬 Response: "${spoken}"`);
 
+    // Record to session transcript (saved in memory until VC session ends)
+    const session = voiceSessions.get(guildId);
+    if (session) {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: 'Asia/Jakarta'
+      });
+      session.entries.push({ time: timeStr, speaker: 'Attila', text: transcript });
+      session.entries.push({ time: timeStr, speaker: 'AZURA', text: spoken });
+    }
+
     // ── Step 3: TTS → AudioResource ──
     const audioResource = await textToAudioResource(spoken);
     if (!audioResource) {
@@ -356,12 +372,6 @@ async function processVoiceSpeech(guildId, userId, pcmChunks) {
     console.log('[Voice Pipeline]: 🔊 Playing in VC...');
     await playInVC(guildId, audioResource);
     console.log('[Voice Pipeline]: ✅ Done.');
-
-    // ── Step 5: Log transcript to companion text channel ──
-    const textCh = companionTextChannels.get(guildId);
-    if (textCh) {
-      textCh.send(`🎙️ **Attila** *(voice)*: "${transcript}"\n💬 **AZURA**: ${spoken}`).catch(() => {});
-    }
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
   }
@@ -389,7 +399,7 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
 
   // === Attila LEFT a voice channel (or switched away) ===
   if (oldChannel && (!newChannel || oldChannel.id !== newChannel?.id)) {
-    cleanupGuild(guildId);
+    await cleanupGuild(guildId, client);
   }
 
   // === Attila JOINED a new voice channel ===
@@ -397,13 +407,19 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
     // If already connected, destroy old connection first (channel switch)
     const existingConn = activeConnections.get(guildId);
     if (existingConn) {
-      try { existingConn.destroy(); } catch (_) {}
-      activeConnections.delete(guildId);
-      audioPlayers.delete(guildId);
+      await cleanupGuild(guildId, client);
     }
 
     try {
       console.log(`[Voice Companion]: Attila masuk ke "${newChannel.name}". AZURA ikut join (voice mode)...`);
+
+      // Initialize voice session tracking
+      voiceSessions.set(guildId, {
+        startTime: new Date(),
+        channelName: newChannel.name,
+        guildName: guild.name,
+        entries: []
+      });
 
       // Join with hearing & speaking enabled for live voice conversation
       const connection = joinVoiceChannel({
@@ -431,12 +447,12 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
             entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
           ]);
         } catch {
-          cleanupGuild(guildId);
+          await cleanupGuild(guildId, client);
           console.log(`[Voice Companion]: Disconnected from VC in "${guild.name}".`);
         }
       });
 
-      // Find best text channel for logging transcripts
+      // Find best text channel for companion text replies
       const textChannel = findBestTextChannel(guild, newChannel, client);
       if (textChannel) {
         companionTextChannels.set(guildId, textChannel);
@@ -470,8 +486,11 @@ async function playGreeting(guildId) {
 
 /**
  * Clean up all resources for a guild when leaving VC.
+ * Generates and sends a session transcript document to the Owner DM if any dialogue occurred.
+ * @param {string} guildId
+ * @param {import('discord.js').Client} client
  */
-function cleanupGuild(guildId) {
+async function cleanupGuild(guildId, client) {
   const conn = activeConnections.get(guildId);
   if (conn) {
     try { conn.destroy(); } catch (_) {}
@@ -480,6 +499,49 @@ function cleanupGuild(guildId) {
   companionTextChannels.delete(guildId);
   audioPlayers.delete(guildId);
   isBotSpeaking.delete(guildId);
+
+  // Send session transcript document to Owner DM if there were interactions
+  const session = voiceSessions.get(guildId);
+  voiceSessions.delete(guildId);
+
+  if (session && session.entries && session.entries.length > 0 && client) {
+    try {
+      console.log(`[Voice Companion]: Sending voice session transcript (${session.entries.length / 2} dialogs) to Owner DM...`);
+      const endTime = new Date();
+      const startStr = session.startTime.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+      const endStr = endTime.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+
+      let docContent = `# 🎙️ AZURA Voice Session Transcript\n\n`;
+      docContent += `- **Waktu Mulai:** ${startStr}\n`;
+      docContent += `- **Waktu Selesai:** ${endStr}\n`;
+      docContent += `- **Server:** ${session.guildName}\n`;
+      docContent += `- **Voice Channel:** ${session.channelName}\n`;
+      docContent += `- **Total Dialog:** ${session.entries.length / 2} percakapan\n\n`;
+      docContent += `---\n\n## 📝 Transkrip Percakapan\n\n`;
+
+      for (const item of session.entries) {
+        const icon = item.speaker === 'Attila' ? '🎙️' : '💬';
+        docContent += `[${item.time}] ${icon} **${item.speaker}**: ${item.text}\n\n`;
+      }
+
+      const fileBuffer = Buffer.from(docContent, 'utf-8');
+      const dateTag = new Date().toISOString().slice(0, 10);
+      const fileName = `Transkrip_Voice_${dateTag}_${Date.now().toString().slice(-4)}.md`;
+      const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
+
+      const owner = await client.users.fetch(config.OWNER_DISCORD_ID);
+      if (owner) {
+        await owner.send({
+          content: `📄 **Laporan Transkrip Voice Channel**\nSesi voice chat di **#${session.channelName}** (${session.guildName}) telah selesai dengan total **${session.entries.length / 2} interaksi**.\nBerikut file dokumen transkrip lengkapnya:`,
+          files: [attachment]
+        });
+        console.log('[Voice Companion]: Voice transcript successfully sent to Owner DM.');
+      }
+    } catch (dmErr) {
+      console.error('[Voice Companion DM Error]: Failed to send transcript to Owner:', dmErr.message);
+    }
+  }
+
   console.log(`[Voice Companion]: Cleaned up resources for guild ${guildId}.`);
 }
 

@@ -228,11 +228,27 @@ function playInVC(guildId, resource) {
 
     isBotSpeaking.add(guildId);
 
+    // Unmute to speak
+    try { conn.rejoin({ selfMute: false, selfDeaf: false }); } catch (_) {}
+
     let finished = false;
     const finish = () => {
       if (finished) return;
       finished = true;
       isBotSpeaking.delete(guildId);
+
+      // Auto-mute after speaking if music is not actively streaming
+      try {
+        const { guildMusicSessions } = require('./musicStreamer');
+        const isMusicPlaying = guildMusicSessions.has(guildId);
+        if (!isMusicPlaying) {
+          conn.rejoin({ selfMute: true, selfDeaf: false });
+          console.log(`[Voice Companion]: Auto-muted after speaking in guild ${guildId}.`);
+        }
+      } catch (_) {
+        try { conn.rejoin({ selfMute: true, selfDeaf: false }); } catch (_) {}
+      }
+
       resolve();
     };
 
@@ -258,10 +274,21 @@ function resetIdleTimer(guildId) {
     clearTimeout(idleTimers.get(guildId));
   }
 
+  // If bot was previously auto-deafened, un-deafen to listen
+  const activeConn = activeConnections.get(guildId);
+  if (activeConn) {
+    try {
+      activeConn.rejoin({ selfMute: true, selfDeaf: false });
+    } catch (_) {}
+  }
+
   const timer = setTimeout(() => {
-    const activeConn = activeConnections.get(guildId);
-    if (activeConn) {
-      console.log(`[Voice Companion]: 5 menit tanpa interaksi di guild ${guildId}.`);
+    const conn = activeConnections.get(guildId);
+    if (conn) {
+      console.log(`[Voice Companion]: 5 menit tanpa interaksi di guild ${guildId}. Auto deafen aktif.`);
+      try {
+        conn.rejoin({ selfMute: true, selfDeaf: true });
+      } catch (_) {}
     }
   }, IDLE_DEAFEN_MS);
 
@@ -1362,6 +1389,7 @@ module.exports = {
   joinAttilaVoiceChannel,
   leaveVoiceChannel,
   playMusicAutonomous,
-  audioPlayers
+  audioPlayers,
+  activeConnections
 };
 

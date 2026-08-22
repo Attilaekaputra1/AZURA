@@ -152,6 +152,14 @@ function stopMusic(guildId) {
 
   session.player.stop();
   guildMusicSessions.delete(guildId);
+
+  // Auto-mute bot after music is stopped
+  try {
+    const { activeConnections } = require('./voiceCompanion');
+    const conn = activeConnections.get(guildId);
+    if (conn) conn.rejoin({ selfMute: true, selfDeaf: false });
+  } catch (_) {}
+
   return { success: true, message: '⏹️ Musik dihentikan.' };
 }
 

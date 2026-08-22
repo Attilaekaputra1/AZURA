@@ -25,6 +25,12 @@ const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, 
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 const dismissedGuilds = new Set();        // guildIds where bot was dismissed by Attila (anti auto-rejoin)
 
+// Summon-Based Conversation State Machine
+// guildId -> { mode: 'PASSIVE'|'ACTIVE', lastActiveAt: number, turnCount: number }
+const conversationMode = new Map();
+const activeExpireTimers = new Map();     // guildId -> NodeJS.Timeout (15s auto-expire to PASSIVE)
+const ACTIVE_EXPIRE_MS = 15000;           // 15 seconds of silence -> back to PASSIVE
+
 // ============================================================
 // Configuration
 // ============================================================
@@ -486,6 +492,8 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
   recordSessionEntry(guildId, callerName, transcript);
 
   // Check if member is calling Attila ("Att", "Attila", "Til", "Atila")
+  // NOTE: Members have NO access to call Azura or issue commands (music, leave, etc.)
+  // Only the 10-second Attila-absent fallback is available for members.
   const isCallingAttila = /\b(?:attila|att|til|atila|tatil)\b/i.test(transcript);
   if (!isCallingAttila) return;
 
@@ -546,7 +554,12 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
 }
 
 /**
- * Full pipeline: PCM audio → Energy Gate → Whisper STT → Hallucination Filter → Intent Classifier → TTS → VC playback.
+ * Full pipeline: PCM audio → Energy Gate → Whisper STT → Hallucination Filter → Summon Gate → Intent Classifier → TTS → VC playback.
+ * 
+ * SUMMON-BASED CONVERSATION MODEL:
+ * - PASSIVE (default): Azura only listens & records. Does NOT respond unless wake-word detected.
+ * - ACTIVE: Azura responds. GPT evaluates if follow-up utterances are still directed at her.
+ *   Auto-expires to PASSIVE after 15 seconds of silence.
  */
 async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel) {
   const pcmBuffer = Buffer.concat(pcmChunks);
@@ -600,164 +613,189 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   console.log(`[Voice Pipeline]: 📝 Transcript from ${isOwner ? 'Attila' : 'Member'}: "${transcript}"`);
 
-  // ── Step 2: Wake-Word Filter ──
-  // For Attila (Owner), we NEVER drop commands even in crowded rooms.
-  // For other members in crowded rooms, we require wake-word unless it's a direct leave/system command.
-  const nonBotMembers = voiceChannel?.members ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
-  const isCrowded = nonBotMembers > 1;
-
-  const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|kak azura|kak ara|bot)\b/i.test(transcript);
-  const hasDirectCommand = /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar|putar|setel|play|musik|lagu|youtube|yt)\b/i.test(transcript);
-
-  if (!isOwner && isCrowded && !hasWakeWord && !hasDirectCommand) {
-    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word not called for member. Ignoring.`);
-    return;
-  }
+  // ── ALWAYS record session entry (Azura hears everything, even in PASSIVE) ──
+  recordSessionEntry(guildId, isOwner ? 'Attila' : 'Member', transcript);
 
   // Clean transcript for intent matching
   const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|jura|juraa|zuraa|kak azura|kak ara)\b/gi, '').trim();
 
-  // ── Step 3: Intent Classification ──
+  // ── Step 2: Direct Command Detection (bypasses Summon Gate — Attila only) ──
+  if (isOwner) {
+    // --- INTENT A: Leave VC Command ---
+    const normalizedForLeave = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+    const isExplicitKeluarSekarang = /\b(?:keluar|leave|cabut)\s+(?:sekarang|skrg|skrng|now|saat\s+ini)\b/i.test(normalizedForLeave);
+    const isLeaveIntent =
+      isExplicitKeluarSekarang ||
+      /\b(?:keluar\s+sekarang|keluar\s+skrg|keluar\s+skrng|keluar\s+vc|leave\s+vc|cabut\s+vc|keluar\s+dulu|leave\s+dulu|cabut\s+dulu|off\s+dulu|udahan\s+dulu)\b/i.test(normalizedForLeave) ||
+      /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(normalizedForLeave);
 
-  // --- INTENT A: Leave VC Command (Explicit "keluar sekarang" + Broad Deterministic Matching) ---
-  const normalizedForLeave = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
-  const isExplicitKeluarSekarang = /\b(?:keluar|leave|cabut)\s+(?:sekarang|skrg|skrng|now|saat\s+ini)\b/i.test(normalizedForLeave);
-  const isLeaveIntent =
-    isExplicitKeluarSekarang ||
-    /\b(?:keluar\s+sekarang|keluar\s+skrg|keluar\s+skrng|keluar\s+vc|leave\s+vc|cabut\s+vc|keluar\s+dulu|leave\s+dulu|cabut\s+dulu|off\s+dulu|udahan\s+dulu)\b/i.test(normalizedForLeave) ||
-    /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(normalizedForLeave);
+    if (isLeaveIntent) {
+      dismissedGuilds.add(guildId);
+      conversationMode.delete(guildId);
+      clearActiveExpireTimer(guildId);
+      console.log(`[Voice Pipeline]: 🚪 Trigger Leave VC ("${transcript}") detected from Attila! Marked dismissed.`);
 
-  if (isLeaveIntent) {
-    dismissedGuilds.add(guildId);
-    console.log(`[Voice Pipeline]: 🚪 Trigger Leave VC ("${transcript}") detected from Attila! Explicit "keluar sekarang": ${isExplicitKeluarSekarang}. Marked dismissed.`);
+      const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
+      const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
-    const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
-    const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
+      recordSessionEntry(guildId, 'AZURA', textLeave);
 
-    recordSessionEntry(guildId, 'Attila', transcript);
-    recordSessionEntry(guildId, 'AZURA', textLeave);
-
-    // Send text farewell immediately in companion text channel
-    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
-    if (textChannel) {
-      textChannel.send(textLeave).catch(() => {});
-    }
-
-    // Play TTS farewell with ElevenLabs v3 in VC (allow full speech without cutoff)
-    try {
-      const audioResource = await textToAudioResource(spokenLeave, client);
-      if (audioResource) {
-        await Promise.race([
-          playInVC(guildId, audioResource),
-          new Promise(r => setTimeout(r, 9000))
-        ]);
+      const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+      if (textChannel) {
+        textChannel.send(textLeave).catch(() => {});
       }
-    } catch (err) {
-      console.warn('[Leave VC TTS Playback error]:', err.message);
+
+      try {
+        const audioResource = await textToAudioResource(spokenLeave, client);
+        if (audioResource) {
+          await Promise.race([
+            playInVC(guildId, audioResource),
+            new Promise(r => setTimeout(r, 9000))
+          ]);
+        }
+      } catch (err) {
+        console.warn('[Leave VC TTS Playback error]:', err.message);
+      }
+
+      await cleanupGuild(guildId, client);
+      return;
     }
 
-    await cleanupGuild(guildId, client);
-    return;
-  }
+    // --- INTENT B: Send DM Command ---
+    const dmPattern = /(?:tolong\s+)?(?:kirimin|kirim|send)\s+(?:pesan|dm|chat)\s+ke\s+(?:akun\s+)?(?:yang\s+namanya\s+|yg\s+namanya\s+|nama\s+)?([^,]+?)(?:,\s*|\s+)(?:isinya|bilang|pesan|pesannya|yaitu)\s+(.+)/i;
+    const dmMatch = transcript.match(dmPattern) || cleanTranscript.match(dmPattern);
 
-  // --- INTENT B: Send DM Command ---
-  const dmPattern = /(?:tolong\s+)?(?:kirimin|kirim|send)\s+(?:pesan|dm|chat)\s+ke\s+(?:akun\s+)?(?:yang\s+namanya\s+|yg\s+namanya\s+|nama\s+)?([^,]+?)(?:,\s*|\s+)(?:isinya|bilang|pesan|pesannya|yaitu)\s+(.+)/i;
-  const dmMatch = transcript.match(dmPattern) || cleanTranscript.match(dmPattern);
+    if (dmMatch) {
+      const targetQuery = dmMatch[1].trim();
+      const messageText = dmMatch[2].trim();
+      console.log(`[Voice Pipeline]: Detected Send DM command -> Target: "${targetQuery}", Message: "${messageText}"`);
 
-  if (dmMatch) {
-    const targetQuery = dmMatch[1].trim();
-    const messageText = dmMatch[2].trim();
-    console.log(`[Voice Pipeline]: Detected Send DM command -> Target: "${targetQuery}", Message: "${messageText}"`);
+      const { triggerVoiceSendDm } = require('./ownerDm');
+      const result = await triggerVoiceSendDm(client, targetQuery, messageText, userId);
 
-    recordSessionEntry(guildId, 'Attila', transcript);
+      let spokenResponse = '';
+      if (result.success) {
+        spokenResponse = 'oke, konfirmasinya udah aku kirim ke DM kamu yaa';
+      } else {
+        spokenResponse = `aku nggak nemu member dengan nama ${targetQuery} di server`;
+      }
 
-    const { triggerVoiceSendDm } = require('./ownerDm');
-    const result = await triggerVoiceSendDm(client, targetQuery, messageText, userId);
+      recordSessionEntry(guildId, 'AZURA', spokenResponse);
+      setActiveMode(guildId);
 
-    let spokenResponse = '';
-    if (result.success) {
-      spokenResponse = 'oke, konfirmasinya udah aku kirim ke DM kamu yaa';
-    } else {
-      spokenResponse = `aku nggak nemu member dengan nama ${targetQuery} di server`;
+      const audioResource = await textToAudioResource(spokenResponse);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+      return;
     }
 
-    recordSessionEntry(guildId, 'AZURA', spokenResponse);
+    // --- INTENT C: Music Commands (Attila Only) ---
+    const stopPattern = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
+    if (stopPattern.test(transcript) || stopPattern.test(cleanTranscript)) {
+      console.log('[Voice Pipeline]: ⏹️ Stop Music command detected.');
+      const { stopMusic } = require('./musicStreamer');
+      stopMusic(guildId);
 
-    const audioResource = await textToAudioResource(spokenResponse);
-    if (audioResource) {
-      await playInVC(guildId, audioResource);
-    }
-    return;
-  }
-
-  // --- INTENT C: Direct Voice Channel Music Streaming Command ---
-  const stopPattern = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
-  if (stopPattern.test(transcript) || stopPattern.test(cleanTranscript)) {
-    console.log('[Voice Pipeline]: ⏹️ Stop Music command detected.');
-    const { stopMusic } = require('./musicStreamer');
-    stopMusic(guildId);
-
-    const spokenResponse = 'Siap Attila sayang, musiknya udah aku matikan yaa!';
-    recordSessionEntry(guildId, 'AZURA', spokenResponse);
-
-    const audioResource = await textToAudioResource(spokenResponse, client);
-    if (audioResource) {
-      await playInVC(guildId, audioResource);
-    }
-    return;
-  }
-
-  const pausePattern = /\b(?:pause|jeda|unpause|resume|lanjut|lanjutkan)\s+(?:musik|lagu|musiknya|lagunya)\b/i;
-  if (pausePattern.test(transcript) || pausePattern.test(cleanTranscript)) {
-    console.log('[Voice Pipeline]: ⏸️ Pause/Resume Music command detected.');
-    const { pauseOrResumeMusic } = require('./musicStreamer');
-    const res = pauseOrResumeMusic(guildId);
-
-    const spokenResponse = res.message.includes('jeda') ? 'Oke Attila sayang, musiknya aku jeda dulu ya!' : 'Lanjut lagi ya musiknya! [giggles]';
-    recordSessionEntry(guildId, 'AZURA', spokenResponse);
-
-    const audioResource = await textToAudioResource(spokenResponse, client);
-    if (audioResource) {
-      await playInVC(guildId, audioResource);
-    }
-    return;
-  }
-
-  const musicPattern = /(?:setel|stella|stela|stel|play|puterin|putar|puter|mainkan|mainin|setelin|nyalain|pasang|dengerin)\s*(?:in)?\s*(?:musik|lagu|gu|song|lagunya)?\s*(.+)/i;
-  const musicMatch = cleanTranscript.match(musicPattern) || transcript.match(musicPattern);
-
-  if (musicMatch) {
-    let songTitle = musicMatch[1]
-      .replace(/\b(?:musik|lagu|gu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
-      .replace(/[.,!?;:'"()\[\]]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    if (songTitle.length > 1) {
-      console.log(`[Voice Pipeline]: 🎵 Direct Voice Music Streamer triggered -> Song: "${songTitle}"`);
-      recordSessionEntry(guildId, 'Attila', transcript);
-
-      const textChannel = (voiceChannel && voiceChannel.isTextBased?.()) ? voiceChannel : (companionTextChannels.get(guildId) || voiceChannel);
-
-      const spokenResponse = `Siap Attila sayang, lagi aku puterin lagu ${songTitle} langsung di Voice Channel nih, selamat mendengarkan yaa! [giggles]`;
+      const spokenResponse = 'Siap Attila sayang, musiknya udah aku matikan yaa!';
       recordSessionEntry(guildId, 'AZURA', spokenResponse);
 
       const audioResource = await textToAudioResource(spokenResponse, client);
       if (audioResource) {
         await playInVC(guildId, audioResource);
       }
+      return;
+    }
 
-      // Stream music directly into VC AudioPlayer
-      const player = audioPlayers.get(guildId);
-      if (player) {
-        const { streamMusicDirect } = require('./musicStreamer');
-        await streamMusicDirect(guildId, songTitle, player, textChannel, 'Attila');
+    const pausePattern = /\b(?:pause|jeda|unpause|resume|lanjut|lanjutkan)\s+(?:musik|lagu|musiknya|lagunya)\b/i;
+    if (pausePattern.test(transcript) || pausePattern.test(cleanTranscript)) {
+      console.log('[Voice Pipeline]: ⏸️ Pause/Resume Music command detected.');
+      const { pauseOrResumeMusic } = require('./musicStreamer');
+      const res = pauseOrResumeMusic(guildId);
+
+      const spokenResponse = res.message.includes('jeda') ? 'Oke Attila sayang, musiknya aku jeda dulu ya!' : 'Lanjut lagi ya musiknya! [giggles]';
+      recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+      const audioResource = await textToAudioResource(spokenResponse, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
       }
       return;
     }
+
+    const musicPattern = /(?:setel|stella|stela|stel|play|puterin|putar|puter|mainkan|mainin|setelin|nyalain|pasang|dengerin)\s*(?:in)?\s*(?:musik|lagu|gu|song|lagunya)?\s*(.+)/i;
+    const musicMatch = cleanTranscript.match(musicPattern) || transcript.match(musicPattern);
+
+    if (musicMatch) {
+      let songTitle = musicMatch[1]
+        .replace(/\b(?:musik|lagu|gu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
+        .replace(/[.,!?;:'"()\[\]]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (songTitle.length > 1) {
+        console.log(`[Voice Pipeline]: 🎵 Direct Voice Music Streamer triggered -> Song: "${songTitle}"`);
+
+        const textChannel = (voiceChannel && voiceChannel.isTextBased?.()) ? voiceChannel : (companionTextChannels.get(guildId) || voiceChannel);
+
+        const spokenResponse = `Siap Attila sayang, lagi aku puterin lagu ${songTitle} langsung di Voice Channel nih, selamat mendengarkan yaa! [giggles]`;
+        recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+        const audioResource = await textToAudioResource(spokenResponse, client);
+        if (audioResource) {
+          await playInVC(guildId, audioResource);
+        }
+
+        const player = audioPlayers.get(guildId);
+        if (player) {
+          const { streamMusicDirect } = require('./musicStreamer');
+          await streamMusicDirect(guildId, songTitle, player, textChannel, 'Attila');
+        }
+        return;
+      }
+    }
   }
 
-  // --- INTENT D: General AI Voice Chat (Context-Aware Duration Engine) ---
+  // ══════════════════════════════════════════════════════════════
+  // ── Step 3: SUMMON GATE (Core Logic) ──
+  // ══════════════════════════════════════════════════════════════
+
+  // Only Attila (owner) can interact with Azura via voice
+  if (!isOwner) {
+    console.log(`[Voice Pipeline]: Non-owner speech processed (session log only). Summon Gate blocked.`);
+    return;
+  }
+
+  const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|kak azura|kak ara)\b/i.test(transcript);
+  const currentMode = conversationMode.get(guildId) || { mode: 'PASSIVE', lastActiveAt: 0, turnCount: 0 };
+
+  if (currentMode.mode === 'PASSIVE') {
+    // ── PASSIVE MODE: Only activate if wake-word is detected ──
+    if (!hasWakeWord) {
+      console.log(`[Voice Pipeline]: 🔇 PASSIVE mode — no wake-word in "${transcript}". Azura stays silent.`);
+      return;
+    }
+    // Wake-word detected! Activate conversation mode
+    console.log(`[Voice Pipeline]: 🔔 Wake-word detected! Switching to ACTIVE mode.`);
+    setActiveMode(guildId);
+  } else {
+    // ── ACTIVE MODE: Already in conversation ──
+    // Reset the expire timer since Attila is still talking
+    setActiveMode(guildId);
+
+    // If no wake-word, check with GPT if this utterance is still directed at Azura
+    if (!hasWakeWord) {
+      const isForAzura = await checkIfDirectedAtAzura(transcript, guildId, userId);
+      if (!isForAzura) {
+        console.log(`[Voice Pipeline]: 🔇 GPT determined "${transcript}" is NOT for Azura. Returning to PASSIVE.`);
+        setPassiveMode(guildId);
+        return;
+      }
+      console.log(`[Voice Pipeline]: 💬 GPT confirmed "${transcript}" is a follow-up for Azura. Continuing ACTIVE.`);
+    }
+  }
+
+  // ── Step 4: General AI Voice Chat (Context-Aware Duration Engine) ──
   try {
     const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId);
 
@@ -767,7 +805,6 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       const farewellSpoken = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
       const farewellText = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
-      recordSessionEntry(guildId, 'Attila', transcript);
       recordSessionEntry(guildId, 'AZURA', farewellText);
 
       const textChannel = companionTextChannels.get(guildId) || voiceChannel;
@@ -780,7 +817,16 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         await playInVC(guildId, audioResource);
       }
 
+      conversationMode.delete(guildId);
+      clearActiveExpireTimer(guildId);
       await cleanupGuild(guildId, client);
+      return;
+    }
+
+    // Check if GPT returned [PASSIVE] signal
+    if (/^\[PASSIVE\]$/i.test(spokenResponse.trim())) {
+      console.log(`[Voice Pipeline]: 🔇 GPT returned [PASSIVE]. Azura going silent.`);
+      setPassiveMode(guildId);
       return;
     }
 
@@ -788,6 +834,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
     let spoken = spokenResponse
       .replace(/\[ACTION:[^\]]+\]/gi, '')
+      .replace(/\[PASSIVE\]/gi, '')
       .replace(/\*\*/g, '')
       .replace(/[*_~`#>]/g, '')
       .replace(/\n+/g, ' ')
@@ -797,7 +844,6 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     if (!spoken) return;
     console.log(`[Voice Pipeline]: 💬 Response (${isStory ? 'Storytelling ~2-3 menit' : 'Normal ~1 menit'}): "${spoken.slice(0, 80)}..."`);
 
-    recordSessionEntry(guildId, 'Attila', transcript);
     recordSessionEntry(guildId, 'AZURA', spoken);
 
     const audioResource = await textToAudioResource(spoken, client, maxChars);
@@ -811,6 +857,84 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     console.log('[Voice Pipeline]: ✅ Done.');
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
+  }
+}
+
+// ============================================================
+// Summon-Based Conversation State Helpers
+// ============================================================
+
+function setActiveMode(guildId) {
+  conversationMode.set(guildId, {
+    mode: 'ACTIVE',
+    lastActiveAt: Date.now(),
+    turnCount: (conversationMode.get(guildId)?.turnCount || 0) + 1
+  });
+
+  // Reset the auto-expire timer
+  clearActiveExpireTimer(guildId);
+  const timer = setTimeout(() => {
+    console.log(`[Voice Companion]: 15s silence in ACTIVE mode. Auto-reverting to PASSIVE for guild ${guildId}.`);
+    setPassiveMode(guildId);
+  }, ACTIVE_EXPIRE_MS);
+  activeExpireTimers.set(guildId, timer);
+}
+
+function setPassiveMode(guildId) {
+  conversationMode.set(guildId, { mode: 'PASSIVE', lastActiveAt: Date.now(), turnCount: 0 });
+  clearActiveExpireTimer(guildId);
+}
+
+function clearActiveExpireTimer(guildId) {
+  if (activeExpireTimers.has(guildId)) {
+    clearTimeout(activeExpireTimers.get(guildId));
+    activeExpireTimers.delete(guildId);
+  }
+}
+
+/**
+ * GPT Relevance Check: Determine if Attila's utterance (without wake-word) is a follow-up
+ * directed at Azura, or if it's casual speech to others in the VC.
+ * @returns {Promise<boolean>} true if directed at Azura, false otherwise
+ */
+async function checkIfDirectedAtAzura(transcript, guildId, userId) {
+  const openai = getOpenAI();
+  if (!openai) return false;
+
+  const history = voiceChatHistories.get(userId) || [];
+  const recentContext = history.slice(-4).map(h => `${h.role === 'user' ? 'Attila' : 'Azura'}: ${h.content}`).join('\n');
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: `Kamu adalah classifier yang menentukan apakah ucapan Attila ditujukan kepada AZURA (AI companion di Voice Channel) atau kepada orang lain di room.
+
+KONTEKS OBROLAN TERAKHIR DENGAN AZURA:
+${recentContext || '(Belum ada konteks)'}
+
+ATURAN:
+- Jawab HANYA dengan "YES" jika ucapan ini adalah lanjutan obrolan dengan Azura (pertanyaan lanjutan, respons terhadap jawaban Azura, permintaan tambahan, dll).
+- Jawab HANYA dengan "NO" jika ucapan ini ditujukan ke orang lain atau merupakan obrolan casual yang tidak membutuhkan respons Azura.
+
+Contoh YES: "terus gimana?", "apa maksudnya?", "coba jelasin lagi", "yang tadi itu apa sih?", "oke terus?", "hah serius?", "lucu banget sih"
+Contoh NO: "eh bro gimana kabar lo?", "iya gue juga main game itu", "nanti malam kita mabar yuk", "siapa yang mau main?", percakapan antar-manusia biasa yang bukan untuk AI.
+
+Jawab HANYA "YES" atau "NO".`
+        },
+        { role: 'user', content: `Ucapan Attila: "${transcript}"` }
+      ],
+      max_completion_tokens: 5
+    });
+
+    const answer = res.choices[0]?.message?.content?.trim().toUpperCase() || 'NO';
+    return answer.startsWith('YES');
+  } catch (err) {
+    console.error('[Relevance Check Error]:', err.message);
+    // On error, default to PASSIVE (conservative approach)
+    return false;
   }
 }
 
@@ -1059,6 +1183,10 @@ async function playGreeting(guildId, voiceChannel) {
   if (resource) {
     await playInVC(guildId, resource);
   }
+
+  // After greeting, immediately go PASSIVE — Azura waits to be called by name
+  setPassiveMode(guildId);
+  console.log(`[Voice Companion]: Greeting done. Now in PASSIVE mode — waiting for wake-word.`);
 }
 
 /**
@@ -1144,6 +1272,8 @@ async function cleanupGuild(guildId, client) {
   audioPlayers.delete(guildId);
   isBotSpeaking.delete(guildId);
   activeRecordings.clear();
+  conversationMode.delete(guildId);
+  clearActiveExpireTimer(guildId);
 
   // Send session transcript + AI summary document to Owner DM ONLY IF session >= 30 minutes AND actively conversational
   const session = voiceSessions.get(guildId);
@@ -1352,6 +1482,9 @@ async function joinAttilaVoiceChannel(client) {
     if (audioResource) {
       await playInVC(guildId, audioResource);
     }
+
+    // After greeting, go PASSIVE — wait for Attila to call by name
+    setPassiveMode(guildId);
 
     resetIdleTimer(guildId);
 

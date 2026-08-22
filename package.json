@@ -24,6 +24,8 @@
     "dotenv": "^16.4.7",
     "libsodium-wrappers": "^0.8.4",
     "node-edge-tts": "^1.2.10",
-    "openai": "^4.86.1"
+    "openai": "^4.86.1",
+    "opusscript": "^0.1.1",
+    "prism-media": "^2.0.0"
   }
 }

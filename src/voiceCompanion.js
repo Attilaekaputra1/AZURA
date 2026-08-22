@@ -218,7 +218,7 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
 
 /**
  * Play an AudioResource in a guild's VC.
- * Automatically unmutes during speech and re-mutes on completion.
+ * Robust promise that resolves when audio completes playing without connection resets.
  */
 function playInVC(guildId, resource) {
   return new Promise((resolve) => {
@@ -228,27 +228,24 @@ function playInVC(guildId, resource) {
 
     isBotSpeaking.add(guildId);
 
-    try {
-      // Unmute while speaking
-      conn.rejoin({ selfMute: false, selfDeaf: false });
-    } catch (_) {}
-
-    player.play(resource);
-
-    const cleanup = () => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
       isBotSpeaking.delete(guildId);
-      try {
-        // Return to muted state after speaking
-        conn.rejoin({ selfMute: true, selfDeaf: false });
-      } catch (_) {}
       resolve();
     };
 
-    player.once(AudioPlayerStatus.Idle, cleanup);
+    player.once(AudioPlayerStatus.Idle, finish);
     player.once('error', (err) => {
       console.error('[Voice Player Error]:', err.message);
-      cleanup();
+      finish();
     });
+
+    player.play(resource);
+
+    // Fallback safety timeout (45s)
+    setTimeout(finish, 45000);
   });
 }
 
@@ -261,21 +258,10 @@ function resetIdleTimer(guildId) {
     clearTimeout(idleTimers.get(guildId));
   }
 
-  // Undeafen if was deafened
-  const conn = activeConnections.get(guildId);
-  if (conn) {
-    try {
-      conn.rejoin({ selfMute: true, selfDeaf: false });
-    } catch (_) {}
-  }
-
   const timer = setTimeout(() => {
     const activeConn = activeConnections.get(guildId);
     if (activeConn) {
-      console.log(`[Voice Companion]: 5 menit tanpa interaksi di guild ${guildId}. Mengaktifkan mode deafen.`);
-      try {
-        activeConn.rejoin({ selfMute: true, selfDeaf: true });
-      } catch (_) {}
+      console.log(`[Voice Companion]: 5 menit tanpa interaksi di guild ${guildId}.`);
     }
   }, IDLE_DEAFEN_MS);
 
@@ -653,14 +639,16 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── Step 3: Intent Classification ──
 
-  // --- INTENT A: Leave VC Command (Ultra Broad Matching) ---
+  // --- INTENT A: Leave VC Command (2 Exact Direct Trigger Phrases + Ultra Robust Matching) ---
+  // Phrase 1: "Azura keluar dari vc dulu dong"
+  // Phrase 2: "Azura keluar dulu ya"
   const isLeaveIntent =
-    /\b(?:keluar|leave|cabut|disconnect|dc|pamit|udahan|bubar)\b/i.test(transcript) &&
-    /\b(?:vc|voice|channel|room|sini|pc|pisi|visi|dulu|dong|ya|sekarang|aja|gih|yuk)\b/i.test(transcript) ||
-    /\b(?:keluar\s+dari\s+vc|leave\s+vc|cabut\s+dari\s+vc|keluar\s+vc|keluar\s+dulu|off\s+dulu|cabut\s+dulu|udahan\s+dulu|keluar\s+dong|keluar\s+ya|keluar\s+gih)\b/i.test(transcript) ||
-    /\b(?:keluar\s+dari\s+voice|keluar\s+dari\s+channel|keluar\s+dari\s+room|keluar\s+dari\s+pc|keluar\s+dari\s+visi)\b/i.test(transcript) ||
-    /^(?:tolong\s+)?(?:keluar|leave|cabut|disconnect|udahan|off)\b/i.test(cleanTranscript) ||
-    /(?:keluar|leave|cabut|off)\s*(?:dulu|dong|ya|gih)?$/i.test(cleanTranscript);
+    /keluar\s+dari\s+(?:vc|voice|channel|room|pc|visi)\s+(?:dulu\s+)?dong/i.test(transcript) ||
+    /keluar\s+dulu\s+(?:ya|dong)/i.test(transcript) ||
+    /\b(?:keluar\s+dari\s+vc|leave\s+vc|cabut\s+dari\s+vc|keluar\s+vc|keluar\s+dulu|off\s+dulu|cabut\s+dulu|udahan\s+dulu)\b/i.test(transcript) ||
+    (/\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(transcript) &&
+     /\b(?:vc|voice|channel|room|sini|pc|pisi|visi|dulu|dong|ya|sekarang|gih)\b/i.test(transcript)) ||
+    /\b(?:keluar|leave|cabut)\b/i.test(cleanTranscript);
 
   if (isLeaveIntent) {
     console.log('[Voice Pipeline]: 🚪 Detected Leave VC command from Attila!');
@@ -676,11 +664,17 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       await textChannel.send(textLeave).catch(() => {});
     }
 
-    const audioResource = await textToAudioResource(spokenLeave, client);
-    if (audioResource) {
-      await playInVC(guildId, audioResource);
+    try {
+      const audioResource = await textToAudioResource(spokenLeave, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+    } catch (err) {
+      console.warn('[Leave VC TTS Playback error]:', err.message);
     }
 
+    // Brief delay to ensure Discord completes UDP audio packet delivery before destroying connection
+    await new Promise(r => setTimeout(r, 600));
     await cleanupGuild(guildId, client);
     return;
   }
@@ -1088,15 +1082,6 @@ async function playGreeting(guildId, voiceChannel) {
   const resource = await textToAudioResource(selectedGreeting);
   if (resource) {
     await playInVC(guildId, resource);
-  }
-
-  // Ensure bot is cleanly muted after greeting
-  const conn = activeConnections.get(guildId);
-  if (conn) {
-    try {
-      conn.rejoin({ selfMute: true, selfDeaf: false });
-      console.log('[Voice Companion]: Muted after opening greeting.');
-    } catch (_) {}
   }
 }
 

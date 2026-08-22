@@ -304,14 +304,24 @@ async function playMusicAutonomous(client, guildId, channel, songTitle, requeste
     if (voiceChannel && voiceChannel.createInvite) {
       try {
         const invite = await voiceChannel.createInvite({
-          targetApplication: '880218394199220334', // Watch Together (YouTube) Activity App ID
+          targetApplication: '880218394199220334', // Primary Watch Together (YouTube) Activity App ID
           targetType: 2, // EmbeddedApplication
           maxAge: 86400,
           maxUses: 0
         });
         inviteUrl = `https://discord.gg/${invite.code}`;
-      } catch (e) {
-        console.warn('[YouTube Activity Invite Error]:', e.message);
+      } catch (e1) {
+        try {
+          const invite = await voiceChannel.createInvite({
+            targetApplication: '880218394199222340', // Secondary Watch Together Fallback App ID
+            targetType: 2,
+            maxAge: 86400,
+            maxUses: 0
+          });
+          inviteUrl = `https://discord.gg/${invite.code}`;
+        } catch (e2) {
+          console.warn('[YouTube Activity Invite Error]:', e2.message);
+        }
       }
     }
 

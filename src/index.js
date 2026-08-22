@@ -208,10 +208,10 @@ client.on('messageCreate', async (message) => {
           .replace(/\s+/g, ' ')
           .trim();
         if (songTitle.length > 1) {
-          console.log(`[Music Dispatcher]: Attila triggered music from text: "${songTitle}"`);
+          console.log(`[YouTube Dispatcher]: Attila triggered YouTube Watch Together from text: "${songTitle}"`);
           const { playMusicAutonomous } = require('./voiceCompanion');
           await playMusicAutonomous(client, guildId, message.channel, songTitle, userName);
-          return message.reply(`Siap ${userName} sayang! Udah aku setelin lagu **${songTitle}** di bot musik server yaa! 🎶✨`);
+          return message.reply(`Siap ${userName} sayang! Sesi **YouTube Watch Together** untuk lagu **${songTitle}** udah aku buka di Voice Channel Discord yaa! 📺🎶✨`);
         }
       }
     }

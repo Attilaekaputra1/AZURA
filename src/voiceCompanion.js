@@ -31,7 +31,8 @@ const VOICE_COOLDOWN_MS = 3000;       // 3 second cooldown between responses
 const SILENCE_DURATION_MS = 700;       // 0.7s silence = speech ended (ultra-fast detection)
 const MIN_AUDIO_BYTES = 48000;        // ~0.25s at 48kHz stereo 16-bit (skip noise/coughs)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
-const MAX_RESPONSE_CHARS = 300;       // ~15 seconds of TTS speech
+const MAX_NORMAL_CHARS = 1000;        // ~1 minute of normal TTS speech (max 1 min)
+const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
 
 // Ensure temp directory exists
@@ -127,11 +128,11 @@ async function transcribeVoice(wavBuffer) {
 
 /**
  * Generate TTS audio and wrap it as a Discord AudioResource.
- * Primary: ElevenLabs (Bella) — Fallback 1: OpenAI TTS (nova) — Fallback 2: Edge TTS
+ * Primary: ElevenLabs (Kak Ceria) — Fallback 1: OpenAI TTS (nova) — Fallback 2: Edge TTS
  */
-async function textToAudioResource(text, client = null) {
+async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CHARS) {
   const clean = text
-    .slice(0, MAX_RESPONSE_CHARS)
+    .slice(0, maxChars)
     .replace(/<[^>]+>/g, '')
     .replace(/\*\*/g, '')
     .replace(/[*_~`#]/g, '')
@@ -729,24 +730,25 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // --- INTENT D: General AI Voice Chat (Ultra Low-Latency Voice Engine) ---
+  // --- INTENT D: General AI Voice Chat (Context-Aware Duration Engine) ---
   try {
-    const spokenResponse = await generateVoiceAIResponse(transcript, userId);
+    const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId);
+    const maxChars = isStory ? MAX_STORY_CHARS : MAX_NORMAL_CHARS;
 
     let spoken = spokenResponse
       .replace(/\*\*/g, '')
       .replace(/[*_~`#>]/g, '')
       .replace(/\n+/g, ' ')
-      .slice(0, MAX_RESPONSE_CHARS)
+      .slice(0, maxChars)
       .trim();
 
     if (!spoken) return;
-    console.log(`[Voice Pipeline]: 💬 Response: "${spoken}"`);
+    console.log(`[Voice Pipeline]: 💬 Response (${isStory ? 'Storytelling ~2-3 menit' : 'Normal ~1 menit'}): "${spoken.slice(0, 80)}..."`);
 
     recordSessionEntry(guildId, 'Attila', transcript);
     recordSessionEntry(guildId, 'AZURA', spoken);
 
-    const audioResource = await textToAudioResource(spoken);
+    const audioResource = await textToAudioResource(spoken, client, maxChars);
     if (!audioResource) {
       console.error('[Voice Pipeline]: TTS generation failed.');
       return;
@@ -764,26 +766,46 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 const voiceChatHistories = new Map();
 
 /**
- * Dedicated High-Speed Voice AI Generator (Sub-second response time)
+ * Dedicated Voice AI Generator with Context-Aware Duration:
+ * - Normal chat: Max 1 minute speaking time (~100-150 kata, 2-4 kalimat santai & padat)
+ * - Storytelling: 2 to 3 minutes narrative story (~300-450 kata, hidup & memikat)
  * @param {string} transcript 
  * @param {string} userId 
- * @returns {Promise<string>}
+ * @returns {Promise<{ spoken: string, isStory: boolean }>}
  */
 async function generateVoiceAIResponse(transcript, userId) {
   const openai = getOpenAI();
-  if (!openai) return 'Iya Attila, ada apa?';
+  if (!openai) return { spoken: 'Iya Attila, ada apa?', isStory: false };
 
   const history = voiceChatHistories.get(userId) || [];
 
-  const systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan Attila (creator & owner kamu).
+  // Detect Storytelling Intent
+  const isStoryIntent = /\b(?:ceritain|cerita|story|storytelling|dongeng|dongengin|kisah|kisahin|bikin cerita|alur cerita)\b/i.test(transcript);
+
+  let systemPrompt = '';
+  let maxTokens = 250;
+
+  if (isStoryIntent) {
+    systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) langsung lewat Voice Channel kepada Attila (creator & owner kamu).
+ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
+1. DURASI & PANJANG CERITA: Bawakan cerita secara lengkap, memikat, dan terstruktur (pembuka, alur konflik/misteri/komedi, klimaks, dan penutup). Durasi bicara ideal sekitar 2 MENIT (maksimal 3 MENIT, sekitar 300-450 kata).
+2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
+3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs] pada momen-momen yang dramatis atau lucu agar terasa nyata!
+4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
+5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.`;
+    maxTokens = 750; // ~450-500 words = ~2.5 - 3 minutes speech
+  } else {
+    systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan Attila (creator & owner kamu).
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
 
-ATURAN WAJIB VOICE OBROLAN (SANGAT KETAT):
-1. RESPON SANGAT RINGKAS: Maksimal 1-2 kalimat pendek saja (to the point, gaya ngobrol lisan yang mengalir cepat).
+ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1 MENIT):
+1. RESPON NATURAL: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara maksimal 1 MENIT, sekitar 2-4 kalimat santai to the point).
 2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh sesekali memanggilnya dengan panggilan manis/akrab seperti "sayang", "Attila sayang", atau "siap ganteng".
 3. MULTILINGUAL VOICE: Jika Attila bicara atau meminta kamu berbicara dalam bahasa lain (misal English, 日本語 / Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
-5. EMOSI SUARA: Kamu boleh sesekali menyisipkan tag emosi suara [laughs], [giggles], [sighs], [whispers], atau [gasp] jika cocok dengan situasi.`;
+5. EMOSI SUARA ELEVENLABS V3: Kamu boleh sesekali menyisipkan tag emosi suara [laughs], [giggles], [sighs], [whispers], atau [gasp] jika cocok dengan situasi.`;
+    maxTokens = 250; // ~120-150 words = ~50-60s max normal speech
+  }
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -795,7 +817,7 @@ ATURAN WAJIB VOICE OBROLAN (SANGAT KETAT):
     const res = await openai.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages,
-      max_completion_tokens: 100,
+      max_completion_tokens: maxTokens,
       temperature: 0.85
     });
 
@@ -807,10 +829,10 @@ ATURAN WAJIB VOICE OBROLAN (SANGAT KETAT):
     if (history.length > 8) history.splice(0, history.length - 8);
     voiceChatHistories.set(userId, history);
 
-    return reply;
+    return { spoken: reply, isStory: isStoryIntent };
   } catch (err) {
     console.error('[Voice AI Generator Error]:', err.message);
-    return 'Iya Attila, gimana?';
+    return { spoken: 'Iya Attila, gimana?', isStory: false };
   }
 }
 

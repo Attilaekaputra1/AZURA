@@ -79,7 +79,7 @@ client.on('messageCreate', async (message) => {
 
   const isDM = !message.guild;
   const isMentioned = message.mentions.has(client.user.id);
-  const startsWithName = /^(?:azura\b|hei azura|halo azura|hai azura)/i.test(message.content.trim());
+  const startsWithName = /^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)\b/i.test(message.content.trim());
 
   // Check if user is directly replying to a previous message from AZURA
   let isReplyToBot = false;
@@ -90,18 +90,18 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Check if AZURA is in Voice Companion mode in this guild
+  // Check if AZURA is in Voice Companion mode in this guild or called by nickname
   const { isInCompanionMode } = require('./voiceCompanion');
   const inVCMode = !isDM && message.guild && isInCompanionMode(message.guild.id);
-  const calledByName = inVCMode && /\bazura\b/i.test(message.content);
+  const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
 
   // If it's not a DM and not mentioned, not replied to bot, and not called by name, ignore
   if (!isDM && !isMentioned && !isReplyToBot && !startsWithName && !calledByName) return;
 
-  // Clean prompt by removing bot mention tag and leading 'azura' prefix
+  // Clean prompt by removing bot mention tag and leading 'azura' / 'ara' / 'zura' prefix
   let rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();
   if (startsWithName) {
-    rawPrompt = rawPrompt.replace(/^(?:azura[,:\s]+|hei azura[,:\s]+|halo azura[,:\s]+|hai azura[,:\s]+)/i, '').trim();
+    rawPrompt = rawPrompt.replace(/^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)[,:\s]+/i, '').trim();
   }
 
   // Extract image attachments for Vision & audio attachments for Whisper STT
@@ -168,15 +168,25 @@ client.on('messageCreate', async (message) => {
     const guildId = message.guild?.id || null;
     const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
 
-    // Direct Voice Channel Join & Leave trigger for Attila
+    // Direct Voice Channel Join & Leave trigger for Attila (supports Azura / Ara / Zura / @mention)
     if (isOwner) {
-      const lowerPrompt = finalPrompt.toLowerCase().trim();
-      if (/\b(?:masuk\s+vc|join\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc)\b/i.test(lowerPrompt)) {
+      const fullText = (message.content + ' ' + finalPrompt).toLowerCase().trim();
+      const isJoinTrigger =
+        /\b(?:join\s+vc\s+lagi|masuk\s+vc\s+lagi|masuk\s+vc\s+lagi\s+dong|join\s+vc\s+lagi\s+dong)\b/i.test(fullText) ||
+        /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(fullText);
+
+      const isLeaveTrigger =
+        /\b(?:keluar\s+vc|leave\s+vc|keluar\s+voice|leave\s+voice|keluar\s+dari\s+vc|cabut\s+dari\s+vc|keluar\s+dulu\s+dari\s+vc|keluar\s+dulu|leave\s+dulu)\b/i.test(fullText);
+
+      if (isJoinTrigger) {
+        console.log(`[VC Controller]: Attila triggered Join VC from text chat (${message.channel.name || 'DM'}).`);
         const { joinAttilaVoiceChannel } = require('./voiceCompanion');
         const joinRes = await joinAttilaVoiceChannel(client);
         return message.reply(joinRes.message);
       }
-      if (/\b(?:keluar\s+vc|leave\s+vc|keluar\s+voice|leave\s+voice|keluar\s+dari\s+vc|cabut\s+dari\s+vc|keluar\s+dulu\s+dari\s+vc)\b/i.test(lowerPrompt)) {
+
+      if (isLeaveTrigger) {
+        console.log(`[VC Controller]: Attila triggered Leave VC from text chat (${message.channel.name || 'DM'}).`);
         const { leaveVoiceChannel } = require('./voiceCompanion');
         const leaveRes = await leaveVoiceChannel(client, message.guild?.id || null);
         return message.reply(leaveRes.message);

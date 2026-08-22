@@ -28,9 +28,9 @@ const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 // Configuration
 // ============================================================
 const VOICE_COOLDOWN_MS = 1000;       // 1s cooldown for regular members (0ms for Owner)
-const SILENCE_DURATION_MS = 800;       // 0.8s silence = speech ended
+const SILENCE_DURATION_MS = 600;       // 0.6s silence = speech ended (crisp & responsive)
 const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
-const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
+const MAX_RECORDING_MS = 15000;       // Max 15s recording per turn
 const MAX_NORMAL_CHARS = 1000;        // ~1 minute of normal TTS speech (max 1 min)
 const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
@@ -366,38 +366,49 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
       const pcmChunks = [];
       const pcmStream = opusStream.pipe(decoder);
 
+      let isFinished = false;
+      const finishRecording = () => {
+        if (isFinished) return;
+        isFinished = true;
+
+        clearTimeout(maxTimer);
+        activeRecordings.delete(userId);
+
+        try { opusStream.destroy(); } catch (_) {}
+        try { decoder.destroy(); } catch (_) {}
+
+        if (pcmChunks.length > 0) {
+          if (isOwner) {
+            processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
+              console.error('[Voice Pipeline Fatal]:', err.message);
+            });
+          } else {
+            processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
+              console.error('[Member Voice Pipeline Fatal]:', err.message);
+            });
+          }
+        }
+      };
+
       const maxTimer = setTimeout(() => {
-        console.log(`[Voice Listener]: Max recording duration reached for ${speakerTag}. Stopping.`);
-        opusStream.destroy();
-      }, isOwner ? MAX_RECORDING_MS : 15000);
+        console.log(`[Voice Listener]: Max recording duration reached for ${speakerTag}. Processing captured audio...`);
+        finishRecording();
+      }, isOwner ? 15000 : 10000);
 
       pcmStream.on('data', (chunk) => pcmChunks.push(chunk));
-
-      pcmStream.on('end', () => {
-        clearTimeout(maxTimer);
-        activeRecordings.delete(userId);
-
-        if (isOwner) {
-          processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
-            console.error('[Voice Pipeline Fatal]:', err.message);
-          });
-        } else {
-          processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
-            console.error('[Member Voice Pipeline Fatal]:', err.message);
-          });
-        }
-      });
+      pcmStream.on('end', finishRecording);
+      pcmStream.on('close', finishRecording);
+      opusStream.on('end', finishRecording);
+      opusStream.on('close', finishRecording);
 
       pcmStream.on('error', (err) => {
-        clearTimeout(maxTimer);
-        activeRecordings.delete(userId);
         console.error('[Voice Decoder Error]:', err.message);
+        finishRecording();
       });
 
       opusStream.on('error', (err) => {
-        clearTimeout(maxTimer);
-        activeRecordings.delete(userId);
         console.error('[Voice Opus Error]:', err.message);
+        finishRecording();
       });
     } catch (err) {
       activeRecordings.delete(userId);

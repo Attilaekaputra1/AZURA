@@ -1,6 +1,6 @@
 /**
  * AZURA Vision Media Extraction & Context Resolution Module
- * Handles: Attachments, Discord Stickers, Tenor/Giphy GIF embeds, and Direct Image URLs.
+ * Handles: Attachments, Discord Stickers (PNG, APNG, Lottie JSON, GIF), Tenor/Giphy GIF embeds, and Direct Image URLs.
  */
 
 const https = require('https');
@@ -31,21 +31,36 @@ async function extractVisualMedia(message) {
     }
   }
 
-  // ── 2. Discord Stickers (PNG, APNG, GIF) ──
+  // ── 2. Discord Stickers (PNG, APNG, Lottie JSON, GIF) ──
   if (message.stickers && message.stickers.size > 0) {
     for (const sticker of message.stickers.values()) {
-      // Discord sticker CDN URL (format: PNG or GIF)
-      let stickerUrl = sticker.url;
-      if (!stickerUrl && sticker.id) {
-        stickerUrl = `https://cdn.discordapp.com/stickers/${sticker.id}.png?size=320`;
-      }
-      if (stickerUrl) {
-        imageUrls.push(stickerUrl);
-      }
       const sName = sticker.name || 'Stiker';
       const sDesc = sticker.description ? ` (${sticker.description})` : '';
-      const sTags = sticker.tags ? ` [Tag: ${sticker.tags}]` : '';
-      contextNotes.push(`[Pengguna mengirim Stiker Discord: "${sName}"${sDesc}${sTags}. Lihat gambar stiker ini secara visual untuk memahami ekspresi/maksud pengguna]`);
+      const sTags = sticker.tags ? ` [Tag/Emoji: ${sticker.tags}]` : '';
+      const isLottie = sticker.format === 3 || (sticker.url && sticker.url.endsWith('.json'));
+
+      if (isLottie) {
+        // Lottie is vector JSON (default Discord animated stickers).
+        // OpenAI Vision cannot parse .json URLs, so we pass full semantic & visual description
+        contextNotes.push(
+          `[PENGGUNA MENGIRIM STIKER ANIMASI DISCORD: "${sName}"${sDesc}${sTags} | Tipe: Animasi Bergerak Default Discord]. ` +
+          `Tanggapi ekspresi/gerakan stiker animasi ini secara visual dan responsif seolah kamu melihat animasinya langsung!`
+        );
+      } else {
+        // PNG, APNG, GIF stickers have valid image URLs for OpenAI Vision
+        let stickerUrl = sticker.url;
+        if (!stickerUrl && sticker.id) {
+          const ext = sticker.format === 4 ? 'gif' : 'png';
+          stickerUrl = `https://cdn.discordapp.com/stickers/${sticker.id}.${ext}?size=320`;
+        }
+        if (stickerUrl && !stickerUrl.endsWith('.json')) {
+          imageUrls.push(stickerUrl);
+        }
+        contextNotes.push(
+          `[PENGGUNA MENGIRIM STIKER DISCORD: "${sName}"${sDesc}${sTags}]. ` +
+          `Lihat gambar stiker ini secara visual dan tanggapi ekspresi/reaksinya!`
+        );
+      }
     }
   }
 
@@ -68,7 +83,7 @@ async function extractVisualMedia(message) {
     for (const embed of targetMsg.embeds) {
       // Direct image in embed (Tenor GIF, Giphy GIF, Twitter/X image, etc.)
       const embedImgUrl = embed.image?.url || embed.image?.proxyURL || embed.thumbnail?.url || embed.thumbnail?.proxyURL;
-      if (embedImgUrl && !imageUrls.includes(embedImgUrl)) {
+      if (embedImgUrl && !imageUrls.includes(embedImgUrl) && !embedImgUrl.endsWith('.json')) {
         imageUrls.push(embedImgUrl);
         const provider = embed.provider?.name || (embed.url?.includes('tenor') ? 'Tenor GIF' : 'GIF');
         const title = embed.title ? ` "${embed.title}"` : '';
@@ -81,7 +96,7 @@ async function extractVisualMedia(message) {
   const urlMatches = message.content.match(/https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp)(?:\?[^\s<>"']*)?/gi);
   if (urlMatches) {
     for (const url of urlMatches) {
-      if (!imageUrls.includes(url)) {
+      if (!imageUrls.includes(url) && !url.endsWith('.json')) {
         imageUrls.push(url);
       }
     }
@@ -92,7 +107,7 @@ async function extractVisualMedia(message) {
   return {
     imageUrls,
     visualContextPrompt,
-    hasVisualMedia: imageUrls.length > 0
+    hasVisualMedia: imageUrls.length > 0 || contextNotes.length > 0
   };
 }
 

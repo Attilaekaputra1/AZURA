@@ -365,7 +365,30 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       }
     } catch (error) {
       lastError = error;
-      console.warn(`[AZURA Model Fallback]: Model ${mc.model} failed (${error.message}). Trying next model...`);
+      console.warn(`[AZURA Model Fallback]: Model ${mc.model} failed (${error.message}).`);
+
+      // If image/sticker URL caused a 400 error, retry with text-only representation
+      if (imageUrls.length > 0 && (error.message?.includes('image') || error.status === 400)) {
+        try {
+          console.log('[AZURA Vision Fallback]: Retrying model with text-only message representation...');
+          const textOnlyMessages = [
+            { role: 'system', content: systemMessage },
+            ...history,
+            { role: 'user', content: userPrompt || 'Tanggapi stiker atau media visual yang baru saja saya kirimkan.' }
+          ];
+          completion = await client.chat.completions.create({
+            model: mc.model,
+            messages: textOnlyMessages,
+            [mc.tokenParam]: mc.maxTokens
+          });
+          if (completion?.choices?.[0]?.message?.content) {
+            console.log(`[AZURA Chat Engine]: Text-only representation on ${mc.model} succeeded.`);
+            break;
+          }
+        } catch (retryErr) {
+          console.warn('[AZURA Vision Text-Only Fallback Error]:', retryErr.message);
+        }
+      }
     }
   }
 

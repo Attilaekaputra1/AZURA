@@ -28,7 +28,7 @@ const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 // Configuration
 // ============================================================
 const VOICE_COOLDOWN_MS = 3000;       // 3 second cooldown between responses
-const SILENCE_DURATION_MS = 1500;     // 1.5s silence = speech ended
+const SILENCE_DURATION_MS = 700;       // 0.7s silence = speech ended (ultra-fast detection)
 const MIN_AUDIO_BYTES = 48000;        // ~0.25s at 48kHz stereo 16-bit (skip noise/coughs)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
 const MAX_RESPONSE_CHARS = 300;       // ~15 seconds of TTS speech
@@ -103,28 +103,27 @@ function pcmToWav(pcmBuffer, sampleRate = 48000, channels = 2, bitsPerSample = 1
 }
 
 /**
- * Transcribe a WAV buffer using OpenAI Whisper API.
+ * Transcribe a WAV buffer in-memory using OpenAI Whisper API (Zero Disk Latency).
  */
 async function transcribeVoice(wavBuffer) {
   const openai = getOpenAI();
   if (!openai) return null;
 
-  const tempPath = path.join(TEMP_DIR, `vc_stt_${Date.now()}.wav`);
   try {
-    fs.writeFileSync(tempPath, wavBuffer);
+    const { toFile } = require('openai');
+    const file = await toFile(wavBuffer, 'speech.wav', { type: 'audio/wav' });
     const result = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(tempPath),
+      file,
       model: 'whisper-1',
       language: 'id'
     });
-    fs.unlink(tempPath, () => {});
     return result.text?.trim() || null;
   } catch (err) {
     console.error('[Voice STT Error]:', err.message);
-    fs.unlink(tempPath, () => {});
     return null;
   }
 }
+
 
 /**
  * Generate TTS audio and wrap it as a Discord AudioResource.
@@ -730,23 +729,11 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // --- INTENT D: General AI Voice Chat ---
+  // --- INTENT D: General AI Voice Chat (Ultra Low-Latency Voice Engine) ---
   try {
-    const askAzura = getAskAzura();
-    const voicePrompt =
-      `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA (CREATOR & OWNER KAMU). ` +
-      `KAMU MENGENALI PANGGILAN NAMAMU SEPERTI "Azura", "Ara", ATAU "Zura". ` +
-      `JAWAB SANGAT RINGKAS (MAKSIMAL 1-2 KALIMAT PENDEK, MAX 15 DETIK BICARA). ` +
-      `KEMAMPUAN MULTILINGUAL VOICE: Kamu fasih berbicara dalam berbagai bahasa (Bahasa Indonesia, English, 日本語 / Japanese, dsb). ` +
-      `JIKA ATTILA MEMINTA KAMU GANTI BAHASA (misal "Azura ngomong bahasa inggris" / "ganti bahasa jepang") ATAU BICARA DALAM BAHASA LAIN, BALASLAH MENGGUNAKAN BAHASA TERSEBUT DENGAN FASIH DAN ALAMI! ` +
-      `GAYA BAHASA & PANGGILAN: Cewek Gen Z 22 tahun yang manis, ekspresif, dan santai. ` +
-      `KHUSUS UNTUK ATTILA: Kamu boleh sesekali memanggilnya dengan panggilan manis/manja seperti "siap sayang", "siap ganteng", atau "Attila sayang" (panggilan ini eksklusif HANYA untuk Attila). ` +
-      `EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [laughs], [giggles], [sighs], [whispers], atau [gasp] di dalam kalimat agar suaramu tertawa, bernafas, atau berbisik secara nyata! ` +
-      `PENTING: Gunakan tanda baca rapi, JANGAN gunakan format markdown bintang/bold atau emoji]: ${transcript}`;
+    const spokenResponse = await generateVoiceAIResponse(transcript, userId);
 
-    const aiResponse = await askAzura(userId, voicePrompt, 'Attila', [], false, null);
-
-    let spoken = aiResponse
+    let spoken = spokenResponse
       .replace(/\*\*/g, '')
       .replace(/[*_~`#>]/g, '')
       .replace(/\n+/g, ' ')
@@ -770,6 +757,60 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     console.log('[Voice Pipeline]: ✅ Done.');
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
+  }
+}
+
+// In-Memory Fast Context for Voice Chat (last 6 exchanges)
+const voiceChatHistories = new Map();
+
+/**
+ * Dedicated High-Speed Voice AI Generator (Sub-second response time)
+ * @param {string} transcript 
+ * @param {string} userId 
+ * @returns {Promise<string>}
+ */
+async function generateVoiceAIResponse(transcript, userId) {
+  const openai = getOpenAI();
+  if (!openai) return 'Iya Attila, ada apa?';
+
+  const history = voiceChatHistories.get(userId) || [];
+
+  const systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan Attila (creator & owner kamu).
+Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
+
+ATURAN WAJIB VOICE OBROLAN (SANGAT KETAT):
+1. RESPON SANGAT RINGKAS: Maksimal 1-2 kalimat pendek saja (to the point, gaya ngobrol lisan yang mengalir cepat).
+2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh sesekali memanggilnya dengan panggilan manis/akrab seperti "sayang", "Attila sayang", atau "siap ganteng".
+3. MULTILINGUAL VOICE: Jika Attila bicara atau meminta kamu berbicara dalam bahasa lain (misal English, 日本語 / Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
+4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
+5. EMOSI SUARA: Kamu boleh sesekali menyisipkan tag emosi suara [laughs], [giggles], [sighs], [whispers], atau [gasp] jika cocok dengan situasi.`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    ...history.slice(-6),
+    { role: 'user', content: transcript }
+  ];
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
+      max_completion_tokens: 70,
+      temperature: 0.85
+    });
+
+    const reply = res.choices[0]?.message?.content?.trim() || 'Iya Attila?';
+
+    // Update history
+    history.push({ role: 'user', content: transcript });
+    history.push({ role: 'assistant', content: reply });
+    if (history.length > 8) history.splice(0, history.length - 8);
+    voiceChatHistories.set(userId, history);
+
+    return reply;
+  } catch (err) {
+    console.error('[Voice AI Generator Error]:', err.message);
+    return 'Iya Attila, gimana?';
   }
 }
 

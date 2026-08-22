@@ -1,44 +1,44 @@
-const { OpenAI } = require('openai');
+const { OpenAI, toFile } = require('openai');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const config = require('./config');
 
+let _openai = null;
+function getOpenAI() {
+  if (!_openai && config.OPENAI_API_KEY) {
+    _openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+  }
+  return _openai;
+}
+
 /**
- * Download an audio attachment URL and transcribe it using OpenAI Whisper API
+ * Download an audio attachment URL and transcribe it in-memory using OpenAI Whisper API
  * @param {string} audioUrl 
  * @returns {Promise<string|null>} Transcribed text or null
  */
 async function transcribeAudioAttachment(audioUrl) {
-  if (!config.OPENAI_API_KEY) return null;
-
-  const tempFilePath = path.join(os.tmpdir(), `azura_audio_${Date.now()}.ogg`);
+  const openai = getOpenAI();
+  if (!openai) return null;
 
   try {
-    // Download audio file stream
+    // Download audio file directly into memory buffer
     const response = await axios({
       method: 'get',
       url: audioUrl,
       responseType: 'arraybuffer'
     });
 
-    fs.writeFileSync(tempFilePath, Buffer.from(response.data));
+    const audioBuffer = Buffer.from(response.data);
+    const file = await toFile(audioBuffer, 'voice_note.ogg', { type: 'audio/ogg' });
 
-    const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
     const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(tempFilePath),
+      file,
       model: 'whisper-1',
-      language: 'id' // Auto-detect or Indonesian bias
+      language: 'id'
     });
-
-    // Cleanup temp file
-    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
     return transcription.text?.trim() || null;
   } catch (err) {
     console.error('[Whisper STT Error]:', err.message || err);
-    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
     return null;
   }
 }

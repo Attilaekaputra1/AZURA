@@ -498,9 +498,15 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
     // Record to session log
     recordSessionEntry(guildId, 'Attila', transcript);
-    recordSessionEntry(guildId, 'AZURA', 'oke, aku keluar dulu yaa');
+    recordSessionEntry(guildId, 'AZURA', 'aku off dluan ya gais thank u');
 
-    const audioResource = await textToAudioResource('oke, aku keluar dulu yaa');
+    // Send parting text message to text channel before leaving
+    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+    if (textChannel) {
+      await textChannel.send('aku off dluan ya gais thank u').catch(() => {});
+    }
+
+    const audioResource = await textToAudioResource('aku off dluan ya gais, thank you!');
     if (audioResource) {
       await playInVC(guildId, audioResource);
     }
@@ -632,12 +638,16 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
   const oldChannel = oldState.channel;
   const newChannel = newState.channel;
 
-  // === Attila LEFT a voice channel (or switched away) ===
-  if (oldChannel && (!newChannel || oldChannel.id !== newChannel?.id)) {
+  // Ignore if user stayed in the same channel (e.g. muted, unmuted, started speaking, streaming)
+  if (oldChannel?.id === newChannel?.id) return;
+
+  // === Attila LEFT a voice channel ===
+  if (oldChannel && !newChannel) {
     await cleanupGuild(guildId, client);
+    return;
   }
 
-  // === Attila JOINED a new voice channel ===
+  // === Attila JOINED or SWITCHED a voice channel ===
   if (newChannel) {
     const existingConn = activeConnections.get(guildId);
     if (existingConn) {

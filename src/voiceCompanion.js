@@ -28,12 +28,37 @@ const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 // Configuration
 // ============================================================
 const VOICE_COOLDOWN_MS = 3000;       // 3 second cooldown between responses
-const SILENCE_DURATION_MS = 700;       // 0.7s silence = speech ended (ultra-fast detection)
-const MIN_AUDIO_BYTES = 48000;        // ~0.25s at 48kHz stereo 16-bit (skip noise/coughs)
+const SILENCE_DURATION_MS = 1000;      // 1.0s silence = speech ended (balanced: fast detection without cutting mid-sentence)
+const MIN_AUDIO_BYTES = 192000;       // ~1.0s at 48kHz stereo 16-bit (reject noise/coughs/breaths/keyboard)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
 const MAX_NORMAL_CHARS = 1000;        // ~1 minute of normal TTS speech (max 1 min)
 const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
+
+// Whisper hallucination filter: common phantom transcripts from background noise
+const WHISPER_HALLUCINATIONS = new Set([
+  'terima kasih telah menonton',
+  'terima kasih sudah menonton',
+  'terima kasih',
+  'sampai jumpa',
+  'sampai jumpa di video selanjutnya',
+  'subscribe',
+  'like and subscribe',
+  'thank you for watching',
+  'thanks for watching',
+  'subtitles by',
+  'amara.org',
+  'you',
+  'bye',
+  'hmm',
+  'hm',
+  'uh',
+  'ah',
+  'oh',
+  'eh',
+  'musik',
+  'music',
+]);
 
 // Ensure temp directory exists
 const TEMP_DIR = path.join(__dirname, '..', 'data', 'temp');
@@ -472,11 +497,22 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
   const pcmBuffer = Buffer.concat(pcmChunks);
   if (pcmBuffer.length < MIN_AUDIO_BYTES) return;
 
+  // Energy Gate: reject quiet noise
+  const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+  const rms = Math.sqrt(sumSquares / samples.length);
+  if (rms < 300) return;
+
   voiceCooldowns.set(userId, Date.now());
 
   const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
   const transcript = await transcribeVoice(wavBuffer);
   if (!transcript || transcript.length < 2) return;
+
+  // Hallucination filter
+  const normalized = transcript.toLowerCase().replace(/[.,!?]+/g, '').trim();
+  if (WHISPER_HALLUCINATIONS.has(normalized) || normalized.length < 4) return;
 
   const member = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
   const callerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
@@ -547,13 +583,23 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
 }
 
 /**
- * Full pipeline: PCM audio → Whisper STT → Intent Classifier / Task Exec → TTS → VC playback.
+ * Full pipeline: PCM audio → Energy Gate → Whisper STT → Hallucination Filter → Intent Classifier → TTS → VC playback.
  */
 async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel) {
   const pcmBuffer = Buffer.concat(pcmChunks);
 
   if (pcmBuffer.length < MIN_AUDIO_BYTES) {
-    console.log(`[Voice Pipeline]: Audio too short (${pcmBuffer.length}B), skipping.`);
+    console.log(`[Voice Pipeline]: Audio too short (${pcmBuffer.length}B < ${MIN_AUDIO_BYTES}B), skipping.`);
+    return;
+  }
+
+  // ── Energy Gate: Calculate RMS to reject silent/noise-only recordings ──
+  const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+  const rms = Math.sqrt(sumSquares / samples.length);
+  if (rms < 300) {
+    console.log(`[Voice Pipeline]: Audio too quiet (RMS=${rms.toFixed(0)}), likely background noise. Skipping.`);
     return;
   }
 
@@ -562,7 +608,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   const sizeKB = (pcmBuffer.length / 1024).toFixed(0);
   const durationSec = (pcmBuffer.length / (48000 * 2 * 2)).toFixed(1);
-  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s). Transcribing...`);
+  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s, RMS=${rms.toFixed(0)}). Transcribing...`);
 
   // ── Step 1: PCM → WAV → Whisper ──
   const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
@@ -573,17 +619,28 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
+  // ── Step 1.5: Whisper Hallucination Filter ──
+  const normalizedTranscript = transcript.toLowerCase().replace(/[.,!?]+/g, '').trim();
+  if (WHISPER_HALLUCINATIONS.has(normalizedTranscript)) {
+    console.log(`[Voice Pipeline]: 🚫 Whisper hallucination detected: "${transcript}". Ignoring.`);
+    return;
+  }
+  // Also reject if transcript is just repeated single word/syllable
+  if (normalizedTranscript.length < 4 && !/\b(?:azura|ara|zura)\b/i.test(normalizedTranscript)) {
+    console.log(`[Voice Pipeline]: Transcript too short to be meaningful: "${transcript}". Ignoring.`);
+    return;
+  }
+
   console.log(`[Voice Pipeline]: 📝 Transcript: "${transcript}"`);
 
   // ── Step 2: Dynamic Wake-Word Filter for Crowded Rooms ──
-  // Check count of non-bot members currently in the voice channel
   const nonBotMembers = voiceChannel?.members ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
-  const isCrowded = nonBotMembers > 1; // 2 or more users in VC
+  const isCrowded = nonBotMembers > 1;
 
   const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|kak azura|kak ara)\b/i.test(transcript);
 
   if (isCrowded && !hasWakeWord) {
-    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word ("Azura" / "Ara" / "Zura") not called. Ignoring.`);
+    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word not called. Ignoring.`);
     return;
   }
 
@@ -594,22 +651,21 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // --- INTENT A: Leave VC Command ---
   const isLeaveIntent =
-    /(?:keluar|leave|cabut|disconnect|tutup|stop|udahan|off|pamit)\s+(?:dari\s+)?(?:vc|voice|channel|room|sini)/i.test(transcript) ||
+    /(?:keluar|leave|cabut|disconnect|tutup|stop|udahan|off|pamit)\s*(?:dari\s+)?(?:vc|voice|channel|room|sini)/i.test(transcript) ||
     /(?:keluar|leave|cabut|off)\s+(?:dulu|dong|ya)/i.test(transcript) ||
     /\b(?:keluar\s+dari\s+vc|leave\s+vc|cabut\s+dari\s+vc|keluar\s+vc)\b/i.test(transcript) ||
-    leavePattern.test(cleanTranscript) || directLeavePattern.test(cleanTranscript);
+    /(?:keluar|leave|cabut|disconnect|tutup|stop|selesai|udahan)\s*(?:dari\s*)?(?:voice|vc|channel|obrolan)?$/i.test(cleanTranscript) ||
+    /^(?:tolong\s+)?(?:keluar|leave|cabut|disconnect)\s*(?:vc|voice)?$/i.test(cleanTranscript);
 
   if (isLeaveIntent) {
-    console.log('[Voice Pipeline]: Detected Leave VC voice command from Attila.');
+    console.log('[Voice Pipeline]: ✅ Detected Leave VC voice command from Attila!');
 
     const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
     const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
-    // Record to session log
     recordSessionEntry(guildId, 'Attila', transcript);
     recordSessionEntry(guildId, 'AZURA', textLeave);
 
-    // Send parting text message to text channel before leaving
     const textChannel = companionTextChannels.get(guildId) || voiceChannel;
     if (textChannel) {
       await textChannel.send(textLeave).catch(() => {});

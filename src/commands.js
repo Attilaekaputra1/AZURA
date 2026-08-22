@@ -262,16 +262,21 @@ async function handleSlashCommand(interaction, startTime) {
     const secs = uptimeSec % 60;
     const uptimeStr = `${hours}j ${mins}m ${secs}s`;
 
+    const { getQuotaStatus } = require('./voiceQuota');
+    const vq = getQuotaStatus();
+
     const statusMessage = `
 ⚡ **AZURA Status System**
 
 • **Status Bot**: 🟢 Online & Siap
 • **AI Engine**: \`OpenAI (${config.OPENAI_MODEL})\`
+• **Voice Engine**: \`ElevenLabs v3 (Kak Ceria)\` ➔ Fallback: \`OpenAI Nova\`
+• **ElevenLabs Voice Quota**: \`${vq.usedChars.toLocaleString('id-ID')} / ${vq.maxMonthlyChars.toLocaleString('id-ID')} karakter (${vq.percentage}%)\` (Sisa ~${vq.estConversationsRemaining} percakapan)
 • **Latency**: \`${latency} ms\`
 • **Uptime**: \`${uptimeStr}\`
 • **Target Budget**: \`$${config.MONTHLY_BUDGET_TARGET} / bulan\`
 • **Max Context Limit**: \`${config.MAX_CONTEXT_MESSAGES} pesan\`
-• **Features**: Vision 📸 | VoiceNote 🎙️ | Whisper STT 🎧 | Tavily AI Search 🌐 | Long-Term Memory 🧠 | Crypto & Kurs 🪙 | Anime Engine 🎬 | DM Scheduler ⏰ | Daily Digest 📊
+• **Features**: Voice Channel Companion 🎙️ | Vision 📸 | VoiceNote 📻 | Whisper STT 🎧 | Tavily AI Search 🌐 | Long-Term Memory 🧠 | Crypto & Kurs 🪙 | Anime Engine 🎬 | DM Scheduler ⏰
     `.trim();
 
     await interaction.reply({

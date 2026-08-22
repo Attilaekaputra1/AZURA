@@ -130,7 +130,7 @@ async function transcribeVoice(wavBuffer) {
  * Generate TTS audio and wrap it as a Discord AudioResource.
  * Primary: ElevenLabs (Bella) — Fallback 1: OpenAI TTS (nova) — Fallback 2: Edge TTS
  */
-async function textToAudioResource(text) {
+async function textToAudioResource(text, client = null) {
   const clean = text
     .slice(0, MAX_RESPONSE_CHARS)
     .replace(/<[^>]+>/g, '')
@@ -139,15 +139,15 @@ async function textToAudioResource(text) {
     .trim();
   if (!clean) return null;
 
-  // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria with audio tags support)
+  // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria with audio tags support & Quota Guard)
   if (config.ELEVENLABS_API_KEY) {
     try {
       console.log('[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria)...');
       const { generateElevenLabsTTS } = require('./elevenlabs');
-      const audioBuffer = await generateElevenLabsTTS(clean);
+      const audioBuffer = await generateElevenLabsTTS(clean, null, client);
       return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
     } catch (elevenErr) {
-      console.warn('[Voice TTS Warning]: ElevenLabs v3 failed, falling back to OpenAI TTS (nova):', elevenErr.message);
+      console.warn('[Voice TTS Warning]: ElevenLabs v3 failed or quota limit reached, falling back to OpenAI TTS (nova):', elevenErr.message);
     }
   }
 

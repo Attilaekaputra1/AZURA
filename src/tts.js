@@ -42,11 +42,12 @@ function detectLanguage(text) {
 }
 
 /**
- * Generate Voice Note (MP3) using ElevenLabs Multilingual v2 with fallbacks
+ * Generate Voice Note (MP3) using ElevenLabs v3 with fallbacks & Quota Guard
  * @param {string} text 
+ * @param {import('discord.js').Client} client
  * @returns {Promise<AttachmentBuilder>}
  */
-async function generateVoiceNote(text) {
+async function generateVoiceNote(text, client = null) {
   const cleanText = text
     .slice(0, 400)
     .replace(/<[^>]+>/g, '')
@@ -54,16 +55,19 @@ async function generateVoiceNote(text) {
     .replace(/[*_~`#]/g, '')
     .trim();
 
-  // 1. Primary: ElevenLabs Multilingual v2 (Bella / Custom Voice)
+  // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria / Custom Voice)
   if (config.ELEVENLABS_API_KEY) {
     try {
-      console.log('[AZURA TTS]: Generating voice via ElevenLabs (Multilingual v2)...');
-      const audioBuffer = await generateElevenLabsTTS(cleanText);
+      console.log('[AZURA TTS]: Generating voice via ElevenLabs v3 (Kak Ceria)...');
+      const audioBuffer = await generateElevenLabsTTS(cleanText, null, client);
       return new AttachmentBuilder(audioBuffer, { name: 'azura_voice.mp3' });
     } catch (err) {
-      console.warn('[AZURA TTS Warning]: ElevenLabs failed, falling back to OpenAI TTS (nova):', err.message);
+      console.warn('[AZURA TTS Warning]: ElevenLabs v3 failed or quota reached, falling back to OpenAI TTS (nova):', err.message);
     }
   }
+
+  // Strip audio tags for fallback engines (OpenAI / Edge) so they don't read tags literally
+  const cleanFallback = cleanText.replace(/\[(?:laughs|giggles|sighs|whispers|gasp|chuckles)\]/gi, '').trim();
 
   // 2. Fallback 1: OpenAI TTS-1 with nova voice (natural 20s female)
   if (config.OPENAI_API_KEY) {
@@ -72,7 +76,7 @@ async function generateVoiceNote(text) {
       const mp3 = await openai.audio.speech.create({
         model: 'tts-1',
         voice: 'nova',
-        input: cleanText
+        input: cleanFallback
       });
       const buffer = Buffer.from(await mp3.arrayBuffer());
       return new AttachmentBuilder(buffer, { name: 'azura_voice.mp3' });

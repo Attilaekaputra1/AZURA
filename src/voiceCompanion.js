@@ -273,34 +273,91 @@ function resetIdleTimer(guildId) {
 // ============================================================
 
 /**
- * Autonomous Music Bot Dispatcher:
- * Sends commands for standard Discord music bots (!play, /play, -play, ,play)
- * directly in the companion/active text channel, accompanied by an aesthetic Now Playing embed.
+ * Autonomous YouTube & Music Controller:
+ * Opens Discord's native YouTube Watch Together Activity in the Voice Channel,
+ * creates instant search links, and dispatches music bot commands.
  */
 async function playMusicAutonomous(client, guildId, channel, songTitle, requesterName = 'Attila') {
   if (!channel) return false;
 
   try {
+    let inviteUrl = null;
+    let voiceChannel = null;
+
+    // Find active voice channel in this guild
+    if (client && client.guilds && guildId) {
+      const guild = client.guilds.cache.get(guildId);
+      if (guild) {
+        const me = guild.members.me || guild.members.cache.get(client.user.id);
+        if (me && me.voice && me.voice.channel) {
+          voiceChannel = me.voice.channel;
+        } else if (config.OWNER_DISCORD_ID) {
+          const ownerMember = guild.members.cache.get(config.OWNER_DISCORD_ID);
+          if (ownerMember && ownerMember.voice && ownerMember.voice.channel) {
+            voiceChannel = ownerMember.voice.channel;
+          }
+        }
+      }
+    }
+
+    // Generate Discord YouTube Watch Together Activity invite
+    if (voiceChannel && voiceChannel.createInvite) {
+      try {
+        const invite = await voiceChannel.createInvite({
+          targetApplication: '880218394199220334', // Watch Together (YouTube) Activity App ID
+          targetType: 2, // EmbeddedApplication
+          maxAge: 86400,
+          maxUses: 0
+        });
+        inviteUrl = `https://discord.gg/${invite.code}`;
+      } catch (e) {
+        console.warn('[YouTube Activity Invite Error]:', e.message);
+      }
+    }
+
+    const ytSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(songTitle)}`;
+
     const musicEmbed = new EmbedBuilder()
-      .setTitle('🎶 AZURA Autonomous Music Controller')
+      .setTitle('📺 YouTube Watch Together — Voice Channel')
       .setDescription(
-        `🎧 **Lagu yang Disetel:** \`${songTitle}\`\n` +
-        `👤 **Diminta oleh:** **${requesterName}**\n\n` +
-        `*AZURA telah otomatis mengirimkan instruksi ke Bot Musik server...*`
+        `🎧 **Lagu / Video:** \`${songTitle}\`\n` +
+        `👤 **Diminta oleh:** **${requesterName}**\n` +
+        (voiceChannel ? `🔊 **Voice Channel:** **#${voiceChannel.name}**\n\n` : '\n') +
+        `Klik tombol di bawah untuk langsung membuka sesi **YouTube Watch Together** di Discord atau cari langsung di YouTube!`
       )
-      .setColor(0x9B59B6)
-      .setFooter({ text: 'Voice Companion • Autonomous Music Controller' })
+      .setColor(0xFF0000)
+      .setFooter({ text: 'Discord Official Activity • YouTube Watch Together' })
       .setTimestamp();
 
-    await channel.send({ embeds: [musicEmbed] }).catch(() => {});
+    const row = new ActionRowBuilder();
+    if (inviteUrl) {
+      row.addComponents(
+        new ButtonBuilder()
+          .setLabel('▶️ Buka YouTube di Discord')
+          .setStyle(ButtonStyle.Link)
+          .setURL(inviteUrl)
+      );
+    }
+    row.addComponents(
+      new ButtonBuilder()
+        .setLabel('🔍 Cari di YouTube')
+        .setStyle(ButtonStyle.Link)
+        .setURL(ytSearchUrl)
+    );
 
-    // Dispatch standard music bot commands
+    await channel.send({ embeds: [musicEmbed], components: [row] }).catch(() => {});
+
+    // Send the activity invite link directly so Discord natively renders the interactive start card
+    if (inviteUrl) {
+      await channel.send(inviteUrl).catch(() => {});
+    }
+
+    // Backup: Dispatch standard music bot commands
     await channel.send(`/play ${songTitle}`).catch(() => {});
     await channel.send(`!play ${songTitle}`).catch(() => {});
     await channel.send(`-play ${songTitle}`).catch(() => {});
-    await channel.send(`,play ${songTitle}`).catch(() => {});
 
-    console.log(`[Music Dispatcher]: Sent autonomous play commands for "${songTitle}" in #${channel.name || 'channel'}`);
+    console.log(`[YouTube & Music Controller]: Launched YouTube Watch Together & dispatched play for "${songTitle}"`);
     return true;
   } catch (err) {
     console.error('[Music Dispatcher Error]:', err.message);
@@ -309,7 +366,7 @@ async function playMusicAutonomous(client, guildId, channel, songTitle, requeste
 }
 
 async function handleMusicButton(interaction) {
-  return interaction.reply({ content: 'Musik sudah otomatis disetelkan oleh AZURA.', flags: 64 });
+  return interaction.reply({ content: 'Sesi YouTube Watch Together sudah dibuka oleh AZURA.', flags: 64 });
 }
 
 // ============================================================
@@ -659,25 +716,25 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // --- INTENT C: Play Music Command (Direct Autonomous Bot Controller) ---
-  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan|setelin)\s+(?:musik|lagu|song|lagunya)?\s*(.+)/i;
+  // --- INTENT C: Play Music & Open YouTube Watch Together Command ---
+  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan|setelin|buka|open|tonton|nyalain)\s*(?:in)?\s*(?:musik|lagu|song|lagunya|youtube|yt)?\s*(.+)/i;
   const musicMatch = transcript.match(musicPattern) || cleanTranscript.match(musicPattern);
 
   if (musicMatch) {
     let songTitle = musicMatch[1]
-      .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot)\b/gi, '')
+      .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|youtube|yt|di\s+discord|di\s+vc)\b/gi, '')
       .replace(/\s+/g, ' ')
       .trim();
 
     if (songTitle.length > 1) {
-      console.log(`[Voice Pipeline]: 🎶 Autonomous Music Controller triggered -> Song: "${songTitle}"`);
+      console.log(`[Voice Pipeline]: 📺 YouTube Watch Together triggered -> Query: "${songTitle}"`);
 
       recordSessionEntry(guildId, 'Attila', transcript);
 
       const textChannel = companionTextChannels.get(guildId) || voiceChannel;
       await playMusicAutonomous(client, guildId, textChannel, songTitle, 'Attila');
 
-      const spokenResponse = `Siap Attila sayang, lagi aku setelin lagu ${songTitle} nih, selamat dengerin yaa! [giggles]`;
+      const spokenResponse = `Siap Attila sayang, sesi YouTube Watch Together Discord udah aku buka dan carikan lagu ${songTitle} nih! Langsung klik untuk nonton dan dengerin bareng yaa~ [giggles]`;
       recordSessionEntry(guildId, 'AZURA', spokenResponse);
 
       const audioResource = await textToAudioResource(spokenResponse, client);
@@ -688,58 +745,19 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     }
   }
 
-  // --- INTENT C2: Open YouTube Watch Together Command ---
+  // --- INTENT C2: Open YouTube Watch Together Generic Command ---
   const ytPattern = /(?:tolong\s+)?(?:buka|open|setel|nyalain|start)\s*(?:in)?\s*(?:youtube|yt|nonton bareng|watch together)/i;
   if (ytPattern.test(transcript) || ytPattern.test(cleanTranscript)) {
-    console.log('[Voice Pipeline]: Detected Open YouTube in VC command.');
+    console.log('[Voice Pipeline]: Detected Open YouTube generic in VC command.');
     recordSessionEntry(guildId, 'Attila', transcript);
 
-    const spokenResponse = 'siap sayang, wait yaa... [giggles]';
+    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+    await playMusicAutonomous(client, guildId, textChannel, 'Trending Music Indonesia', 'Attila');
+
+    const spokenResponse = 'Siap Attila sayang, sesi YouTube Watch Together Discord udah aku buka di Voice Channel nih! Yuk tonton bareng~ [giggles]';
     recordSessionEntry(guildId, 'AZURA', spokenResponse);
 
-    // Try to create YouTube Together Activity invite
-    let inviteUrl = null;
-    try {
-      if (voiceChannel && voiceChannel.createInvite) {
-        const invite = await voiceChannel.createInvite({
-          targetApplication: '880218394199222340', // Official YouTube Together App ID
-          targetType: 2, // EmbeddedApplication
-          maxAge: 86400,
-          maxUses: 0
-        });
-        inviteUrl = `https://discord.com/invite/${invite.code}`;
-      }
-    } catch (e) {
-      console.warn('[YouTube Activity Warning]:', e.message);
-    }
-
-    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
-    if (textChannel) {
-      const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-      const ytEmbed = new EmbedBuilder()
-        .setColor(0xFF0000)
-        .setTitle('📺 YouTube Watch Together — Voice Channel')
-        .setDescription(
-          `**Attila** meminta untuk membuka sesi YouTube bersama di **#${voiceChannel.name}**!\n\n` +
-          `Klik tombol di bawah untuk langsung membuka player YouTube tersinkron di dalam Voice Channel.`
-        )
-        .setFooter({ text: 'Discord Official Activity • Full HD Synchronized Player' })
-        .setTimestamp();
-
-      const row = new ActionRowBuilder();
-      if (inviteUrl) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setLabel('▶️ Buka YouTube Bersama di VC')
-            .setStyle(ButtonStyle.Link)
-            .setURL(inviteUrl)
-        );
-      }
-
-      await textChannel.send({ embeds: [ytEmbed], components: row.components.length > 0 ? [row] : [] }).catch(() => {});
-    }
-
-    const audioResource = await textToAudioResource(spokenResponse);
+    const audioResource = await textToAudioResource(spokenResponse, client);
     if (audioResource) {
       await playInVC(guildId, audioResource);
     }

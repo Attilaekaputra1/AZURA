@@ -10,6 +10,8 @@ const config = {
   DISCORD_CLIENT_ID: (process.env.DISCORD_CLIENT_ID || '').trim(),
   OPENAI_API_KEY: (process.env.OPENAI_API_KEY || '').trim(),
   OWNER_DISCORD_ID: (process.env.OWNER_DISCORD_ID || '').trim(),
+  ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || 'sk_a4c26e321b7abf0f20320d5ddd09e51a06bca2369ca5e328').trim(),
+  ELEVENLABS_VOICE_ID: (process.env.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T').trim(),
 
   // AI Model Configuration
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5.6-luna',

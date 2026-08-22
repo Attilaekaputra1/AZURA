@@ -857,24 +857,59 @@ async function cleanupGuild(guildId, client) {
   audioPlayers.delete(guildId);
   isBotSpeaking.delete(guildId);
 
-  // Send session transcript document to Owner DM if there were interactions
+  // Send session transcript + AI summary document to Owner DM ONLY IF session >= 30 minutes AND actively conversational
   const session = voiceSessions.get(guildId);
   voiceSessions.delete(guildId);
 
-  if (session && session.entries && session.entries.length > 0 && client) {
+  if (session && session.entries && session.entries.length >= 6 && client && config.OWNER_DISCORD_ID) {
+    const endTime = new Date();
+    const durationMs = endTime.getTime() - session.startTime.getTime();
+    const durationMinutes = Math.floor(durationMs / 60000);
+
+    // Minimum 30 minutes session duration requirement
+    if (durationMinutes < 30) {
+      console.log(`[Voice Companion]: Voice session ended (${durationMinutes}m, ${session.entries.length / 2} dialogs). Skipped DM transcript (threshold is >= 30 mins).`);
+      return;
+    }
+
     try {
-      console.log(`[Voice Companion]: Sending voice session transcript (${session.entries.length / 2} dialogs) to Owner DM...`);
-      const endTime = new Date();
+      console.log(`[Voice Companion]: Generating AI Summary & Transcript for ${durationMinutes}m active session...`);
       const startStr = session.startTime.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
       const endStr = endTime.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+      const dialogTurns = Math.floor(session.entries.length / 2);
 
-      let docContent = `# 🎙️ AZURA Voice Session Transcript\n\n`;
-      docContent += `- **Waktu Mulai:** ${startStr}\n`;
-      docContent += `- **Waktu Selesai:** ${endStr}\n`;
-      docContent += `- **Server:** ${session.guildName}\n`;
-      docContent += `- **Voice Channel:** ${session.channelName}\n`;
-      docContent += `- **Total Dialog:** ${session.entries.length / 2} percakapan\n\n`;
-      docContent += `---\n\n## 📝 Transkrip Percakapan\n\n`;
+      // Generate AI Executive Summary
+      let aiSummary = 'Tidak ada ringkasan otomatis yang dihasilkan.';
+      try {
+        const askAzura = getAskAzura();
+        const transcriptText = session.entries.map(e => `[${e.speaker}]: ${e.text}`).join('\n');
+        const summaryPrompt =
+          `[TUGAS: BUAT RINGKASAN PADAT DARI SESI VOICE CHANNEL BERIKUT]:\n` +
+          `Berikut adalah transkrip rekaman sesi voice chat di Discord antara Attila dan AZURA selama ${durationMinutes} menit.\n` +
+          `Buatlah ringkasan eksekutif yang rapi dalam format Markdown yang mencakup:\n` +
+          `1. 📌 **Topik-Topik Utama yang Dibicarakan**\n` +
+          `2. 🎯 **Keputusan / Rencana / Aksi / Ide yang Muncul**\n` +
+          `3. 💡 **Catatan Penting / Hal Menarik**\n\n` +
+          `Tulis ringkasan secara padat, jelas, dan terstruktur tanpa pengantar bertele-tele.\n\n` +
+          `TRANSKRIP PERCAKAPAN:\n${transcriptText.slice(0, 8000)}`;
+
+        const summaryResult = await askAzura(config.OWNER_DISCORD_ID, summaryPrompt, 'Attila', [], true, null);
+        if (summaryResult) {
+          aiSummary = summaryResult.trim();
+        }
+      } catch (sumErr) {
+        console.warn('[Voice Companion Summary Warning]: Failed to generate AI summary:', sumErr.message);
+      }
+
+      let docContent = `# 🎙️ Ringkasan & Transkrip Sesi Voice Channel AZURA\n\n`;
+      docContent += `- **Server**: ${session.guildName}\n`;
+      docContent += `- **Voice Channel**: #${session.channelName}\n`;
+      docContent += `- **Waktu Mulai**: ${startStr}\n`;
+      docContent += `- **Waktu Selesai**: ${endStr}\n`;
+      docContent += `- **Durasi Sesi**: ${durationMinutes} menit\n`;
+      docContent += `- **Total Interaksi**: ${dialogTurns} percakapan aktif\n\n`;
+      docContent += `---\n\n## 💡 Ringkasan & Poin Penting Obrolan\n\n${aiSummary}\n\n`;
+      docContent += `---\n\n## 📝 Transkrip Lengkap Percakapan\n\n`;
 
       for (const item of session.entries) {
         const icon = item.speaker === 'Attila' ? '🎙️' : '💬';
@@ -883,16 +918,19 @@ async function cleanupGuild(guildId, client) {
 
       const fileBuffer = Buffer.from(docContent, 'utf-8');
       const dateTag = new Date().toISOString().slice(0, 10);
-      const fileName = `Transkrip_Voice_${dateTag}_${Date.now().toString().slice(-4)}.md`;
+      const fileName = `Ringkasan_Transkrip_Voice_${dateTag}_${Date.now().toString().slice(-4)}.md`;
       const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
 
       const owner = await client.users.fetch(config.OWNER_DISCORD_ID);
       if (owner) {
         await owner.send({
-          content: `📄 **Laporan Transkrip Voice Channel**\nSesi voice chat di **#${session.channelName}** (${session.guildName}) telah selesai dengan total **${session.entries.length / 2} interaksi**.\nBerikut file dokumen transkrip lengkapnya:`,
+          content:
+            `📄 **Dokumen Ringkasan & Transkrip Sesi Voice Channel (Durasi: ${durationMinutes} Menit)**\n` +
+            `Sesi voice chat aktif di **#${session.channelName}** (${session.guildName}) telah selesai.\n` +
+            `Berikut file dokumen lengkap berisi ringkasan poin penting dan transkrip percakapan:`,
           files: [attachment]
         });
-        console.log('[Voice Companion]: Voice transcript successfully sent to Owner DM.');
+        console.log('[Voice Companion]: Combined summary & transcript successfully sent to Owner DM.');
       }
     } catch (dmErr) {
       console.error('[Voice Companion DM Error]: Failed to send transcript to Owner:', dmErr.message);

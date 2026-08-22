@@ -148,19 +148,14 @@ async function processTavilyIntelligence(prompt) {
     return await extractTavilyUrl(extractedUrl);
   }
   const lower = prompt.toLowerCase();
-  const newsKeywords = ['berita', 'news', 'terbaru', 'terkini', 'hari ini', 'update', 'politik', 'tren', 'kejadian'];
-  const generalSearchKeywords = ['cuaca', 'weather', 'harga', 'price', 'kurs', 'search', 'cari', 'cariin', 'googling', 'cek info', 'siapa itu', 'apa itu', 'kapan'];
+  const newsKeywords = ['berita', 'news', 'terkini', 'politik', 'tren', 'kejadian', 'viral', 'kasus', 'peristiwa', 'isu'];
   const isNews = newsKeywords.some(kw => lower.includes(kw));
-  const isGeneral = generalSearchKeywords.some(kw => lower.includes(kw));
   if (isNews) {
     console.log(`[Tavily Engine]: Executing News Search (topic: news, depth: advanced)...`);
     return await searchTavily(prompt, 'news');
   }
-  if (isGeneral) {
-    console.log(`[Tavily Engine]: Executing General Search (topic: general, depth: advanced)...`);
-    return await searchTavily(prompt, 'general');
-  }
-  return null;
+  console.log(`[Tavily Engine]: Executing General Search (topic: general, depth: advanced)...`);
+  return await searchTavily(prompt, 'general');
 }
 
 module.exports = {

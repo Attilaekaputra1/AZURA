@@ -3,7 +3,6 @@ const config = require('./config');
 const budgetGuard = require('./budget');
 const { searchWeb } = require('./search');
 const { getUserFacts, autoExtractFact } = require('./memory');
-const { processTavilyIntelligence } = require('./tavily');
 const { processFinanceIntelligence } = require('./finance');
 const { processSmartReminder } = require('./reminder');
 const { processImageIntelligence } = require('./imageGen');
@@ -110,17 +109,22 @@ Aturan Panjang Jawaban (ADAPTIF):
 `.trim();
 }
 
-// Keywords that trigger web search
-const SEARCH_KEYWORDS = [
-  'berita', 'news', 'terbaru', 'terkini', 'hari ini',
-  'cuaca', 'weather', 'harga', 'price', 'kurs',
-  'search', 'cari', 'cariin', 'googling', 'cek info',
-  'siapa itu', 'apa itu', 'kapan', 'update'
-];
-
+// Keywords and regex that trigger web search via Tavily AI
 function needsSearch(prompt) {
+  if (!prompt || typeof prompt !== 'string') return false;
+
+  // 1. If user sent a web link (URL)
+  if (/https?:\/\/[^\s]+/i.test(prompt)) return true;
+
   const lower = prompt.toLowerCase();
-  return SEARCH_KEYWORDS.some(kw => lower.includes(kw));
+
+  // 2. Explicit search/research/news keywords
+  const explicitSearchRegex = /\b(?:search|googling|cariin|riset|berita|news|info\s+terbaru|isu\s+terkini|kabar\s+terbaru|update\s+terkini|cuaca\s+hari\s+ini|kurs\s+hari\s+ini|harga\s+terkini|berita\s+hari\s+ini)\b/i;
+
+  // 3. Direct inquiry requesting web search / factual investigation
+  const directCariRegex = /\b(?:cari|carikan|searching)\s+(?:info|berita|kabar|data|artikel|soal|tentang)\b/i;
+
+  return explicitSearchRegex.test(lower) || directCariRegex.test(lower);
 }
 
 /**
@@ -140,9 +144,6 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const reminderResponse = await processSmartReminder(userId, userPrompt, channelId);
   if (reminderResponse) return reminderResponse;
-
-  const tavilyResponse = await processTavilyIntelligence(userPrompt);
-  if (tavilyResponse) return tavilyResponse;
 
   const financeResponse = await processFinanceIntelligence(userPrompt);
   if (financeResponse) return financeResponse;
@@ -176,7 +177,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   const systemMessage = searchContext 
-    ? `${systemPrompt}\n\nKonteks dari internet (gunakan sebagai referensi, sampaikan secara santai):\n${searchContext}`
+    ? `${systemPrompt}\n\nKonteks Data Real-Time dari Internet (Tavily AI Search):\n${searchContext}\n\nInstruksi Penyampaian Hasil Pencarian:\n- Jawablah menggunakan fakta di atas dengan gaya bahasa santai, cerdas, dan hangat khas Azura.\n- Susun penjelasan secara rapi dan enak dibaca.\n- Cantumkan tautan link sumber jika relevan.`
     : systemPrompt;
 
   const messages = [

@@ -485,11 +485,96 @@ async function checkScheduledDms(client) {
   }
 }
 
+/**
+ * Trigger DM confirmation from voice command
+ * @param {import('discord.js').Client} client 
+ * @param {string} targetQuery 
+ * @param {string} messageText 
+ * @param {string} requesterId 
+ * @returns {Promise<{ success: boolean, targetName?: string, reason?: string }>}
+ */
+async function triggerVoiceSendDm(client, targetQuery, messageText, requesterId) {
+  const matches = await searchServerMembers(client, targetQuery);
+  if (matches.length === 0) {
+    return { success: false, reason: `Tidak ditemukan member dengan nama "${targetQuery}" di server.` };
+  }
+
+  const selected = matches[0];
+  const { member: targetMember, guild } = selected;
+  const targetUser = targetMember.user;
+
+  const pendingId = `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  pendingDms.set(pendingId, {
+    targetUser,
+    targetMember,
+    guildName: guild.name,
+    messageText,
+    requesterId
+  });
+
+  const avatarUrl = targetUser.displayAvatarURL({ dynamic: true, size: 256 });
+  const joinedDate = targetMember.joinedAt ? targetMember.joinedAt.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Tidak diketahui';
+  const createdDate = targetUser.createdAt ? targetUser.createdAt.toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Tidak diketahui';
+
+  const previewEmbed = new EmbedBuilder()
+    .setTitle('📋 Konfirmasi Perintah Suara: Pengiriman DM')
+    .setDescription('Kamu memberikan perintah suara di Voice Channel untuk mengirim pesan. **Pilih salah satu opsi di bawah untuk mengeksekusi:**')
+    .setThumbnail(avatarUrl)
+    .setColor(0x00AE89)
+    .addFields(
+      { name: '👤 Display Name', value: `**${targetMember.displayName}**`, inline: true },
+      { name: '🏷️ Username', value: `@${targetUser.username}`, inline: true },
+      { name: '🆔 User ID', value: `\`${targetUser.id}\``, inline: true },
+      { name: '🏠 Server', value: guild.name, inline: true },
+      { name: '📅 Bergabung Server', value: joinedDate, inline: true },
+      { name: '🎂 Akun Dibuat', value: createdDate, inline: true },
+      { name: '✉️ Pesan Yang Akan Dikirim', value: `>>> ${messageText}` }
+    )
+    .setFooter({ text: 'Perintah Suara Voice Channel • Konfirmasi di bawah' })
+    .setTimestamp();
+
+  if (matches.length > 1) {
+    const alternatives = matches.slice(1, 4).map(m => `• **${m.member.displayName}** (@${m.member.user.username})`).join('\n');
+    previewEmbed.addFields({
+      name: '⚠️ Kandidat Lain yang Mirip',
+      value: alternatives
+    });
+  }
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`confirm_senddm_${pendingId}`)
+      .setLabel('🟢 Kirim DM Sekarang')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`schedule_senddm_${pendingId}`)
+      .setLabel('⏰ Jadwalkan untuk Nanti')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`cancel_senddm_${pendingId}`)
+      .setLabel('❌ Batal')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  const owner = await client.users.fetch(requesterId);
+  if (owner) {
+    await owner.send({
+      embeds: [previewEmbed],
+      components: [row]
+    });
+    return { success: true, targetName: targetMember.displayName };
+  }
+
+  return { success: false, reason: 'Gagal mengirim konfirmasi ke DM Owner.' };
+}
+
 module.exports = {
   searchServerMembers,
   handleSendDmCommand,
   handleSendDmButton,
   handleSendDmSelectMenu,
   handleListScheduledCommand,
-  checkScheduledDms
+  checkScheduledDms,
+  triggerVoiceSendDm
 };

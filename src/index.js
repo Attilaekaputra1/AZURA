@@ -229,9 +229,13 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     const { handleSendDmButton } = require('./ownerDm');
     const { handleSendChannelButton } = require('./sendChannel');
+    const { handleMusicButton } = require('./voiceCompanion');
     // Route to correct button handler based on customId prefix
     if (interaction.customId.startsWith('confirmch_') || interaction.customId.startsWith('cancelch_')) {
       return handleSendChannelButton(interaction);
+    }
+    if (interaction.customId.startsWith('confirm_playmusic_') || interaction.customId.startsWith('cancel_playmusic_')) {
+      return handleMusicButton(interaction);
     }
     return handleSendDmButton(interaction);
   }

@@ -3,7 +3,9 @@ const {
   EndBehaviorType, createAudioPlayer, createAudioResource,
   AudioPlayerStatus, StreamType
 } = require('@discordjs/voice');
-const { AttachmentBuilder } = require('discord.js');
+const {
+  EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder
+} = require('discord.js');
 const { Readable } = require('stream');
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +21,8 @@ const activeRecordings = new Set();       // userIds currently being recorded
 const voiceCooldowns = new Map();         // userId -> last response timestamp
 const isBotSpeaking = new Set();          // guildIds where bot is speaking
 const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
+const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, channelId, requesterId }
+const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 
 // ============================================================
 // Configuration
@@ -28,6 +32,7 @@ const SILENCE_DURATION_MS = 1500;     // 1.5s silence = speech ended
 const MIN_AUDIO_BYTES = 48000;        // ~0.25s at 48kHz stereo 16-bit (skip noise/coughs)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
 const MAX_RESPONSE_CHARS = 300;       // ~15 seconds of TTS speech
+const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
 
 // Ensure temp directory exists
 const TEMP_DIR = path.join(__dirname, '..', 'data', 'temp');
@@ -36,7 +41,7 @@ if (!fs.existsSync(TEMP_DIR)) {
 }
 
 // ============================================================
-// Lazy Loaders (avoid circular deps & conditional requires)
+// Lazy Loaders
 // ============================================================
 let _openai = null;
 function getOpenAI() {
@@ -61,7 +66,7 @@ function getPrism() {
     try {
       _prism = require('prism-media');
     } catch {
-      console.error('[Voice]: prism-media not installed. Run: npm install prism-media opusscript');
+      console.error('[Voice]: prism-media not installed.');
     }
   }
   return _prism;
@@ -73,11 +78,6 @@ function getPrism() {
 
 /**
  * Generate a WAV buffer from raw PCM s16le data.
- * @param {Buffer} pcmBuffer - Raw PCM samples (signed 16-bit little-endian)
- * @param {number} sampleRate
- * @param {number} channels
- * @param {number} bitsPerSample
- * @returns {Buffer} Complete WAV file in memory
  */
 function pcmToWav(pcmBuffer, sampleRate = 48000, channels = 2, bitsPerSample = 16) {
   const header = Buffer.alloc(44);
@@ -89,8 +89,8 @@ function pcmToWav(pcmBuffer, sampleRate = 48000, channels = 2, bitsPerSample = 1
   header.writeUInt32LE(36 + dataLen, 4);
   header.write('WAVE', 8);
   header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);        // fmt chunk size
-  header.writeUInt16LE(1, 20);         // PCM format
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
   header.writeUInt16LE(channels, 22);
   header.writeUInt32LE(sampleRate, 24);
   header.writeUInt32LE(byteRate, 28);
@@ -104,8 +104,6 @@ function pcmToWav(pcmBuffer, sampleRate = 48000, channels = 2, bitsPerSample = 1
 
 /**
  * Transcribe a WAV buffer using OpenAI Whisper API.
- * @param {Buffer} wavBuffer
- * @returns {Promise<string|null>}
  */
 async function transcribeVoice(wavBuffer) {
   const openai = getOpenAI();
@@ -130,9 +128,6 @@ async function transcribeVoice(wavBuffer) {
 
 /**
  * Generate TTS audio and wrap it as a Discord AudioResource.
- * Primary: Edge TTS (GadisNeural, free) — Fallback: OpenAI TTS-1 (shimmer)
- * @param {string} text
- * @returns {Promise<import('@discordjs/voice').AudioResource|null>}
  */
 async function textToAudioResource(text) {
   const clean = text
@@ -145,7 +140,7 @@ async function textToAudioResource(text) {
 
   const tempPath = path.join(TEMP_DIR, `vc_tts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp3`);
 
-  // --- Primary: Microsoft Edge Neural TTS (free, fast) ---
+  // --- Primary: Microsoft Edge Neural TTS (free, natural) ---
   try {
     const { EdgeTTS } = require('node-edge-tts');
     const tts = new EdgeTTS({
@@ -176,15 +171,12 @@ async function textToAudioResource(text) {
 }
 
 // ============================================================
-// Voice Playback
+// Voice Playback & Speaking State
 // ============================================================
 
 /**
  * Play an AudioResource in a guild's VC.
- * Automatically manages isBotSpeaking state.
- * @param {string} guildId
- * @param {import('@discordjs/voice').AudioResource} resource
- * @returns {Promise<void>} resolves when playback ends
+ * Automatically unmutes during speech and re-mutes on completion.
  */
 function playInVC(guildId, resource) {
   return new Promise((resolve) => {
@@ -193,10 +185,20 @@ function playInVC(guildId, resource) {
     if (!player || !conn || !resource) return resolve();
 
     isBotSpeaking.add(guildId);
+
+    try {
+      // Unmute while speaking
+      conn.rejoin({ selfMute: false, selfDeaf: false });
+    } catch (_) {}
+
     player.play(resource);
 
     const cleanup = () => {
       isBotSpeaking.delete(guildId);
+      try {
+        // Return to muted state after speaking
+        conn.rejoin({ selfMute: true, selfDeaf: false });
+      } catch (_) {}
       resolve();
     };
 
@@ -209,16 +211,151 @@ function playInVC(guildId, resource) {
 }
 
 // ============================================================
+// Inactivity Deafen Timer
+// ============================================================
+
+function resetIdleTimer(guildId) {
+  if (idleTimers.has(guildId)) {
+    clearTimeout(idleTimers.get(guildId));
+  }
+
+  // Undeafen if was deafened
+  const conn = activeConnections.get(guildId);
+  if (conn) {
+    try {
+      conn.rejoin({ selfMute: true, selfDeaf: false });
+    } catch (_) {}
+  }
+
+  const timer = setTimeout(() => {
+    const activeConn = activeConnections.get(guildId);
+    if (activeConn) {
+      console.log(`[Voice Companion]: 5 menit tanpa interaksi di guild ${guildId}. Mengaktifkan mode deafen.`);
+      try {
+        activeConn.rejoin({ selfMute: true, selfDeaf: true });
+      } catch (_) {}
+    }
+  }, IDLE_DEAFEN_MS);
+
+  idleTimers.set(guildId, timer);
+}
+
+// ============================================================
+// Voice Music Controller
+// ============================================================
+
+/**
+ * Trigger music confirmation in Owner DM
+ */
+async function triggerVoiceMusicPlay(client, guildId, channel, songTitle, requesterId) {
+  const pendingId = `music_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  pendingMusic.set(pendingId, {
+    songTitle,
+    guildId,
+    channelId: channel?.id || null,
+    channelName: channel?.name || 'voice-channel',
+    requesterId
+  });
+
+  const previewEmbed = new EmbedBuilder()
+    .setTitle('🎵 Konfirmasi Perintah Suara: Putar Musik')
+    .setDescription(
+      `Kamu meminta pemutaran lagu melalui perintah suara di Voice Channel:\n\n` +
+      `🎶 **Judul Lagu / Musik:** \`${songTitle}\`\n` +
+      `🏠 **Target Saluran:** #${channel?.name || 'voice-channel'}\n\n` +
+      `**Pilih tombol di bawah untuk memutar sekarang:**`
+    )
+    .setColor(0x9B59B6)
+    .setFooter({ text: 'Perintah Suara Voice Channel • Music Bot Controller' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`confirm_playmusic_${pendingId}`)
+      .setLabel('▶️ Putar Musik Sekarang')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`cancel_playmusic_${pendingId}`)
+      .setLabel('❌ Batal')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  const owner = await client.users.fetch(requesterId);
+  if (owner) {
+    await owner.send({
+      embeds: [previewEmbed],
+      components: [row]
+    });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Handle button clicks for voice music play confirmation
+ */
+async function handleMusicButton(interaction) {
+  const ownerId = config.OWNER_DISCORD_ID;
+  if (!ownerId || interaction.user.id !== ownerId) {
+    return interaction.reply({ content: '🔒 Akses ditolak.', flags: 64 });
+  }
+
+  const customId = interaction.customId;
+  const isConfirm = customId.startsWith('confirm_playmusic_');
+  const isCancel = customId.startsWith('cancel_playmusic_');
+  const pendingId = customId.replace('confirm_playmusic_', '').replace('cancel_playmusic_', '');
+
+  const data = pendingMusic.get(pendingId);
+  if (!data) {
+    return interaction.update({
+      content: '⚠️ Permintaan musik ini sudah kadaluarsa atau tidak ditemukan.',
+      embeds: [],
+      components: []
+    });
+  }
+
+  if (isCancel) {
+    pendingMusic.delete(pendingId);
+    return interaction.update({
+      content: `❌ **Pemutaran Musik Dibatalkan.** Permintaan lagu \`${data.songTitle}\` dibatalkan.`,
+      embeds: [],
+      components: []
+    });
+  }
+
+  if (isConfirm) {
+    pendingMusic.delete(pendingId);
+    const targetChannel = interaction.client.channels.cache.get(data.channelId) || companionTextChannels.get(data.guildId);
+
+    if (targetChannel) {
+      // Send standard music bot trigger command in the channel
+      await targetChannel.send(`/play ${data.songTitle}`).catch(() => {});
+      await targetChannel.send(`!play ${data.songTitle}`).catch(() => {});
+
+      return interaction.update({
+        content: `✅ **Musik Diputar!** AZURA telah mengirimkan perintah pemutaran lagu \`${data.songTitle}\` di #${data.channelName}.`,
+        embeds: [],
+        components: []
+      });
+    } else {
+      return interaction.update({
+        content: `⚠️ Saluran text #${data.channelName} tidak ditemukan untuk mengirim perintah musik.`,
+        embeds: [],
+        components: []
+      });
+    }
+  }
+}
+
+// ============================================================
 // Voice Conversation Pipeline (Core)
 // ============================================================
 
 /**
  * Start listening to voice activity on a connection.
- * Only processes audio from the Owner (Attila).
- * @param {import('@discordjs/voice').VoiceConnection} connection
- * @param {string} guildId
  */
-function startVoiceListener(connection, guildId) {
+function startVoiceListener(connection, guildId, client, voiceChannel) {
   const prism = getPrism();
   if (!prism) {
     console.warn('[Voice Listener]: Disabled — prism-media not available.');
@@ -228,7 +365,7 @@ function startVoiceListener(connection, guildId) {
   const receiver = connection.receiver;
 
   receiver.speaking.on('start', (userId) => {
-    // === Gate 1: Owner only ===
+    // === Gate 1: Owner only (Attila identification) ===
     if (userId !== config.OWNER_DISCORD_ID) return;
 
     // === Gate 2: Not already recording this user ===
@@ -242,10 +379,10 @@ function startVoiceListener(connection, guildId) {
     if (Date.now() - lastTime < VOICE_COOLDOWN_MS) return;
 
     activeRecordings.add(userId);
+    resetIdleTimer(guildId);
     console.log('[Voice Listener]: Attila started speaking. Recording...');
 
     try {
-      // Subscribe to Opus stream from this user
       const opusStream = receiver.subscribe(userId, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
@@ -253,12 +390,10 @@ function startVoiceListener(connection, guildId) {
         }
       });
 
-      // Decode Opus → PCM s16le (48 kHz, stereo — Discord native)
       const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
       const pcmChunks = [];
       const pcmStream = opusStream.pipe(decoder);
 
-      // Safety: max recording timeout
       const maxTimer = setTimeout(() => {
         console.log('[Voice Listener]: Max recording duration reached (30s). Stopping.');
         opusStream.destroy();
@@ -269,7 +404,7 @@ function startVoiceListener(connection, guildId) {
       pcmStream.on('end', () => {
         clearTimeout(maxTimer);
         activeRecordings.delete(userId);
-        processVoiceSpeech(guildId, userId, pcmChunks).catch(err => {
+        processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
           console.error('[Voice Pipeline Fatal]:', err.message);
         });
       });
@@ -291,26 +426,22 @@ function startVoiceListener(connection, guildId) {
     }
   });
 
-  console.log(`[Voice Listener]: Active — listening for Attila's voice in guild ${guildId}`);
+  console.log(`[Voice Listener]: Active — listening for Attila in guild ${guildId}`);
 }
 
 /**
- * Full pipeline: PCM audio → Whisper STT → AI response → TTS → VC playback.
- * @param {string} guildId
- * @param {string} userId
- * @param {Buffer[]} pcmChunks
+ * Full pipeline: PCM audio → Whisper STT → Intent Classifier / Task Exec → TTS → VC playback.
  */
-async function processVoiceSpeech(guildId, userId, pcmChunks) {
+async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel) {
   const pcmBuffer = Buffer.concat(pcmChunks);
 
-  // Skip very short audio (noise, cough, mic bumps)
   if (pcmBuffer.length < MIN_AUDIO_BYTES) {
     console.log(`[Voice Pipeline]: Audio too short (${pcmBuffer.length}B), skipping.`);
     return;
   }
 
-  // Set cooldown immediately to prevent rapid-fire
   voiceCooldowns.set(userId, Date.now());
+  resetIdleTimer(guildId);
 
   const sizeKB = (pcmBuffer.length / 1024).toFixed(0);
   const durationSec = (pcmBuffer.length / (48000 * 2 * 2)).toFixed(1);
@@ -327,7 +458,98 @@ async function processVoiceSpeech(guildId, userId, pcmChunks) {
 
   console.log(`[Voice Pipeline]: 📝 Transcript: "${transcript}"`);
 
-  // ── Step 2: AI Response (voice mode = short, no markdown) ──
+  // ── Step 2: Dynamic Wake-Word Filter for Crowded Rooms ──
+  // Check count of non-bot members currently in the voice channel
+  const nonBotMembers = voiceChannel?.members ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
+  const isCrowded = nonBotMembers > 1; // 2 or more users in VC
+
+  const hasWakeWord = /\b(?:azura|zura|asura|ajura)\b/i.test(transcript);
+
+  if (isCrowded && !hasWakeWord) {
+    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word "Azura" not called. Ignoring.`);
+    return;
+  }
+
+  // Clean transcript for intent matching
+  const cleanTranscript = transcript.replace(/\b(?:azura|zura|asura|ajura)\b/gi, '').trim();
+
+  // ── Step 3: Intent Classification ──
+
+  // --- INTENT A: Leave VC Command ---
+  const leavePattern = /(?:keluar|leave|cabut|disconnect|tutup|stop|selesai|udahan)\s*(?:dari\s*)?(?:voice|vc|channel|obrolan)?$/i;
+  const directLeavePattern = /^(?:tolong\s+)?(?:keluar|leave|cabut|disconnect)\s*(?:vc|voice)?$/i;
+
+  if (leavePattern.test(cleanTranscript) || directLeavePattern.test(cleanTranscript) || /keluar\s+dari\s+voice/i.test(transcript)) {
+    console.log('[Voice Pipeline]: Detected Leave VC voice command.');
+
+    // Record to session log
+    recordSessionEntry(guildId, 'Attila', transcript);
+    recordSessionEntry(guildId, 'AZURA', 'oke, aku keluar dulu yaa');
+
+    const audioResource = await textToAudioResource('oke, aku keluar dulu yaa');
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+
+    await cleanupGuild(guildId, client);
+    return;
+  }
+
+  // --- INTENT B: Send DM Command ---
+  const dmPattern = /(?:tolong\s+)?(?:kirimin|kirim|send)\s+(?:pesan|dm|chat)\s+ke\s+(?:akun\s+)?(?:yang\s+namanya\s+|yg\s+namanya\s+|nama\s+)?([^,]+?)(?:,\s*|\s+)(?:isinya|bilang|pesan|pesannya|yaitu)\s+(.+)/i;
+  const dmMatch = transcript.match(dmPattern) || cleanTranscript.match(dmPattern);
+
+  if (dmMatch) {
+    const targetQuery = dmMatch[1].trim();
+    const messageText = dmMatch[2].trim();
+    console.log(`[Voice Pipeline]: Detected Send DM command -> Target: "${targetQuery}", Message: "${messageText}"`);
+
+    recordSessionEntry(guildId, 'Attila', transcript);
+
+    const { triggerVoiceSendDm } = require('./ownerDm');
+    const result = await triggerVoiceSendDm(client, targetQuery, messageText, userId);
+
+    let spokenResponse = '';
+    if (result.success) {
+      spokenResponse = 'oke, konfirmasinya udah aku kirim ke DM kamu yaa';
+    } else {
+      spokenResponse = `aku nggak nemu member dengan nama ${targetQuery} di server`;
+    }
+
+    recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+    const audioResource = await textToAudioResource(spokenResponse);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+    return;
+  }
+
+  // --- INTENT C: Play Music Command ---
+  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan)\s+(?:musik|lagu|song)\s+(.+)/i;
+  const musicPattern2 = /(?:tolong\s+)?(?:puterin|putar|setel)\s+(?:lagunya|lagu)\s+(.+)/i;
+  const musicMatch = transcript.match(musicPattern) || transcript.match(musicPattern2) || cleanTranscript.match(musicPattern);
+
+  if (musicMatch) {
+    const songTitle = musicMatch[1].trim();
+    console.log(`[Voice Pipeline]: Detected Play Music command -> Song: "${songTitle}"`);
+
+    recordSessionEntry(guildId, 'Attila', transcript);
+
+    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+    await triggerVoiceMusicPlay(client, guildId, textChannel, songTitle, userId);
+
+    const spokenResponse = `siap, konfirmasi putar lagu ${songTitle} udah aku kirim ke DM kamu yaa`;
+    recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+    const audioResource = await textToAudioResource(spokenResponse);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+    return;
+  }
+
+  // --- INTENT D: General AI Voice Chat ---
   try {
     const askAzura = getAskAzura();
     const voicePrompt =
@@ -336,7 +558,6 @@ async function processVoiceSpeech(guildId, userId, pcmChunks) {
 
     const aiResponse = await askAzura(userId, voicePrompt, 'Attila', [], false, null);
 
-    // Clean markdown artifacts & truncate for voice
     let spoken = aiResponse
       .replace(/\*\*/g, '')
       .replace(/[*_~`#>]/g, '')
@@ -347,33 +568,34 @@ async function processVoiceSpeech(guildId, userId, pcmChunks) {
     if (!spoken) return;
     console.log(`[Voice Pipeline]: 💬 Response: "${spoken}"`);
 
-    // Record to session transcript (saved in memory until VC session ends)
-    const session = voiceSessions.get(guildId);
-    if (session) {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('id-ID', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZone: 'Asia/Jakarta'
-      });
-      session.entries.push({ time: timeStr, speaker: 'Attila', text: transcript });
-      session.entries.push({ time: timeStr, speaker: 'AZURA', text: spoken });
-    }
+    recordSessionEntry(guildId, 'Attila', transcript);
+    recordSessionEntry(guildId, 'AZURA', spoken);
 
-    // ── Step 3: TTS → AudioResource ──
     const audioResource = await textToAudioResource(spoken);
     if (!audioResource) {
       console.error('[Voice Pipeline]: TTS generation failed.');
       return;
     }
 
-    // ── Step 4: Play in VC ──
     console.log('[Voice Pipeline]: 🔊 Playing in VC...');
     await playInVC(guildId, audioResource);
     console.log('[Voice Pipeline]: ✅ Done.');
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
+  }
+}
+
+function recordSessionEntry(guildId, speaker, text) {
+  const session = voiceSessions.get(guildId);
+  if (session) {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'Asia/Jakarta'
+    });
+    session.entries.push({ time: timeStr, speaker, text });
   }
 }
 
@@ -383,7 +605,6 @@ async function processVoiceSpeech(guildId, userId, pcmChunks) {
 
 /**
  * Called on voiceStateUpdate. If Attila joins/leaves VC, AZURA follows.
- * Now with full audio pipeline (selfMute: false, selfDeaf: false).
  */
 async function handleVoiceStateUpdate(oldState, newState, client) {
   const userId = newState.member?.id || oldState.member?.id;
@@ -404,14 +625,13 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
 
   // === Attila JOINED a new voice channel ===
   if (newChannel) {
-    // If already connected, destroy old connection first (channel switch)
     const existingConn = activeConnections.get(guildId);
     if (existingConn) {
       await cleanupGuild(guildId, client);
     }
 
     try {
-      console.log(`[Voice Companion]: Attila masuk ke "${newChannel.name}". AZURA ikut join (voice mode)...`);
+      console.log(`[Voice Companion]: Attila masuk ke "${newChannel.name}". AZURA ikut join (initial selfMute: true)...`);
 
       // Initialize voice session tracking
       voiceSessions.set(guildId, {
@@ -421,25 +641,23 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
         entries: []
       });
 
-      // Join with hearing & speaking enabled for live voice conversation
+      // Join initially muted (selfMute: true, selfDeaf: false to listen)
       const connection = joinVoiceChannel({
         channelId: newChannel.id,
         guildId: guildId,
         adapterCreator: guild.voiceAdapterCreator,
-        selfMute: false,    // Can speak
-        selfDeaf: false,    // Can hear
+        selfMute: true,     // Initial mute as requested
+        selfDeaf: false,    // Can hear Attila's speech
       });
 
       await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
       activeConnections.set(guildId, connection);
       console.log(`[Voice Companion]: Connected to "${newChannel.name}" in "${guild.name}".`);
 
-      // Create AudioPlayer for this guild and subscribe to connection
       const player = createAudioPlayer();
       audioPlayers.set(guildId, player);
       connection.subscribe(player);
 
-      // Handle disconnection / forced removal
       connection.on(VoiceConnectionStatus.Disconnected, async () => {
         try {
           await Promise.race([
@@ -452,17 +670,19 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
         }
       });
 
-      // Find best text channel for companion text replies
+      // Find best text channel for texting "aku ikut kamu yaa"
       const textChannel = findBestTextChannel(guild, newChannel, client);
       if (textChannel) {
         companionTextChannels.set(guildId, textChannel);
+        // TEXTING ONLY on join (no voice greeting as requested)
+        await textChannel.send('aku ikut kamu yaa').catch(() => {});
       }
 
       // Start the voice listener (audio receive pipeline)
-      startVoiceListener(connection, guildId);
+      startVoiceListener(connection, guildId, client, newChannel);
 
-      // Play a greeting in VC (async, non-blocking)
-      playGreeting(guildId).catch(() => {});
+      // Start idle deafen timer
+      resetIdleTimer(guildId);
 
     } catch (error) {
       console.error(`[Voice Companion Error]: Failed to join "${newChannel.name}":`, error.message || error);
@@ -471,26 +691,15 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
 }
 
 /**
- * Play a short greeting when AZURA joins the VC.
- */
-async function playGreeting(guildId) {
-  // Small delay to let connection stabilize
-  await new Promise(r => setTimeout(r, 1000));
-
-  const resource = await textToAudioResource('haii, aku di sini yaa!');
-  if (resource) {
-    await playInVC(guildId, resource);
-    console.log('[Voice Companion]: Greeting played.');
-  }
-}
-
-/**
  * Clean up all resources for a guild when leaving VC.
  * Generates and sends a session transcript document to the Owner DM if any dialogue occurred.
- * @param {string} guildId
- * @param {import('discord.js').Client} client
  */
 async function cleanupGuild(guildId, client) {
+  if (idleTimers.has(guildId)) {
+    clearTimeout(idleTimers.get(guildId));
+    idleTimers.delete(guildId);
+  }
+
   const conn = activeConnections.get(guildId);
   if (conn) {
     try { conn.destroy(); } catch (_) {}
@@ -546,28 +755,19 @@ async function cleanupGuild(guildId, client) {
 }
 
 // ============================================================
-// Helpers (unchanged from original)
+// Helpers
 // ============================================================
 
-/**
- * Find the best text channel to send companion messages in.
- * Priority:
- *   1. The voice channel itself (Discord built-in text-in-voice)
- *   2. A keyword-matched text channel (general, umum, chat, etc.)
- *   3. First accessible text channel in guild
- */
 function findBestTextChannel(guild, voiceChannel, client) {
   const me = guild.members.cache.get(client.user.id);
   if (!me) return null;
 
-  // Priority 1: Voice channel's built-in text
   try {
     if (voiceChannel.isTextBased?.() && voiceChannel.permissionsFor(me)?.has('SendMessages')) {
       return voiceChannel;
     }
   } catch (_) {}
 
-  // Priority 2: Common named channels
   const priorities = ['general', 'umum', 'chat', 'obrolan', 'lobby', 'lobi', 'main', 'bot'];
   const textChannels = guild.channels.cache.filter(ch =>
     ch.isTextBased() && !ch.isThread() && ch.permissionsFor(me)?.has('SendMessages')
@@ -581,16 +781,10 @@ function findBestTextChannel(guild, voiceChannel, client) {
   return textChannels.first() || null;
 }
 
-/**
- * Get the tracked companion text channel for a guild.
- */
 function getCompanionTextChannel(guildId) {
   return companionTextChannels.get(guildId) || null;
 }
 
-/**
- * Check if AZURA is currently in companion mode in a guild.
- */
 function isInCompanionMode(guildId) {
   return activeConnections.has(guildId);
 }
@@ -598,5 +792,6 @@ function isInCompanionMode(guildId) {
 module.exports = {
   handleVoiceStateUpdate,
   getCompanionTextChannel,
-  isInCompanionMode
+  isInCompanionMode,
+  handleMusicButton
 };

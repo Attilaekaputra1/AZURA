@@ -1,55 +1,16 @@
 const config = require('./config');
 const { askAzura } = require('./azura');
-const { parseMessageStickers } = require('./stickers');
 
-// Store active pending mentions: key = messageId -> { timer, channelId, authorId, authorName, text, timestamp, message }
+// Store active pending mentions: key = messageId -> { timer, channelId, authorId, authorName, text }
 const pendingMentions = new Map();
 
-// End-of-chat patterns — messages that indicate the conversation is ending and should NOT trigger auto-reply
-const END_OF_CHAT_PATTERNS = [
-  /^(ok(e|ay|k|ee|eee)?|oke(e)?|okey|okk+|iya|iaa|yaa?|yoi|yow|yup|yep|yap|siap|sip(p)?|sippp?|bet|mantap|mantab|mantep|gas|letsgo|let'?s go)[\s.!]*$/i,
-  /^(makasih|thanks|thx|tengkyu|thankyou|thank you|tq|ty|trims|terima\s?kasih|mksh|nuhun|matur\s?nuwun)[\s.!]*$/i,
-  /^(woke|wokee|wkwk+|haha+|hehe+|hihi+|kwkw+|xixi+|lol+|lmao|wkk+)[\s.!]*$/i,
-  /^(bye|bai|babay|dadah|dadaa|bye-?bye|see ya|sampai jumpa)[\s.!]*$/i,
-  /^(aamiin|amin|aminn+)[\s.!]*$/i,
-  /^(noted|ntt|ntd)[\s.!]*$/i,
-  /^(good|nice|keren|cakep|bagus|gg|gj|good job|mantul|jos|josss?)[\s.!]*$/i,
-  /^(gpp|gapapa|ga\s?pa\s?pa|nggak\s?apa|nda\s?apa|santai|santuy|slow|take care)[\s.!]*$/i,
-  /^(ntar|nanti|besok|later|soon)[\s.!]*$/i,
-  /^[\s]*(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\u200d|\uFE0F|[\s]){1,10}[\s]*$/u,
-  /^[\s]*(<a?:\w+:\d+>[\s]*){1,5}[\s]*$/,
-  /^[👍👌🤝👏✅🔥💯🙏❤️💪😊😁😂🤣😅😎🫡🫰💀☠️]+$/u,
-  /^[a-zA-Z0-9]{1,2}[.!]*$/,
-  /^[\s]*$/
-];
-
 /**
- * Check if a message text or sticker is an "end of chat" / closing / acknowledgement
- * @param {string} text 
- * @param {import('discord.js').Message} message
- * @returns {boolean}
- */
-function isEndOfChat(text, message) {
-  if (message.stickers?.size > 0) {
-    const stickerParsed = parseMessageStickers(message);
-    if (stickerParsed.isClosingReaction) return true;
-  }
-
-  if ((!text || text.trim() === '') && message.attachments?.size > 0 && (!message.stickers || message.stickers.size === 0)) return true;
-
-  const cleaned = text.trim();
-  if (!cleaned && (!message.stickers || message.stickers.size === 0)) return true;
-
-  return END_OF_CHAT_PATTERNS.some(pattern => pattern.test(cleaned));
-}
-
-/**
- * Forward sender's message directly to Attila's DM (sender message ONLY, no bot reply clutter)
+ * Forward specific mention prompt directly to Attila's private DM
  * @param {import('discord.js').Message} message 
  * @param {string} authorName 
  * @param {string} rawPrompt 
  */
-async function notifyOwnerPendingMessage(message, authorName, rawPrompt) {
+async function forwardToOwnerDM(message, authorName, rawPrompt) {
   const ownerId = config.OWNER_DISCORD_ID;
   if (!ownerId) return;
 
@@ -60,52 +21,53 @@ async function notifyOwnerPendingMessage(message, authorName, rawPrompt) {
       const guildName = message.guild?.name || 'Server';
       const msgUrl = message.url || '';
 
-      const dmContent =
-        `📩 **[PESAN BELUM DIBALAS - 5 MENIT]**\n\n` +
-        `Ada pesan yang ditujukan untuk kamu dan belum sempat kamu balas nih, Attila:\n` +
-        `• **Pengirim**: **${authorName}** (<@${message.author.id}>)\n` +
-        `• **Lokasi**: ${guildName} (${channelName})\n` +
-        `• **Isi Pesan**: "${rawPrompt || '(Tag tanpa teks)'}"\n` +
-        (msgUrl ? `🔗 **Link Pesan**: ${msgUrl}` : '');
+      const truncatedPrompt = rawPrompt && rawPrompt.length > 1500 ? rawPrompt.substring(0, 1500) + '...' : (rawPrompt || '(Tag tanpa teks)');
+
+      const dmContent = `📩 **[AUTO-FORWARD ASSISTANT] Pesan Spesifik untuk Attila!**\n\n` +
+                        `• **Pengirim**: **${authorName}** (<@${message.author.id}>)\n` +
+                        `• **Lokasi**: ${guildName} (${channelName})\n` +
+                        `• **Pesan / Pertanyaan**: "${truncatedPrompt}"\n` +
+                        (msgUrl ? `🔗 **Link Pesan**: ${msgUrl}` : '');
 
       await ownerUser.send(dmContent);
-      console.log(`[AutoReply]: Forwarded sender message from ${authorName} to Attila's DM.`);
+      console.log(`[AutoReply]: Forwarded mention from ${authorName} directly to Attila's DM.`);
     }
   } catch (err) {
-    console.error('[AutoReply DM Notification Error]:', err.message || err);
+    console.error('[AutoReply DM Forward Error]:', err.message || err);
   }
 }
 
 /**
- * Handle incoming message for owner (Attila) mention & reply tracking
+ * Check if a text is an obvious conversation closer / polite acknowledgment
+ * @param {string} text 
+ * @returns {boolean}
+ */
+function isQuickConversationCloser(text) {
+  if (!text) return false;
+  // If it contains a question mark or is longer than 50 chars, let AI evaluate
+  if (text.includes('?') || text.length > 50) return false;
+
+  const clean = text.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  const closerRegex = /^(?:makasih|makasi|makasihh|tengkyu|thank you|thanks|thank u|thx|ty|tq|matur nuwun|nuhun|terima kasih|sip|siap|oke|okee|ok|noted|mantap|mantabb|gg|nice|cool|wkwk|wkwkwk|wkwkwkk|haha|hahaha|hehe|hehehe|lol|lmao|awokawok|otw|gas|gaskeun|gass|duluan|duluan ya|bye|byee|dadah|good night|gn|gapapa|gpp|aman|santai|santuy|yoi|yoii|yoi bang|siap bang|oke bang|sip bang|noted bang|makasih bang|makasih mas|siap mas|oke mas|noted mas|aman bang|gpp bang|santai bang)$/i;
+
+  return closerRegex.test(clean);
+}
+
+/**
+ * Handle incoming message for owner (Attila) mention tracking
  * @param {import('discord.js').Message} message 
  */
 function handleOwnerMentionTracking(message) {
   const ownerId = config.OWNER_DISCORD_ID;
-  if (!ownerId) return;
+  if (!ownerId) return; // Feature active only if OWNER_DISCORD_ID is configured
 
-  // 1. If Attila (Owner) sends a message, ONLY cancel the timer for the SPECIFIC message he replied to or mentioned
+  // 1. If Attila (Owner) sends a message in the channel, clear all pending timers for this channel
   if (message.author.id === ownerId) {
-    if (message.reference && message.reference.messageId) {
-      const repliedMsgId = message.reference.messageId;
-      if (pendingMentions.has(repliedMsgId)) {
-        const item = pendingMentions.get(repliedMsgId);
+    for (const [msgId, item] of pendingMentions.entries()) {
+      if (item.channelId === message.channel.id) {
         clearTimeout(item.timer);
-        pendingMentions.delete(repliedMsgId);
-        console.log(`[AutoReply]: Attila replied specifically to msg ${repliedMsgId}. Cancelled countdown.`);
-      }
-    }
-
-    // If Attila mentions or replies to a specific user, cancel that user's pending mention in this channel
-    if (message.mentions.users.size > 0) {
-      for (const mentionedUserId of message.mentions.users.keys()) {
-        for (const [msgId, item] of pendingMentions.entries()) {
-          if (item.channelId === message.channel.id && item.authorId === mentionedUserId) {
-            clearTimeout(item.timer);
-            pendingMentions.delete(msgId);
-            console.log(`[AutoReply]: Attila replied to ${item.authorName} in #${message.channel.name}. Cancelled countdown for msg ${msgId}.`);
-          }
-        }
+        pendingMentions.delete(msgId);
+        console.log(`[AutoReply]: Attila replied in channel #${message.channel.name || message.channel.id}. Cancelled countdown for msg ${msgId}.`);
       }
     }
     return;
@@ -114,62 +76,95 @@ function handleOwnerMentionTracking(message) {
   // 2. Ignore bot messages, non-server messages, or @everyone/@here mass mentions
   if (message.author.bot || !message.guild || message.mentions.everyone) return;
 
-  // 3. Check if message mentions Attila (Owner) OR is a reply to Attila's message
+  // 3. Check if message mentions Attila (Owner)
   const isOwnerMentioned = message.mentions.users.has(ownerId);
-  const isReplyToOwner = message.reference && message.channel.messages?.cache?.get(message.reference.messageId)?.author?.id === ownerId;
+  if (!isOwnerMentioned) return;
 
-  if (!isOwnerMentioned && !isReplyToOwner) return;
+  const delayMs = config.STANDBY_DELAY_MS || 300000; // Default 5 menit (300,000 ms)
+  const delayMinutes = Math.round(delayMs / 60000);
 
   const rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();
   const authorName = message.member?.displayName || message.author.displayName || message.author.username;
 
-  // 4. END-OF-CHAT FILTER
-  if (isEndOfChat(rawPrompt, message)) {
-    console.log(`[AutoReply]: Skipped end-of-chat message from ${authorName}: "${rawPrompt.slice(0, 50)}"`);
+  // Check if message is an obvious conversation closer / greeting acknowledgment that needs no reply
+  if (rawPrompt && isQuickConversationCloser(rawPrompt)) {
+    console.log(`[AutoReply]: Message from ${authorName} ("${rawPrompt}") identified as quick conversation closer. Standby timer skipped.`);
     return;
   }
 
-  console.log(`[AutoReply]: Attila ${isReplyToOwner ? 'replied-to' : 'mentioned'} by ${message.author.tag} in #${message.channel.name}. Starting 5-min countdown...`);
+  console.log(`[AutoReply]: Attila mentioned by ${message.author.tag} in #${message.channel.name}. Starting ${delayMinutes}-min countdown...`);
 
-  // 5. Start 5-minute (300,000 ms) countdown per message
+  // 4. Start countdown timer (Default 5 minutes)
   const timer = setTimeout(async () => {
     pendingMentions.delete(message.id);
-    console.log(`[AutoReply]: 5 minutes elapsed without Attila's reply for msg ${message.id} from ${authorName}. AZURA auto-handling...`);
+    console.log(`[AutoReply]: ${delayMinutes} minutes elapsed without Attila's reply for msg ${message.id}. AZURA evaluating...`);
 
     try {
       await message.channel.sendTyping();
 
-      // Forward ONLY the sender's message to Attila's DM
-      await notifyOwnerPendingMessage(message, authorName, rawPrompt);
-
       let promptContext;
       if (!rawPrompt) {
-        // Tagged Attila with no text
-        promptContext = `Lawan bicaramu (${authorName}) telah nge-tag Attila di server 5 menit lalu tanpa teks. Katakan sangat singkat (1 kalimat): "Attila lagi sibuk kyknya, ada pesan yang mau aku bantu sampaikan ke Attila? Ditunggu yaa ✨"`;
+        // Case A: Tagged Attila without any text/message
+        await forwardToOwnerDM(message, authorName, rawPrompt);
+        promptContext = `Lawan bicaramu (${authorName}) telah nge-tag Attila (Owner kamu) di server ${delayMinutes} menit lalu TANPA pesan/pertanyaan tambahan. Karena Attila belum sempat merespon dalam ${delayMinutes} menit, katakan secara santai, rapi, dan Gen Z sewajarnya dengan maksud: "Attila lagi sibuk nih, sementara sama aku dulu yaa. Ada yang bisa aku bantu? Atau ada pesan yang mau diteruskan ke Attila? Let me know yaa".`;
       } else {
-        promptContext =
-          `Lawan bicaramu (${authorName}) telah nge-tag Attila (Owner kamu) 5 menit lalu dengan pesan: "${rawPrompt}". Attila belum sempat membalas dalam 5 menit ini.\n\n` +
-          `EVALUASI PERTANYAAN:\n` +
-          `1. JIKA PERTANYAAN GENERAL / UMUM (bisa dijawab dengan pengetahuan umum, fakta, atau data): Jawablah pertanyaan itu secara singkat, to the point, dan solutif (1-2 kalimat) sambil sebut Attila lagi away.\n` +
-          `2. JIKA PERTANYAAN SPESIFIK / PRIBADI UNTUK ATTILA (janji temu pribadi, proyek Attila, dll): Jawablah sangat singkat dan santai seperti: "Attila lagi sibuk kyknya, pesan kamu udah aku bantu forward ke Attila yaa, ditunggu bentar yaa ✨". JANGAN jawab panjang-panjang.`;
+        // Case B: Tagged Attila with specific prompt/question
+        promptContext = `Lawan bicaramu (${authorName}) telah nge-tag Attila (Owner kamu) ${delayMinutes} menit lalu di server dengan pesan/pertanyaan: "${rawPrompt}". Attila belum merespon dalam ${delayMinutes} menit ini.
+
+EVALUASI INTENT CERDAS (SANGAT KRITIS):
+1. JIKA PESAN INI HANYA PENUTUP PERCAKAPAN, ungkapan terima kasih ("makasih bang", "sip", "ok noted"), tawa ("wkwk", "haha"), salam pamit ("duluan ya", "bye"), atau pernyataan pasif yang TIDAK memerlukan balasan:
+   -> JAWAB DENGAN SATU FRASA KHUSUS: "[NO_REPLY_NEEDED]". Jangan tambahkan kata lain! Sistem akan otomatis diam dan tidak membalas.
+
+2. JIKA PESAN INI ADALAH INFORMASI UMUM / TEKNIS / DATA / PERTANYAAN TERBUKA yang kamu tahu jawabannya atau bisa dicari di web:
+   -> Jawablah pertanyaan tersebut secara cerdas, akurat, dan solutif di server. Sampaikan santai bahwa Attila lagi away/belum sempat baca, tapi kebetulan kamu ada datanya untuk membantu duluan.
+
+3. JIKA PESAN INI ADALAH PERTANYAAN PRIBADI / KHUSUS UNTUK ATTILA (janji temu, kesepakatan harga, proyek internal Attila, atau hal yang tidak kamu ketahui):
+   -> Gunakan format khusus "[FORWARD_TO_DM]" di awal responsmu. Sampaikan dengan ramah bahwa pesan sudah dicatat & diteruskan langsung ke DM pribadi Attila, dan minta ${authorName} untuk menunggu sebentar.`;
       }
 
-      const response = await askAzura(message.author.id, promptContext, authorName, [], false, message.channel.id);
-      if (response) {
-        await message.reply(response.trim());
+      const guildId = message.guild?.id || null;
+      const response = await askAzura(message.author.id, promptContext, authorName, [], false, message.channel.id, guildId, false);
+
+      // Gate: Check if evaluated as no reply needed
+      if (typeof response === 'string' && response.includes('[NO_REPLY_NEEDED]')) {
+        console.log(`[AutoReply]: AZURA evaluated msg ${message.id} as [NO_REPLY_NEEDED]. Silently skipped.`);
+        return;
+      }
+
+      // Check if response indicates forwarding to DM is required
+      if (typeof response === 'string' && (response.includes('[FORWARD_TO_DM]') || rawPrompt.length > 0)) {
+        await forwardToOwnerDM(message, authorName, rawPrompt);
+      }
+
+      // Handle object responses (e.g., image embeds)
+      if (typeof response === 'object') {
+        await message.reply(response);
+      } else {
+        // Clean out tag marker if present in final text
+        let cleanResponse = response.replace(/\[FORWARD_TO_DM\]/g, '').replace(/\[NO_REPLY_NEEDED\]/g, '').trim();
+
+        if (!cleanResponse) return;
+
+        // Enforce Discord's 2000 character limit
+        if (cleanResponse.length > 1900) {
+          cleanResponse = cleanResponse.substring(0, 1900) + '...';
+        }
+
+        await message.reply(cleanResponse).catch(async () => {
+          await message.channel.send(`<@${message.author.id}> ${cleanResponse}`).catch(() => {});
+        });
       }
     } catch (err) {
       console.error('[AutoReply Error]:', err.message || err);
     }
-  }, 300000); // 5 minutes
+  }, delayMs);
 
   pendingMentions.set(message.id, {
     timer,
     channelId: message.channel.id,
     authorId: message.author.id,
     authorName,
-    text: rawPrompt,
-    timestamp: Date.now()
+    text: rawPrompt
   });
 }
 

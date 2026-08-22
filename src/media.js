@@ -1,240 +1,214 @@
 const https = require('https');
+const { OpenAI } = require('openai');
+const config = require('./config');
 
-// Common anime title aliases and typo normalization map
+// Common anime title aliases and typo normalization
 const TITLE_ALIASES = {
-  'kimi no nawa': 'Kimi no Na wa',
-  'kiminonawa': 'Kimi no Na wa',
-  'your name': 'Kimi no Na wa',
-  'tenki no ko': 'Tenki no Ko',
-  'weathering with you': 'Tenki no Ko',
-  'koe no katachi': 'Koe no Katachi',
-  'a silent voice': 'Koe no Katachi',
-  'boku no hero': 'Boku no Hero Academia',
-  'hero academia': 'Boku no Hero Academia',
-  'my hero academia': 'Boku no Hero Academia',
-  'kimetsu': 'Kimetsu no Yaiba',
-  'demon slayer': 'Kimetsu no Yaiba',
-  'shingeki': 'Shingeki no Kyojin',
-  'attack on titan': 'Shingeki no Kyojin',
-  'aot': 'Shingeki no Kyojin',
-  'jujutsu': 'Jujutsu Kaisen',
-  'jjk': 'Jujutsu Kaisen',
-  'sao': 'Sword Art Online',
-  'fmab': 'Fullmetal Alchemist: Brotherhood',
-  'opm': 'One Punch Man',
-  'tokyo ghoul': 'Tokyo Ghoul'
+  'kimi no nawa': 'Kimi no Na wa', 'kiminonawa': 'Kimi no Na wa', 'your name': 'Kimi no Na wa',
+  'tenki no ko': 'Tenki no Ko', 'weathering with you': 'Tenki no Ko',
+  'koe no katachi': 'Koe no Katachi', 'a silent voice': 'Koe no Katachi',
+  'boku no hero': 'Boku no Hero Academia', 'mha': 'Boku no Hero Academia',
+  'my hero academia': 'Boku no Hero Academia', 'bnha': 'Boku no Hero Academia',
+  'kimetsu': 'Kimetsu no Yaiba', 'demon slayer': 'Kimetsu no Yaiba',
+  'shingeki': 'Shingeki no Kyojin', 'attack on titan': 'Shingeki no Kyojin',
+  'aot': 'Shingeki no Kyojin', 'snk': 'Shingeki no Kyojin',
+  'jujutsu': 'Jujutsu Kaisen', 'jjk': 'Jujutsu Kaisen',
+  'sao': 'Sword Art Online', 'fmab': 'Fullmetal Alchemist: Brotherhood',
+  'fullmetal': 'Fullmetal Alchemist: Brotherhood',
+  'opm': 'One Punch Man', 'one punch': 'One Punch Man',
+  'hxh': 'Hunter x Hunter', 'hunter hunter': 'Hunter x Hunter',
+  're zero': 'Re:Zero kara Hajimeru Isekai Seikatsu', 're:zero': 'Re:Zero kara Hajimeru Isekai Seikatsu',
+  'rezero': 'Re:Zero kara Hajimeru Isekai Seikatsu',
+  'chainsaw man': 'Chainsaw Man', 'csm': 'Chainsaw Man',
+  'spy x family': 'Spy x Family', 'spyfamily': 'Spy x Family',
+  'bocchi': 'Bocchi the Rock!', 'bocchi the rock': 'Bocchi the Rock!',
+  'oshi no ko': 'Oshi no Ko',
+  'frieren': 'Sousou no Frieren', 'sousou no frieren': 'Sousou no Frieren',
+  'blue lock': 'Blue Lock', 'bluelock': 'Blue Lock',
+  'solo leveling': 'Solo Leveling',
+  'dungeon meshi': 'Dungeon Meshi', 'delicious in dungeon': 'Dungeon Meshi',
+  'dandadan': 'Dandadan',
+  'vinland saga': 'Vinland Saga',
+  'violet evergarden': 'Violet Evergarden',
 };
 
 // Jikan API v4 Genre ID Mapping
 const GENRE_MAP = {
-  'action': 1,
-  'adventure': 2,
-  'comedy': 4,
-  'komedi': 4,
-  'mystery': 7,
-  'misteri': 7,
-  'drama': 8,
-  'fantasy': 10,
-  'fantasi': 10,
-  'horror': 14,
-  'horor': 14,
-  'romance': 22,
-  'romantis': 22,
-  'sci-fi': 24,
-  'scifi': 24,
-  'slice of life': 36,
-  'sports': 30,
-  'olahraga': 30,
+  'action': 1, 'adventure': 2, 'petualangan': 2,
+  'comedy': 4, 'komedi': 4, 'lucu': 4,
+  'mystery': 7, 'misteri': 7,
+  'drama': 8, 'sedih': 8,
+  'fantasy': 10, 'fantasi': 10,
+  'horror': 14, 'horor': 14, 'seram': 14,
+  'romance': 22, 'romantis': 22, 'cinta': 22,
+  'sci-fi': 24, 'scifi': 24,
+  'slice of life': 36, 'kehidupan': 36,
+  'sports': 30, 'sport': 30, 'olahraga': 30,
   'supernatural': 37,
   'thriller': 41,
-  'isekai': 62
+  'isekai': 62,
+  'mecha': 18,
+  'school': 23, 'sekolah': 23,
+  'psychological': 40, 'psikologis': 40,
 };
 
-/**
- * Normalize and expand query for fuzzy anime title matching
- * @param {string} rawQuery 
- * @returns {string}
- */
 function normalizeQuery(rawQuery) {
-  const clean = rawQuery.toLowerCase().trim().replace(/['".,]/g, '');
-  return TITLE_ALIASES[clean] || rawQuery;
+  const clean = rawQuery.toLowerCase().trim().replace(/['\".,!?]/g, '');
+  if (TITLE_ALIASES[clean]) return TITLE_ALIASES[clean];
+  for (const [key, val] of Object.entries(TITLE_ALIASES)) {
+    if (clean.includes(key)) return val;
+  }
+  return rawQuery;
 }
 
-/**
- * Fetch HTTP helper for Jikan API
- * @param {string} path 
- * @returns {Promise<any>}
- */
-function fetchJikan(path) {
+function fetchJikanFast(path) {
   return new Promise((resolve) => {
-    https.get({
+    const req = https.get({
       hostname: 'api.jikan.moe',
       path: path,
-      headers: { 'User-Agent': 'AZURA-Discord-Bot/1.0' }
+      headers: { 'User-Agent': 'AZURA-Discord-Bot/2.0', 'Accept': 'application/json' }
     }, (res) => {
+      if (res.statusCode !== 200) { resolve(null); return; }
       let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          resolve(json);
-        } catch {
-          resolve(null);
-        }
-      });
-    }).on('error', () => resolve(null)).setTimeout(6000, function() {
-      this.destroy();
-      resolve(null);
+      res.on('data', c => data += c);
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
     });
+    req.on('error', () => resolve(null));
+    req.setTimeout(2500, function() { this.destroy(); resolve(null); });
   });
 }
 
+function truncateForDiscord(text) {
+  if (!text) return 'Tidak ada data.';
+  if (text.length <= 1900) return text;
+  return text.slice(0, 1900) + '\n\n*(Hasil dipotong agar muat di limit Discord)*';
+}
+
 /**
- * Fetch Top / Trending Anime or Genre-based Anime from Jikan API (MyAnimeList)
- * @param {string} genreOrKeyword 
- * @returns {Promise<string>}
+ * AI Fallback: Generate curated top 5 anime recommendations via OpenAI GPT
+ * Used when Jikan API is experiencing outages (HTTP 504 / Rate Limit)
+ */
+async function getAiAnimeFallback(genreOrKeyword) {
+  try {
+    console.log(`[Anime Engine]: Jikan API unavailable. Generating AI recommendations for "${genreOrKeyword}" via OpenAI...`);
+    const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+    const completion = await openai.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      messages: [{
+        role: 'user',
+        content: `Berikan 5 rekomendasi anime terbaik untuk genre/tema "${genreOrKeyword}". Format persis seperti ini per anime (langsung list 1-5 tanpa kata pengantar):\n\n**#1. [Judul Anime]** ([Judul Jepang])\n• ⭐ **[Score]/10** | **Format**: \`[TV/Movie]\` ([Eps] eps)\n• **Studio**: \`[Studio]\` | **Genre**: \`[Genre]\`\n• **Sinopsis**: [Sinopsis singkat 2-3 kalimat]\n🔗 **MyAnimeList**: https://myanimelist.net`
+      }],
+      max_completion_tokens: 1000
+    });
+
+    const text = completion.choices[0]?.message?.content?.trim();
+    if (text) {
+      return truncateForDiscord(`🎬 **TOP 5 REKOMENDASI ANIME — ${genreOrKeyword.toUpperCase()} (AZURA AI):**\n\n${text}`);
+    }
+  } catch (err) {
+    console.error('[Anime AI Fallback Error]:', err.message);
+  }
+
+  return `Coba keyword genre yang tersedia: **romance, action, isekai, comedy, horror, fantasy, drama, thriller, mystery, supernatural, mecha, school, sports**`;
+}
+
+/**
+ * Get Anime Recommendations — Jikan first, AI fallback
+ * @param {string} genreOrKeyword
  */
 async function getAnimeRecommendations(genreOrKeyword = 'trending') {
   const cleanKey = (genreOrKeyword || '').toLowerCase().trim();
-
-  let path = '/v4/top/anime?limit=5';
   const genreId = GENRE_MAP[cleanKey];
 
+  let data = null;
+
   if (genreId) {
-    path = `/v4/anime?genres=${genreId}&order_by=score&sort=desc&limit=5`;
+    console.log(`[Anime]: Jikan genre search "${cleanKey}" (ID: ${genreId})`);
+    const json = await fetchJikanFast(`/v4/anime?genres=${genreId}&order_by=score&sort=desc&limit=5&sfw=true`);
+    if (json?.data?.length > 0) data = json.data;
   } else if (cleanKey && cleanKey !== 'trending' && cleanKey !== 'top') {
-    const searchTarget = normalizeQuery(cleanKey);
-    const encoded = encodeURIComponent(searchTarget);
-    path = `/v4/anime?q=${encoded}&order_by=score&sort=desc&limit=5`;
+    for (const [gName, gId] of Object.entries(GENRE_MAP)) {
+      if (cleanKey.includes(gName) || gName.includes(cleanKey)) {
+        const json = await fetchJikanFast(`/v4/anime?genres=${gId}&order_by=score&sort=desc&limit=5&sfw=true`);
+        if (json?.data?.length > 0) { data = json.data; break; }
+      }
+    }
+    if (!data) {
+      const normalized = normalizeQuery(cleanKey);
+      const json = await fetchJikanFast(`/v4/anime?q=${encodeURIComponent(normalized)}&order_by=score&sort=desc&limit=5`);
+      if (json?.data?.length > 0) data = json.data;
+    }
   }
 
-  const json = await fetchJikan(path);
+  if (!data) {
+    const json = await fetchJikanFast(`/v4/top/anime?limit=5`);
+    if (json?.data?.length > 0) data = json.data;
+  }
 
-  if (json && json.data && json.data.length > 0) {
-    const list = json.data.slice(0, 5).map((item, idx) => {
-      const japTitle = item.title_japanese ? ` (${item.title_japanese})` : '';
-      const score = item.score ? `⭐ **${item.score}** / 10` : '⭐ N/A';
-      const episodes = item.episodes ? `${item.episodes} eps` : 'TBA';
+  if (data?.length > 0) {
+    const list = data.slice(0, 5).map((item, idx) => {
+      const score = item.score ? `⭐ ${item.score}/10` : '⭐ N/A';
+      const eps = item.episodes ? `${item.episodes} eps` : 'TBA';
       const type = item.type || 'TV';
-      const genres = item.genres ? item.genres.map(g => g.name).join(', ') : 'Anime';
-      const studios = item.studios ? item.studios.map(s => s.name).join(', ') : 'Studio';
-      const synopsis = item.synopsis ? item.synopsis.slice(0, 200).replace(/\n/g, ' ') + '...' : 'Tidak ada sinopsis.';
+      const genres = item.genres?.map(g => g.name).join(', ') || '-';
+      const studios = item.studios?.map(s => s.name).join(', ') || '-';
+      const synopsis = item.synopsis?.slice(0, 160).replace(/\n/g, ' ') + '...' || '-';
+      const jpTitle = item.title_japanese ? ` (${item.title_japanese})` : '';
+      return `**#${idx + 1}. ${item.title}**${jpTitle}\n• ${score} | \`${type}\` (${eps})\n• Studio: \`${studios}\` | Genre: \`${genres}\`\n• ${synopsis}\n🔗 ${item.url}`;
+    }).join('\n\n──────────────\n\n');
 
-      return `**#${idx + 1} ${item.title}**${japTitle}\n` +
-             `• **Score**: ${score} | **Format**: \`${type}\` (${episodes})\n` +
-             `• **Studio**: \`${studios}\` | **Genre**: \`${genres}\`\n` +
-             `• **Sinopsis**: ${synopsis}\n` +
-             `🔗 **MAL Link**: ${item.url}`;
-    }).join('\n\n───────────────\n\n');
+    const header = genreId
+      ? `🎬 **TOP 5 ANIME — ${cleanKey.toUpperCase()} (MyAnimeList):**`
+      : cleanKey && cleanKey !== 'trending'
+        ? `🎬 **REKOMENDASI ANIME "${genreOrKeyword.toUpperCase()}" (MyAnimeList):**`
+        : `🎬 **TOP 5 ANIME TRENDING (MyAnimeList):**`;
 
-    const titleHeader = (cleanKey && cleanKey !== 'trending' && cleanKey !== 'top')
-      ? `🎬 **TOP 5 REKOMENDASI ANIME TERBAIK [GENRE / TEMA: ${cleanKey.toUpperCase()}] (MyAnimeList):**`
-      : `🎬 **TOP 5 REKOMENDASI ANIME TERPOPULER & TRENDING (MyAnimeList):**`;
-
-    return `${titleHeader}\n\n${list}`;
+    return truncateForDiscord(`${header}\n\n${list}`);
   }
 
-  return `Gagal menemukan rekomendasi anime untuk kata kunci "${genreOrKeyword}". Coba kata kunci genre seperti: romance, action, isekai, comedy, horror, fantasy!`;
+  // Fallback to OpenAI AI Recommendation Engine
+  return await getAiAnimeFallback(genreOrKeyword);
 }
 
 /**
- * Smart Search Anime with Multi-Stage Fuzzy Fallbacks
- * @param {string} query 
- * @returns {Promise<string>}
+ * Search Anime by Title — Jikan first, AI fallback
+ * @param {string} query
  */
 async function searchAnime(query) {
-  const targetQuery = normalizeQuery(query);
+  const normalized = normalizeQuery(query);
+  console.log(`[Anime]: Title search "${query}" → normalized: "${normalized}"`);
 
-  // Attempt 1: Direct normalized search
-  let json = await fetchJikan(`/v4/anime?q=${encodeURIComponent(targetQuery)}&limit=3`);
+  const queries = [...new Set([normalized, query, query.split(' ')[0]])];
 
-  // Attempt 2: If no result, try raw query
-  if (!json || !json.data || json.data.length === 0) {
-    if (targetQuery !== query) {
-      json = await fetchJikan(`/v4/anime?q=${encodeURIComponent(query)}&limit=3`);
+  for (const q of queries) {
+    const json = await fetchJikanFast(`/v4/anime?q=${encodeURIComponent(q)}&limit=3&order_by=score&sort=desc`);
+    if (json?.data?.length > 0) {
+      const list = json.data.map((item, idx) => {
+        const score = item.score ? `⭐ ${item.score}/10` : '⭐ N/A';
+        const scoredBy = item.scored_by ? ` (${item.scored_by.toLocaleString('id-ID')} users)` : '';
+        const eps = item.episodes ? `${item.episodes} Episode` : 'TBA Episode';
+        const type = item.type || 'TV';
+        const status = item.status || 'Finished Airing';
+        const season = item.season && item.year ? `${item.season.toUpperCase()} ${item.year}` : 'N/A';
+        const genres = item.genres?.map(g => g.name).join(', ') || '-';
+        const studios = item.studios?.map(s => s.name).join(', ') || '-';
+        const rank = item.rank ? `#${item.rank}` : 'Unranked';
+        const synopsis = item.synopsis?.slice(0, 200).replace(/\n/g, ' ') + '...' || '-';
+        const jpTitle = item.title_japanese ? ` (${item.title_japanese})` : '';
+        return `📺 **${item.title}**${jpTitle}\n• ${score}${scoredBy} | Rank: \`${rank}\`\n• \`${type}\` | ${eps} | ${status}\n• Musim: \`${season}\` | Studio: \`${studios}\`\n• Genre: \`${genres}\`\n• ${synopsis}\n🔗 ${item.url}`;
+      }).join('\n\n──────────────\n\n');
+
+      return truncateForDiscord(`🌸 **HASIL PENCARIAN: "${query}" (MyAnimeList):**\n\n${list}`);
     }
   }
 
-  // Attempt 3: If still no result, try splitting words and searching primary keyword
-  if (!json || !json.data || json.data.length === 0) {
-    const words = query.trim().split(/\s+/);
-    if (words.length > 1) {
-      const primaryWord = words[0];
-      json = await fetchJikan(`/v4/anime?q=${encodeURIComponent(primaryWord)}&limit=3`);
-    }
-  }
-
-  if (json && json.data && json.data.length > 0) {
-    const list = json.data.map((item, idx) => {
-      const japTitle = item.title_japanese ? ` (${item.title_japanese})` : '';
-      const score = item.score ? `⭐ **${item.score}** / 10` : '⭐ N/A';
-      const scoredBy = item.scored_by ? ` (${item.scored_by.toLocaleString('id-ID')} users)` : '';
-      const episodes = item.episodes ? `${item.episodes} Episode` : 'TBA Episode';
-      const type = item.type || 'TV / Movie';
-      const duration = item.duration || '24 min';
-      const status = item.status || 'Finished Airing';
-      const season = item.season && item.year ? `${item.season.toUpperCase()} ${item.year}` : 'N/A';
-      const genres = item.genres ? item.genres.map(g => g.name).join(', ') : 'Anime';
-      const studios = item.studios ? item.studios.map(s => s.name).join(', ') : 'Unknown Studio';
-      const rank = item.rank ? `#${item.rank}` : 'Unranked';
-      const synopsis = item.synopsis ? item.synopsis.slice(0, 300).replace(/\n/g, ' ') + '...' : 'Tidak ada sinopsis.';
-
-      return `📺 **${item.title}**${japTitle}\n` +
-             `• **Score**: ${score}${scoredBy} | **Rank**: \`${rank}\`\n` +
-             `• **Format**: \`${type}\` (${duration}) | **Episode**: \`${episodes}\`\n` +
-             `• **Status**: \`${status}\` | **Musim**: \`${season}\`\n` +
-             `• **Studio**: \`${studios}\` | **Genre**: \`${genres}\`\n` +
-             `• **Sinopsis**: ${synopsis}\n` +
-             `🔗 **MyAnimeList Link**: ${item.url}`;
-    }).join('\n\n───────────────\n\n');
-
-    return `🌸 **HASIL PENCARIAN ANIME (MyAnimeList):**\n\n${list}`;
-  }
-
-  return `Tidak ditemukan anime dengan kata kunci "${query}". Coba periksa ejaan judul atau gunakan nama bahasa Inggrisnya!`;
-}
-
-/**
- * Smart Media & Anime Intelligence Router
- * @param {string} prompt 
- * @returns {Promise<string|null>}
- */
-async function processMediaIntelligence(prompt) {
-  const lower = prompt.toLowerCase().trim();
-
-  // Pure generic recommendation trigger without specific detail ("rekomendasiin anime dong", "butuh rekomendasi anime")
-  if (
-    lower === 'rekomendasi anime' ||
-    lower === 'minta rekomendasi anime' ||
-    lower === 'rekomendasiin anime' ||
-    lower === 'rekomendasi anime dong'
-  ) {
-    return 'Kamu lagi pengen tontonan anime yang kayak gimana nih? 😊\n' +
-           'Misalkan: *Romance sekolah yang manis*, *Action studio MAPPA*, *Isekai overpower*, atau *Misteri thriller plot twist*? Coba kasih tahu mood kamu!';
-  }
-
-  // Recommendation Trigger with keyword: "rekomendasi anime romance", "rekomendasi anime isekai", "rekomendasi anime action"
-  const recMatch = lower.match(/rekomendasi\s*anime\s*(.*)/i) || lower.match(/anime\s*(?:terbaik|trending|terpopuler)\s*(.*)/i);
-  if (recMatch) {
-    const keyword = recMatch[1].trim();
-    console.log(`[Media Engine]: Fetching Anime Recommendations for keyword: "${keyword || 'trending'}"`);
-    return await getAnimeRecommendations(keyword || 'trending');
-  }
-
-  // Anime Search Trigger: "sinopsis anime naruto", "info anime kimi no nawa", "cari anime ..."
-  const searchMatch = lower.match(/(?:sinopsis|info|cari)\s*anime\s*(.+)/i);
-  if (searchMatch && searchMatch[1]) {
-    const q = searchMatch[1].trim();
-    console.log(`[Media Engine]: Searching Anime for: "${q}"`);
-    return await searchAnime(q);
-  }
-
-  return null;
+  // Fallback to AI search
+  return await getAiAnimeFallback(query);
 }
 
 module.exports = {
   getTopAnime: () => getAnimeRecommendations('trending'),
   getAnimeRecommendations,
   searchAnime,
-  processMediaIntelligence
+  normalizeQuery,
 };

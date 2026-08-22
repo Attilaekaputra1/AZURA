@@ -164,6 +164,7 @@ async function processTavilyIntelligence(prompt) {
 }
 
 module.exports = {
+  tavilyApiCall,
   searchTavily,
   extractTavilyUrl,
   processTavilyIntelligence

@@ -728,9 +728,10 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
  */
 async function playGreeting(guildId) {
   await new Promise(r => setTimeout(r, 800));
-  const resource = await textToAudioResource('halo... aku Azura. salam kenal yaa~');
+  const greetingText = 'Halo Attila! [gasp] Hari ini kita mau bikin keributan apa nih di VC? [laughs]';
+  const resource = await textToAudioResource(greetingText);
   if (resource) {
-    console.log('[Voice Companion]: Playing voice greeting with Kak Ceria voice...');
+    console.log('[Voice Companion]: Playing voice greeting: "Halo Attila! [gasp] Hari ini kita mau bikin keributan apa nih di VC? [laughs]"');
     await playInVC(guildId, resource);
   }
 }

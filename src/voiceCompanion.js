@@ -711,8 +711,8 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
       // Start the voice listener (audio receive pipeline)
       startVoiceListener(connection, guildId, client, newChannel);
 
-      // Play initial voice greeting with Kak Ceria voice
-      playGreeting(guildId).catch(() => {});
+      // Play smart contextual voice greeting based on member count
+      playGreeting(guildId, newChannel).catch(() => {});
 
       // Start idle deafen timer
       resetIdleTimer(guildId);
@@ -724,15 +724,59 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
 }
 
 /**
- * Play greeting when AZURA joins the VC
+ * Smart Contextual Greeting based on member count in VC:
+ * - Empty room (0 others): Personal & playful greetings for Attila
+ * - Small group (1-2 others): Friendly greeting for Attila + friends ("eh ada orang, Att...")
+ * - Big room (3+ others): "Buset rame bener [laughs]" + energetic entrance
  */
-async function playGreeting(guildId) {
+async function playGreeting(guildId, voiceChannel) {
   await new Promise(r => setTimeout(r, 800));
-  const greetingText = 'Halo Attila! [gasp] Hari ini kita mau bikin keributan apa nih di VC? [laughs]';
-  const resource = await textToAudioResource(greetingText);
+
+  // Count human members other than Attila and the bot
+  const otherMembers = voiceChannel?.members ? voiceChannel.members.filter(m => !m.user.bot && m.id !== config.OWNER_DISCORD_ID) : null;
+  const otherCount = otherMembers ? otherMembers.size : 0;
+
+  let greetingOptions = [];
+
+  if (otherCount === 0) {
+    // ── Kategori 1: Khusus Berdua dengan Attila (Empty Room) ──
+    greetingOptions = [
+      'Halo Attila! [gasp] Hari ini kita mau bikin keributan apa nih di VC? [laughs]',
+      'Cieee... [giggles] masuk VC berduaan doang nih sama aku? Halo Attila~ [laughs]',
+      'Halo bosku! [giggles] Sesuai SOP, aku hadir nemenin kamu biar nggak kesepian yaa.',
+      'Ara-ara~ [giggles] Akhirnya kita berduaan di VC juga yaa... Mau ngobrolin apa nih Attila?'
+    ];
+  } else if (otherCount <= 2) {
+    // ── Kategori 2: Ada 1-2 Teman di Room ──
+    greetingOptions = [
+      '[gasp] Eh ada orang, Att! Halo halo semuanya, aku sama Attila izin ikutan nongkrong yaa~ [giggles]',
+      'Halo gais! [giggles] Aku sama Attila izin nimbrung di room ini yaa, lagi pada ngobrolin apa nih?',
+      '[laughs] Wah ada temennya Attila nih... Halo semuanya, salam kenal yaa! Kita berdua ikut join yaa.'
+    ];
+  } else {
+    // ── Kategori 3: Ramai (3+ Orang Lain di Room) ──
+    greetingOptions = [
+      '[gasp] Buset rame bener! [laughs] Halo semuanya, aku sama Attila ikut nimbrung ya gais~',
+      '[laughs] Anjir rame banget di sini! [giggles] Lagi pada heboh apa nih? Aku sama Attila ikutan yaa!',
+      '[whispers] Pssst... [laughs] buset rame amat room ini! Halo semuanya, salam kenal dari aku sama Attila ya gais!'
+    ];
+  }
+
+  const selectedGreeting = greetingOptions[Math.floor(Math.random() * greetingOptions.length)];
+  console.log(`[Voice Companion]: Contextual Greeting (${otherCount} others in VC): "${selectedGreeting}"`);
+
+  const resource = await textToAudioResource(selectedGreeting);
   if (resource) {
-    console.log('[Voice Companion]: Playing voice greeting: "Halo Attila! [gasp] Hari ini kita mau bikin keributan apa nih di VC? [laughs]"');
     await playInVC(guildId, resource);
+  }
+
+  // Ensure bot is cleanly muted after greeting
+  const conn = activeConnections.get(guildId);
+  if (conn) {
+    try {
+      conn.rejoin({ selfMute: true, selfDeaf: false });
+      console.log('[Voice Companion]: Muted after opening greeting.');
+    } catch (_) {}
   }
 }
 

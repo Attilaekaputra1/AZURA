@@ -1,7 +1,18 @@
 const play = require('play-dl');
-const ffmpeg = require('ffmpeg-static');
-if (ffmpeg) {
-  process.env.FFMPEG_PATH = ffmpeg;
+const fs = require('fs');
+let ffmpegPath = null;
+try {
+  const ffmpegStatic = require('ffmpeg-static');
+  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
+    ffmpegPath = ffmpegStatic;
+  }
+} catch (_) {}
+
+if (ffmpegPath) {
+  process.env.FFMPEG_PATH = ffmpegPath;
+  console.log('[Music Streamer]: Using ffmpeg-static at', ffmpegPath);
+} else {
+  console.log('[Music Streamer]: Using system FFmpeg from PATH.');
 }
 const { createAudioResource, StreamType, AudioPlayerStatus } = require('@discordjs/voice');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');

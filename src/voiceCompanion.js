@@ -633,32 +633,37 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   console.log(`[Voice Pipeline]: 📝 Transcript: "${transcript}"`);
 
-  // ── Step 2: Dynamic Wake-Word Filter for Crowded Rooms ──
+  // ── Step 2: Wake-Word Filter ──
+  // For Attila (Owner), we NEVER drop commands even in crowded rooms.
+  // For other members in crowded rooms, we require wake-word unless it's a direct leave/system command.
   const nonBotMembers = voiceChannel?.members ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
   const isCrowded = nonBotMembers > 1;
+  const isOwner = userId === config.OWNER_DISCORD_ID;
 
-  const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|kak azura|kak ara)\b/i.test(transcript);
+  const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|kak azura|kak ara|bot)\b/i.test(transcript);
+  const hasDirectCommand = /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar|putar|setel|play|musik|lagu|youtube|yt)\b/i.test(transcript);
 
-  if (isCrowded && !hasWakeWord) {
-    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word not called. Ignoring.`);
+  if (!isOwner && isCrowded && !hasWakeWord && !hasDirectCommand) {
+    console.log(`[Voice Pipeline]: Crowded VC (${nonBotMembers} members) & wake-word not called for member. Ignoring.`);
     return;
   }
 
   // Clean transcript for intent matching
-  const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura)\b/gi, '').trim();
+  const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|kak azura|kak ara)\b/gi, '').trim();
 
   // ── Step 3: Intent Classification ──
 
-  // --- INTENT A: Leave VC Command ---
+  // --- INTENT A: Leave VC Command (Ultra Broad Matching) ---
   const isLeaveIntent =
-    /(?:keluar|leave|cabut|disconnect|tutup|stop|udahan|off|pamit)\s*(?:dari\s+)?(?:vc|voice|channel|room|sini)/i.test(transcript) ||
-    /(?:keluar|leave|cabut|off)\s+(?:dulu|dong|ya)/i.test(transcript) ||
-    /\b(?:keluar\s+dari\s+vc|leave\s+vc|cabut\s+dari\s+vc|keluar\s+vc)\b/i.test(transcript) ||
-    /(?:keluar|leave|cabut|disconnect|tutup|stop|selesai|udahan)\s*(?:dari\s*)?(?:voice|vc|channel|obrolan)?$/i.test(cleanTranscript) ||
-    /^(?:tolong\s+)?(?:keluar|leave|cabut|disconnect)\s*(?:vc|voice)?$/i.test(cleanTranscript);
+    /\b(?:keluar|leave|cabut|disconnect|dc|pamit|udahan|bubar)\b/i.test(transcript) &&
+    /\b(?:vc|voice|channel|room|sini|pc|pisi|visi|dulu|dong|ya|sekarang|aja|gih|yuk)\b/i.test(transcript) ||
+    /\b(?:keluar\s+dari\s+vc|leave\s+vc|cabut\s+dari\s+vc|keluar\s+vc|keluar\s+dulu|off\s+dulu|cabut\s+dulu|udahan\s+dulu|keluar\s+dong|keluar\s+ya|keluar\s+gih)\b/i.test(transcript) ||
+    /\b(?:keluar\s+dari\s+voice|keluar\s+dari\s+channel|keluar\s+dari\s+room|keluar\s+dari\s+pc|keluar\s+dari\s+visi)\b/i.test(transcript) ||
+    /^(?:tolong\s+)?(?:keluar|leave|cabut|disconnect|udahan|off)\b/i.test(cleanTranscript) ||
+    /(?:keluar|leave|cabut|off)\s*(?:dulu|dong|ya|gih)?$/i.test(cleanTranscript);
 
   if (isLeaveIntent) {
-    console.log('[Voice Pipeline]: ✅ Detected Leave VC voice command from Attila!');
+    console.log('[Voice Pipeline]: 🚪 Detected Leave VC command from Attila!');
 
     const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
     const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
@@ -795,9 +800,34 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   // --- INTENT D: General AI Voice Chat (Context-Aware Duration Engine) ---
   try {
     const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId);
+
+    // Check if AI brain autonomously decided to leave VC
+    if (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse)) {
+      console.log('[Voice Pipeline]: 🚪 AI Brain triggered LEAVE_VC action!');
+      const farewellSpoken = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
+      const farewellText = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
+
+      recordSessionEntry(guildId, 'Attila', transcript);
+      recordSessionEntry(guildId, 'AZURA', farewellText);
+
+      const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+      if (textChannel) {
+        await textChannel.send(farewellText).catch(() => {});
+      }
+
+      const audioResource = await textToAudioResource(farewellSpoken, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+
+      await cleanupGuild(guildId, client);
+      return;
+    }
+
     const maxChars = isStory ? MAX_STORY_CHARS : MAX_NORMAL_CHARS;
 
     let spoken = spokenResponse
+      .replace(/\[ACTION:[^\]]+\]/gi, '')
       .replace(/\*\*/g, '')
       .replace(/[*_~`#>]/g, '')
       .replace(/\n+/g, ' ')
@@ -859,6 +889,10 @@ ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
   } else {
     systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan Attila (creator & owner kamu).
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
+
+ATURAN PERINTAH KELUAR DARI VC (SANGAT PENTING):
+Jika Attila meminta kamu keluar, pamit, leave, cabut, disconnect, udahan, atau berhenti nemenin dari Voice Channel dalam konteks atau kalimat apapun (misal: "keluar dari vc", "leave dong", "cabut dulu ya", "off dulu", "udahan ya", "keluar dulu dong", dll), kamu WAJIB menjawab HANYA dengan kalimat ini:
+"Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 
 ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1 MENIT):
 1. RESPON NATURAL: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara maksimal 1 MENIT, sekitar 2-4 kalimat santai to the point).

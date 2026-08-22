@@ -701,45 +701,14 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // --- INTENT C: Play Music & Open YouTube Watch Together Command ---
-  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan|setelin|buka|open|tonton|nyalain)\s*(?:in)?\s*(?:musik|lagu|song|lagunya|youtube|yt)?\s*(.+)/i;
-  const musicMatch = transcript.match(musicPattern) || cleanTranscript.match(musicPattern);
+  // --- INTENT C: Direct Voice Channel Music Streaming Command ---
+  const stopPattern = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
+  if (stopPattern.test(transcript) || stopPattern.test(cleanTranscript)) {
+    console.log('[Voice Pipeline]: ⏹️ Stop Music command detected.');
+    const { stopMusic } = require('./musicStreamer');
+    stopMusic(guildId);
 
-  if (musicMatch) {
-    let songTitle = musicMatch[1]
-      .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|youtube|yt|di\s+discord|di\s+vc)\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    if (songTitle.length > 1) {
-      console.log(`[Voice Pipeline]: 📺 YouTube Watch Together triggered -> Query: "${songTitle}"`);
-
-      recordSessionEntry(guildId, 'Attila', transcript);
-
-      const textChannel = companionTextChannels.get(guildId) || voiceChannel;
-      await playMusicAutonomous(client, guildId, textChannel, songTitle, 'Attila');
-
-      const spokenResponse = `Siap Attila sayang, sesi YouTube Watch Together Discord udah aku buka dan carikan lagu ${songTitle} nih! Langsung klik untuk nonton dan dengerin bareng yaa~ [giggles]`;
-      recordSessionEntry(guildId, 'AZURA', spokenResponse);
-
-      const audioResource = await textToAudioResource(spokenResponse, client);
-      if (audioResource) {
-        await playInVC(guildId, audioResource);
-      }
-      return;
-    }
-  }
-
-  // --- INTENT C2: Open YouTube Watch Together Generic Command ---
-  const ytPattern = /(?:tolong\s+)?(?:buka|open|setel|nyalain|start)\s*(?:in)?\s*(?:youtube|yt|nonton bareng|watch together)/i;
-  if (ytPattern.test(transcript) || ytPattern.test(cleanTranscript)) {
-    console.log('[Voice Pipeline]: Detected Open YouTube generic in VC command.');
-    recordSessionEntry(guildId, 'Attila', transcript);
-
-    const textChannel = companionTextChannels.get(guildId) || voiceChannel;
-    await playMusicAutonomous(client, guildId, textChannel, 'Trending Music Indonesia', 'Attila');
-
-    const spokenResponse = 'Siap Attila sayang, sesi YouTube Watch Together Discord udah aku buka di Voice Channel nih! Yuk tonton bareng~ [giggles]';
+    const spokenResponse = 'Siap Attila sayang, musiknya udah aku matikan yaa!';
     recordSessionEntry(guildId, 'AZURA', spokenResponse);
 
     const audioResource = await textToAudioResource(spokenResponse, client);
@@ -747,6 +716,55 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       await playInVC(guildId, audioResource);
     }
     return;
+  }
+
+  const pausePattern = /\b(?:pause|jeda|unpause|resume|lanjut|lanjutkan)\s+(?:musik|lagu|musiknya|lagunya)\b/i;
+  if (pausePattern.test(transcript) || pausePattern.test(cleanTranscript)) {
+    console.log('[Voice Pipeline]: ⏸️ Pause/Resume Music command detected.');
+    const { pauseOrResumeMusic } = require('./musicStreamer');
+    const res = pauseOrResumeMusic(guildId);
+
+    const spokenResponse = res.message.includes('jeda') ? 'Oke Attila sayang, musiknya aku jeda dulu ya!' : 'Lanjut lagi ya musiknya! [giggles]';
+    recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+    const audioResource = await textToAudioResource(spokenResponse, client);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+    return;
+  }
+
+  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan|setelin)\s+(?:musik|lagu|song|lagunya)?\s*(.+)/i;
+  const musicMatch = transcript.match(musicPattern) || cleanTranscript.match(musicPattern);
+
+  if (musicMatch) {
+    let songTitle = musicMatch[1]
+      .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (songTitle.length > 1) {
+      console.log(`[Voice Pipeline]: 🎵 Direct Voice Music Streamer triggered -> Song: "${songTitle}"`);
+      recordSessionEntry(guildId, 'Attila', transcript);
+
+      const textChannel = (voiceChannel && voiceChannel.isTextBased?.()) ? voiceChannel : (companionTextChannels.get(guildId) || voiceChannel);
+
+      const spokenResponse = `Siap Attila sayang, lagi aku puterin lagu ${songTitle} langsung di Voice Channel nih, selamat mendengarkan yaa! [giggles]`;
+      recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+      const audioResource = await textToAudioResource(spokenResponse, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+
+      // Stream music directly into VC AudioPlayer
+      const player = audioPlayers.get(guildId);
+      if (player) {
+        const { streamMusicDirect } = require('./musicStreamer');
+        await streamMusicDirect(guildId, songTitle, player, textChannel, 'Attila');
+      }
+      return;
+    }
   }
 
   // --- INTENT D: General AI Voice Chat (Context-Aware Duration Engine) ---
@@ -1408,6 +1426,7 @@ module.exports = {
   handleMusicButton,
   joinAttilaVoiceChannel,
   leaveVoiceChannel,
-  playMusicAutonomous
+  playMusicAutonomous,
+  audioPlayers
 };
 

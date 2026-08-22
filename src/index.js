@@ -200,7 +200,7 @@ client.on('messageCreate', async (message) => {
         return message.reply(leaveRes.message);
       }
 
-      // Direct Play Music trigger from chat
+      // Direct Play Music trigger from chat (Direct Voice Music Streaming)
       const musicMatch = fullText.match(/(?:setel|puterin|putar|mainkan|setelin)\s+(?:lagu|musik|lagunya)?\s*(.+)/i);
       if (musicMatch) {
         let songTitle = musicMatch[1]
@@ -208,10 +208,16 @@ client.on('messageCreate', async (message) => {
           .replace(/\s+/g, ' ')
           .trim();
         if (songTitle.length > 1) {
-          console.log(`[YouTube Dispatcher]: Attila triggered YouTube Watch Together from text: "${songTitle}"`);
-          const { playMusicAutonomous } = require('./voiceCompanion');
-          await playMusicAutonomous(client, guildId, message.channel, songTitle, userName);
-          return message.reply(`Siap ${userName} sayang! Sesi **YouTube Watch Together** untuk lagu **${songTitle}** udah aku buka di Voice Channel Discord yaa! 📺🎶✨`);
+          console.log(`[Music Streamer]: Attila triggered music from text: "${songTitle}"`);
+          const { streamMusicDirect } = require('./musicStreamer');
+          const { audioPlayers, companionTextChannels } = require('./voiceCompanion');
+          const player = audioPlayers.get(guildId);
+          if (player) {
+            const res = await streamMusicDirect(guildId, songTitle, player, message.channel, userName);
+            return message.reply(res.message);
+          } else {
+            return message.reply(`Masuk ke Voice Channel dulu ya ${userName}, biar aku bisa puterin lagunya langsung! 🎶✨`);
+          }
         }
       }
     }
@@ -250,6 +256,21 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     const { handleSendDmButton } = require('./ownerDm');
     const { handleSendChannelButton } = require('./sendChannel');
+
+    // Handle Direct Music Streaming control buttons
+    if (interaction.customId.startsWith('music_pause_')) {
+      const gid = interaction.customId.replace('music_pause_', '');
+      const { pauseOrResumeMusic } = require('./musicStreamer');
+      const res = pauseOrResumeMusic(gid);
+      return interaction.reply({ content: res.message, flags: 64 });
+    }
+    if (interaction.customId.startsWith('music_stop_')) {
+      const gid = interaction.customId.replace('music_stop_', '');
+      const { stopMusic } = require('./musicStreamer');
+      const res = stopMusic(gid);
+      return interaction.reply({ content: res.message, flags: 64 });
+    }
+
     // Route to correct button handler based on customId prefix
     if (interaction.customId.startsWith('confirmch_') || interaction.customId.startsWith('cancelch_')) {
       return handleSendChannelButton(interaction);

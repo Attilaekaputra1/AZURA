@@ -23,14 +23,15 @@ const isBotSpeaking = new Set();          // guildIds where bot is speaking
 const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
 const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, channelId, requesterId }
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
+const dismissedGuilds = new Set();        // guildIds where bot was dismissed by Attila (anti auto-rejoin)
 
 // ============================================================
 // Configuration
 // ============================================================
-const VOICE_COOLDOWN_MS = 1000;       // 1s cooldown for regular members (0ms for Owner)
-const SILENCE_DURATION_MS = 350;       // 0.35s silence = speech ended (ultra responsive & snappy)
+const VOICE_COOLDOWN_MS = 500;        // 0.5s cooldown for regular members (0ms for Owner)
+const SILENCE_DURATION_MS = 850;      // 0.85s natural silence window (anti-truncation for human breathing & pauses)
 const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
-const MAX_RECORDING_MS = 15000;       // Max 15s recording per turn
+const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
 const MAX_NORMAL_CHARS = 1000;        // ~1 minute of normal TTS speech (max 1 min)
 const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
@@ -166,13 +167,18 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
 
   // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria with audio tags support & Quota Guard)
   if (config.ELEVENLABS_API_KEY) {
-    try {
-      console.log('[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria)...');
-      const { generateElevenLabsTTS } = require('./elevenlabs');
-      const audioBuffer = await generateElevenLabsTTS(clean, null, client);
-      return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
-    } catch (elevenErr) {
-      console.warn('[Voice TTS Warning]: ElevenLabs v3 failed or quota limit reached, falling back to OpenAI TTS (nova):', elevenErr.message);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria) [Attempt ${attempt}]...`);
+        const { generateElevenLabsTTS } = require('./elevenlabs');
+        const audioBuffer = await generateElevenLabsTTS(clean, null, client);
+        return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
+      } catch (elevenErr) {
+        console.warn(`[Voice TTS Warning]: ElevenLabs attempt ${attempt} failed:`, elevenErr.message);
+        if (attempt === 1 && !elevenErr.message.includes('Batas kuota')) {
+          await new Promise(r => setTimeout(r, 400));
+        }
+      }
     }
   }
 
@@ -232,9 +238,22 @@ function playInVC(guildId, resource) {
     try { conn.rejoin({ selfMute: false, selfDeaf: false }); } catch (_) {}
 
     let finished = false;
+    let safetyTimeout = null;
+
+    const onIdle = () => finish();
+    const onError = (err) => {
+      console.error('[Voice Player Error]:', err.message);
+      finish();
+    };
+
     const finish = () => {
       if (finished) return;
       finished = true;
+
+      if (safetyTimeout) clearTimeout(safetyTimeout);
+      player.removeListener(AudioPlayerStatus.Idle, onIdle);
+      player.removeListener('error', onError);
+
       isBotSpeaking.delete(guildId);
 
       // Auto-mute after speaking if music is not actively streaming
@@ -252,16 +271,13 @@ function playInVC(guildId, resource) {
       resolve();
     };
 
-    player.once(AudioPlayerStatus.Idle, finish);
-    player.once('error', (err) => {
-      console.error('[Voice Player Error]:', err.message);
-      finish();
-    });
+    player.once(AudioPlayerStatus.Idle, onIdle);
+    player.once('error', onError);
 
     player.play(resource);
 
     // Fallback safety timeout (45s)
-    setTimeout(finish, 45000);
+    safetyTimeout = setTimeout(finish, 45000);
   });
 }
 
@@ -341,6 +357,16 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
 
     const isOwner = userId === config.OWNER_DISCORD_ID;
 
+    // Attila Exclusive Preemption: cancel any member recordings in flight when Attila speaks
+    if (isOwner) {
+      for (const recordingUserId of activeRecordings) {
+        if (recordingUserId !== config.OWNER_DISCORD_ID) {
+          activeRecordings.delete(recordingUserId);
+          console.log(`[Voice Listener]: Preempted member recording (${recordingUserId}) in favor of Attila.`);
+        }
+      }
+    }
+
     // If Attila speaks in VC, clear any pending 10-second call countdown
     if (isOwner && pendingAttilaVoiceCalls.has(guildId)) {
       clearTimeout(pendingAttilaVoiceCalls.get(guildId).timer);
@@ -350,7 +376,7 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
 
     // Cooldown check per user
     const lastTime = voiceCooldowns.get(userId) || 0;
-    if (Date.now() - lastTime < (isOwner ? VOICE_COOLDOWN_MS : 3000)) return;
+    if (Date.now() - lastTime < (isOwner ? 0 : 3000)) return;
 
     activeRecordings.add(userId);
     resetIdleTimer(guildId);
@@ -362,7 +388,7 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
       const opusStream = receiver.subscribe(userId, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
-          duration: SILENCE_DURATION_MS
+          duration: isOwner ? SILENCE_DURATION_MS : 500
         }
       });
 
@@ -397,7 +423,7 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
       const maxTimer = setTimeout(() => {
         console.log(`[Voice Listener]: Max recording duration reached for ${speakerTag}. Processing captured audio...`);
         finishRecording();
-      }, isOwner ? 15000 : 10000);
+      }, isOwner ? MAX_RECORDING_MS : 10000);
 
       pcmStream.on('data', (chunk) => pcmChunks.push(chunk));
       pcmStream.on('end', finishRecording);
@@ -602,7 +628,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(normalizedForLeave);
 
   if (isLeaveIntent) {
-    console.log(`[Voice Pipeline]: 🚪 Trigger Leave VC ("${transcript}") detected from Attila! Explicit "keluar sekarang": ${isExplicitKeluarSekarang}`);
+    dismissedGuilds.add(guildId);
+    console.log(`[Voice Pipeline]: 🚪 Trigger Leave VC ("${transcript}") detected from Attila! Explicit "keluar sekarang": ${isExplicitKeluarSekarang}. Marked dismissed.`);
 
     const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
     const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
@@ -833,12 +860,12 @@ ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1 MENIT):
 3. MULTILINGUAL VOICE: Jika Attila bicara atau meminta kamu berbicara dalam bahasa lain (misal English, 日本語 / Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
 5. EMOSI SUARA ELEVENLABS V3: Kamu boleh sesekali menyisipkan tag emosi suara [laughs], [giggles], [sighs], [whispers], atau [gasp] jika cocok dengan situasi.`;
-    maxTokens = 250; // ~120-150 words = ~50-60s max normal speech
+    maxTokens = 200; // ~100-130 words = ~40-50s max normal speech
   }
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...history.slice(-6),
+    ...history.slice(-4),
     { role: 'user', content: transcript }
   ];
 
@@ -908,6 +935,12 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
 
   // === Attila JOINED or SWITCHED a voice channel ===
   if (newChannel) {
+    // If owner explicitly dismissed AZURA, DO NOT auto-follow
+    if (dismissedGuilds.has(guildId)) {
+      console.log(`[Voice Companion]: Attila joined/switched to "${newChannel.name}", but AZURA is currently dismissed. Skipping auto-follow.`);
+      return;
+    }
+
     const existingConn = activeConnections.get(guildId);
     if (existingConn) {
       await cleanupGuild(guildId, client);
@@ -1256,6 +1289,11 @@ async function joinAttilaVoiceChannel(client) {
   }
 
   const guildId = targetGuild.id;
+
+  // Clear dismissed state so AZURA is officially active again
+  dismissedGuilds.delete(guildId);
+  voiceChatHistories.delete(ownerId);
+
   const existingConn = activeConnections.get(guildId);
   if (existingConn) {
     await cleanupGuild(guildId, client);
@@ -1348,8 +1386,9 @@ async function leaveVoiceChannel(client, guildId = null) {
   // Skip TTS farewell — just disconnect IMMEDIATELY for reliability
   // (User's #1 complaint is "she won't leave". Speed > politeness.)
 
-  // If specific guild, cleanup that guild
+  // If specific guild, cleanup that guild and mark dismissed
   if (guildId) {
+    dismissedGuilds.add(guildId);
     await cleanupGuild(guildId, client);
   }
 

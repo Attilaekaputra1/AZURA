@@ -589,33 +589,39 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── Step 3: Intent Classification ──
 
-  // --- INTENT A: Leave VC Command (2 Exact Direct Trigger Phrases + Ultra Robust Matching) ---
-  // Phrase 1: "Azura keluar dari vc dulu dong"
-  // Phrase 2: "Azura keluar dulu ya"
+  // --- INTENT A: Leave VC Command (Ultra Broad & Bulletproof Deterministic Matching) ---
+  const normalizedForLeave = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
   const isLeaveIntent =
-    /keluar\s+dari\s+(?:vc|voice|channel|room|pc|visi)\s+(?:dulu\s+)?dong/i.test(transcript) ||
-    /keluar\s+dulu\s+(?:ya|dong)/i.test(transcript) ||
-    /\b(?:keluar\s+dari\s+vc|leave\s+vc|cabut\s+dari\s+vc|keluar\s+vc|keluar\s+dulu|off\s+dulu|cabut\s+dulu|udahan\s+dulu)\b/i.test(transcript) ||
-    (/\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(transcript) &&
-     /\b(?:vc|voice|channel|room|sini|pc|pisi|visi|dulu|dong|ya|sekarang|gih)\b/i.test(transcript)) ||
-    /\b(?:keluar|leave|cabut)\b/i.test(cleanTranscript);
+    /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(normalizedForLeave);
 
   if (isLeaveIntent) {
-    console.log('[Voice Pipeline]: 🚪 Detected Leave VC command from Attila! Disconnecting IMMEDIATELY...');
+    console.log(`[Voice Pipeline]: 🚪 Detected Leave VC command ("${transcript}") from Attila!`);
 
+    const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
     const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
     recordSessionEntry(guildId, 'Attila', transcript);
     recordSessionEntry(guildId, 'AZURA', textLeave);
 
-    // Send text farewell immediately
+    // Send text farewell immediately in companion text channel
     const textChannel = companionTextChannels.get(guildId) || voiceChannel;
     if (textChannel) {
       textChannel.send(textLeave).catch(() => {});
     }
 
-    // DISCONNECT IMMEDIATELY — no TTS farewell, just GO
-    // (The user's #1 complaint is "she won't leave". Speed > farewell audio.)
+    // Play TTS farewell with ElevenLabs v3 in VC (with 3.5s timeout race so it never hangs)
+    try {
+      const audioResource = await textToAudioResource(spokenLeave, client);
+      if (audioResource) {
+        await Promise.race([
+          playInVC(guildId, audioResource),
+          new Promise(r => setTimeout(r, 3500))
+        ]);
+      }
+    } catch (err) {
+      console.warn('[Leave VC TTS Playback error]:', err.message);
+    }
+
     await cleanupGuild(guildId, client);
     return;
   }
@@ -831,7 +837,7 @@ ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
 
 ATURAN PERINTAH KELUAR DARI VC (SANGAT PENTING):
-Jika Attila meminta kamu keluar, pamit, leave, cabut, disconnect, udahan, atau berhenti nemenin dari Voice Channel dalam konteks atau kalimat apapun (misal: "keluar dari vc", "leave dong", "cabut dulu ya", "off dulu", "udahan ya", "keluar dulu dong", dll), kamu WAJIB menjawab HANYA dengan kalimat ini:
+Jika dalam obrolan Voice Channel ada kata keluar, pamit, leave, cabut, disconnect, dc, off, atau udahan (baik Attila menyuruh kamu keluar ATAUPUN Attila pamit mau keluar/off), JANGAN PERNAH menyuruh Attila hati-hati atau pamitan biasa. Kamu HARUS SELALU menjawab HANYA dengan kalimat ini:
 "Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 
 ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1 MENIT):

@@ -669,12 +669,13 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  const musicPattern = /(?:tolong\s+)?(?:setel|play|puterin|putar|mainkan|setelin)\s+(?:musik|lagu|song|lagunya)?\s*(.+)/i;
-  const musicMatch = transcript.match(musicPattern) || cleanTranscript.match(musicPattern);
+  const musicPattern = /(?:setel|play|puterin|putar|puter|mainkan|mainin|setelin|nyalain|pasang|dengerin)\s*(?:in)?\s*(?:musik|lagu|song|lagunya)?\s*(.+)/i;
+  const musicMatch = cleanTranscript.match(musicPattern) || transcript.match(musicPattern);
 
   if (musicMatch) {
     let songTitle = musicMatch[1]
-      .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
+      .replace(/\b(?:musik|lagu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
+      .replace(/[.,!?;:'"()\[\]]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 

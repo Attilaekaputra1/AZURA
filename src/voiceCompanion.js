@@ -665,13 +665,13 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
         entries: []
       });
 
-      // Join initially muted (selfMute: true, selfDeaf: false to listen)
+      // Join with selfMute: false to greet immediately
       const connection = joinVoiceChannel({
         channelId: newChannel.id,
         guildId: guildId,
         adapterCreator: guild.voiceAdapterCreator,
-        selfMute: true,     // Initial mute as requested
-        selfDeaf: false,    // Can hear Attila's speech
+        selfMute: false,
+        selfDeaf: false,
       });
 
       await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
@@ -698,12 +698,14 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
       const textChannel = findBestTextChannel(guild, newChannel, client);
       if (textChannel) {
         companionTextChannels.set(guildId, textChannel);
-        // TEXTING ONLY on join (no voice greeting as requested)
         await textChannel.send('aku ikut kamu yaa').catch(() => {});
       }
 
       // Start the voice listener (audio receive pipeline)
       startVoiceListener(connection, guildId, client, newChannel);
+
+      // Play initial voice greeting with Kak Ceria voice
+      playGreeting(guildId).catch(() => {});
 
       // Start idle deafen timer
       resetIdleTimer(guildId);
@@ -711,6 +713,18 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
     } catch (error) {
       console.error(`[Voice Companion Error]: Failed to join "${newChannel.name}":`, error.message || error);
     }
+  }
+}
+
+/**
+ * Play greeting when AZURA joins the VC
+ */
+async function playGreeting(guildId) {
+  await new Promise(r => setTimeout(r, 800));
+  const resource = await textToAudioResource('halo aku azura, salam kenal yaa');
+  if (resource) {
+    console.log('[Voice Companion]: Playing voice greeting with Kak Ceria voice...');
+    await playInVC(guildId, resource);
   }
 }
 

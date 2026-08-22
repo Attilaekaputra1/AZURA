@@ -139,24 +139,27 @@ async function textToAudioResource(text) {
     .trim();
   if (!clean) return null;
 
-  // 1. Primary: ElevenLabs Multilingual v2 (Bella / Custom Voice)
+  // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria with audio tags support)
   if (config.ELEVENLABS_API_KEY) {
     try {
-      console.log('[Voice TTS]: Generating audio via ElevenLabs (Bella)...');
+      console.log('[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria)...');
       const { generateElevenLabsTTS } = require('./elevenlabs');
       const audioBuffer = await generateElevenLabsTTS(clean);
       return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
     } catch (elevenErr) {
-      console.warn('[Voice TTS Warning]: ElevenLabs failed, falling back to OpenAI TTS (nova):', elevenErr.message);
+      console.warn('[Voice TTS Warning]: ElevenLabs v3 failed, falling back to OpenAI TTS (nova):', elevenErr.message);
     }
   }
+
+  // Strip audio tags for fallback engines (OpenAI / Edge) so they don't read tags literally
+  const cleanFallback = clean.replace(/\[(?:laughs|giggles|sighs|whispers|gasp|chuckles)\]/gi, '').trim();
 
   // 2. Fallback 1: OpenAI TTS-1 (nova - natural Gen Z female)
   try {
     const openai = getOpenAI();
     if (openai) {
       console.log('[Voice TTS]: Generating audio via OpenAI TTS (nova)...');
-      const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'nova', input: clean });
+      const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'nova', input: cleanFallback });
       const buf = Buffer.from(await mp3.arrayBuffer());
       return createAudioResource(Readable.from(buf), { inputType: StreamType.Arbitrary });
     }
@@ -173,7 +176,7 @@ async function textToAudioResource(text) {
       lang: 'id-ID',
       outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
     });
-    await tts.ttsPromise(clean, tempPath);
+    await tts.ttsPromise(cleanFallback, tempPath);
     const buf = fs.readFileSync(tempPath);
     fs.unlink(tempPath, () => {});
     return createAudioResource(Readable.from(buf), { inputType: StreamType.Arbitrary });
@@ -573,9 +576,11 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   try {
     const askAzura = getAskAzura();
     const voicePrompt =
-      `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA. JAWAB DENGAN GAYA CEWEK 22 TAHUN YANG EKSPRESIF, MANIS, DAN SANTAI (MAKSIMAL 1-2 KALIMAT). ` +
-      `BISA SEDIKIT PLAYFUL/BERCANDA SEPERTI NADA MANJA, "EHEHE", ATAU TEASING "ARA-ARA~" JIKA RELEVAN/DIMINTA. ` +
-      `GUNAKAN TANDA BACA SEPERTI KOMA DAN TITIK DENGAN RAPI AGAR TEMPO SUARA TIDAK TERBURU-BURU, SERTA JANGAN GUNAKAN EMOJI ATAU MARKDOWN]: ${transcript}`;
+      `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA. ` +
+      `JAWAB SANGAT RINGKAS (MAKSIMAL 1-2 KALIMAT PENDEK, MAX 15-20 DETIK BICARA). ` +
+      `GAYA BAHASA: Cewek Gen Z 22 tahun yang manis, ekspresif, santai, boleh sesekali pakai kata gaul seperti "jir", "anjir" kalau kaget/lucu, "ehehe", atau teasing "ara-ara~". ` +
+      `FITUR EMOSI SUARA ELEVENLABS V3: Kamu BISA menyisipkan audio tag seperti [laughs], [giggles], [sighs], [whispers], atau [gasp] di dalam kalimat agar suaramu tertawa, menghela nafas, atau berbisik secara nyata. ` +
+      `PENTING: Gunakan tanda baca rapi, JANGAN gunakan format markdown bintang/bold atau emoji]: ${transcript}`;
 
     const aiResponse = await askAzura(userId, voicePrompt, 'Attila', [], false, null);
 

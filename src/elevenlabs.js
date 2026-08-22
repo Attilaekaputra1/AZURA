@@ -19,11 +19,11 @@ function generateElevenLabsTTS(text, voiceId = null) {
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
     const postData = JSON.stringify({
       text: text,
-      model_id: 'eleven_multilingual_v2',
+      model_id: 'eleven_v3',
       voice_settings: {
-        stability: 0.60,
+        stability: 0.55,
         similarity_boost: 0.85,
-        style: 0.10,
+        style: 0.15,
         use_speaker_boost: true
       }
     });

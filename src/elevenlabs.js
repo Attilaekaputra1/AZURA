@@ -1,7 +1,7 @@
 const https = require('https');
 const config = require('./config');
 
-const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Bella (sweet, expressive, natural 20s female)
+const DEFAULT_VOICE_ID = 'd15jrIAARvF899pDoC6T'; // Kak Ceria (Indonesian cheerful female)
 
 /**
  * Generate MP3 audio buffer from text using ElevenLabs Multilingual v2 API

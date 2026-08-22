@@ -222,8 +222,7 @@ ATURAN WAJIB:
         { role: 'system', content: systemPrompt },
         { role: 'user', content: 'Kirim pemantik diskusi untuk server sekarang.' }
       ],
-      max_completion_tokens: 300,
-      temperature: 0.9
+      max_completion_tokens: 300
     });
 
     return res.choices[0]?.message?.content?.trim() || null;
@@ -270,8 +269,7 @@ ATURAN WAJIB:
         { role: 'system', content: systemPrompt },
         { role: 'user', content: 'Mulai obrolan santai.' }
       ],
-      max_completion_tokens: 300,
-      temperature: 0.95
+      max_completion_tokens: 300
     });
 
     return res.choices[0]?.message?.content?.trim() || null;
@@ -321,8 +319,7 @@ TUGASMU:
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Pesan dari ${userName}: "${userText}"` }
       ],
-      max_completion_tokens: 250,
-      temperature: 0.85
+      max_completion_tokens: 250
     });
 
     const reply = res.choices[0]?.message?.content?.trim();

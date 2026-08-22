@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
 const config = require('./config');
 const budgetGuard = require('./budget');
 const { askAzura } = require('./azura');
@@ -36,7 +36,7 @@ const client = new Client({
 
 
 // Event: Client Ready
-client.once('ready', async () => {
+client.once(Events.ClientReady, async () => {
   console.log('\n==================================================');
   console.log(`🤖 AZURA Online!`);
   console.log(`• Username : ${client.user.tag}`);

@@ -93,15 +93,15 @@ client.on('messageCreate', async (message) => {
   // Clean prompt by removing bot mention tag
   const rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();
 
-  // Extract image attachments for Vision & audio attachments for Whisper STT
-  const imageUrls = [];
-  let voicePrompt = '';
+  // Extract Visual Media for Vision (Attachments, Discord Stickers, Tenor/Giphy GIFs, Embeds)
+  const { extractVisualMedia } = require('./visionHelper');
+  const { imageUrls, visualContextPrompt } = await extractVisualMedia(message);
 
+  // Extract audio attachments for Whisper STT
+  let voicePrompt = '';
   if (message.attachments.size > 0) {
     for (const att of message.attachments.values()) {
-      if (att.contentType && att.contentType.startsWith('image/')) {
-        imageUrls.push(att.url);
-      } else if (att.contentType && (att.contentType.startsWith('audio/') || att.name.endsWith('.ogg') || att.name.endsWith('.mp3') || att.name.endsWith('.wav'))) {
+      if (att.contentType && (att.contentType.startsWith('audio/') || att.name.endsWith('.ogg') || att.name.endsWith('.mp3') || att.name.endsWith('.wav'))) {
         const { transcribeAudioAttachment } = require('./stt');
         await message.channel.sendTyping().catch(() => {});
         const transcribedText = await transcribeAudioAttachment(att.url);
@@ -113,17 +113,12 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Extract stickers & analyze sticker sentiment
-  const { parseMessageStickers } = require('./stickers');
-  const stickerParsed = parseMessageStickers(message);
-  let stickerPrompt = stickerParsed.textPrompt;
-
   let finalPrompt = rawPrompt;
   if (voicePrompt) {
     finalPrompt = finalPrompt ? `${finalPrompt}\n${voicePrompt}` : voicePrompt;
   }
-  if (stickerPrompt) {
-    finalPrompt = finalPrompt ? `${finalPrompt}\n${stickerPrompt}` : stickerPrompt;
+  if (visualContextPrompt) {
+    finalPrompt = finalPrompt ? `${finalPrompt}\n${visualContextPrompt}` : visualContextPrompt;
   }
 
   // Handle empty mention (no text AND no images AND no voice)

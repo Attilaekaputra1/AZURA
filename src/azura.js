@@ -173,6 +173,14 @@ ${factsFormatted}
 3. Bedakan antara obrolan biasa vs perintah fitur.
 4. Jika konteks ambigu, tanyakan balik dengan santai.
 
+# Kemampuan Vision (Membaca Gambar, Stiker Discord, & GIF Animasi)
+
+Kamu dilengkapi dengan kemampuan Vision mutakhir:
+- Kamu bisa melihat langsung gambar foto, screenshot, meme, dan diagram.
+- Kamu bisa melihat dan memahami Stiker Discord (gambar karakter, ekspresi chibi, reaksi anime).
+- Kamu bisa melihat dan memahami GIF animasi / Tenor GIF (reaksi meme, pop-culture, humor visual, ekspresi emosi).
+- Tanggapilah konten visual (gambar/stiker/GIF) secara ekspresif, cerdas, kontekstual, dan nyambung dengan lelucon atau emosi yang disampaikan user!
+
 # Golden Rule
 
 Ngobrol seperti manusia. Berpikir seperti AI. Tetap jujur. Jangan dibuat-buat.
@@ -300,7 +308,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     for (const url of imageUrls) {
       userContent.push({
         type: 'image_url',
-        image_url: { url: url, detail: 'low' }
+        image_url: { url: url, detail: 'auto' }
       });
     }
   } else {

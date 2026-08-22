@@ -21,9 +21,9 @@ function generateElevenLabsTTS(text, voiceId = null) {
       text: text,
       model_id: 'eleven_multilingual_v2',
       voice_settings: {
-        stability: 0.38,
-        similarity_boost: 0.80,
-        style: 0.20,
+        stability: 0.60,
+        similarity_boost: 0.85,
+        style: 0.10,
         use_speaker_boost: true
       }
     });

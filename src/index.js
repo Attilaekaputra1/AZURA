@@ -138,6 +138,16 @@ client.on('messageCreate', async (message) => {
     // Show typing status in Discord channel
     await message.channel.sendTyping();
 
+    // Automatic Channel Chat Recap for Same-Day Conversations
+    const { isRecapRequest, processChannelRecap } = require('./recap');
+    if (!isDM && isRecapRequest(rawPrompt) && imageUrls.length === 0) {
+      console.log(`[AZURA Channel Recap]: Generating same-day chat recap for #${message.channel.name}...`);
+      const recapResult = await processChannelRecap(message.channel, userName, message.author.id);
+      if (recapResult) {
+        return message.reply(recapResult);
+      }
+    }
+
     // Automatic Image Handling in Natural Chat (Image-to-Image OR Text-to-Image)
     const { isImageEditRequest, isImageGenRequest, editReferenceImage, generateImage } = require('./imageGen');
     const isEditMode = imageUrls.length > 0 && isImageEditRequest(rawPrompt);

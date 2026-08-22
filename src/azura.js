@@ -162,9 +162,32 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     }
   }
 
+  // Live Voice Channel Context Ingestion & Direct Recap Handler
+  const isAskingVcTopic = /\b(?:lagi\s+(?:pada\s+)?bahas\s+apa|lagi\s+(?:pada\s+)?ngobrolin\s+apa|lagi\s+ngomongin\s+apa|topik\s+(?:apa\s+)?di\s+vc|rekap\s+(?:obrolan\s+)?(?:vc|voice)|bahas\s+apa\s+aja\s+di\s+vc|ngomongin\s+apa\s+di\s+vc|rekap\s+vc|lagi\s+ada\s+apa\s+di\s+vc|ngobrolin\s+apa\s+di\s+voice)\b/i.test(userPrompt);
+  if (guildId && isAskingVcTopic) {
+    const { generateLiveVoiceSummary } = require('./voiceCompanion');
+    const vcSummary = await generateLiveVoiceSummary(guildId, userName);
+    if (vcSummary) return vcSummary;
+  }
+
   const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}_user_${userId}`;
   const history = budgetGuard.getContext(contextKey);
   const systemPrompt = getSystemPrompt(userName, userId, isDM);
+
+  // Inject live VC background transcript if voice companion is active in this guild
+  let liveVcContext = '';
+  if (guildId) {
+    try {
+      const { getLiveVoiceTranscriptContext, getActiveVoiceSession } = require('./voiceCompanion');
+      const session = getActiveVoiceSession(guildId);
+      if (session) {
+        const transcript = getLiveVoiceTranscriptContext(guildId, 15);
+        if (transcript) {
+          liveVcContext = `\n\n[Konteks Live Obrolan Voice Channel #${session.channelName} yang Sedang Berlangsung Saat Ini]:\n${transcript}\n(Informasi di atas adalah percakapan nyata yang sedang terjadi di Voice Channel saat ini. Gunakan untuk menjawab jika user menyinggung obrolan di VC).`;
+        }
+      }
+    } catch (_) {}
+  }
 
   let searchContext = null;
   if (needsSearch(userPrompt) && imageUrls.length === 0) {
@@ -187,9 +210,10 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     userContent = userPrompt;
   }
 
-  const systemMessage = searchContext 
-    ? `${systemPrompt}\n\nKonteks Data Real-Time dari Internet (Tavily AI Search):\n${searchContext}\n\nInstruksi Penyampaian Hasil Pencarian:\n- Jawablah menggunakan fakta di atas dengan gaya bahasa santai, cerdas, dan hangat khas Azura.\n- Susun penjelasan secara rapi dan enak dibaca.\n- Cantumkan tautan link sumber jika relevan.`
-    : systemPrompt;
+  let systemMessage = systemPrompt + liveVcContext;
+  if (searchContext) {
+    systemMessage += `\n\nKonteks Data Real-Time dari Internet (Tavily AI Search):\n${searchContext}\n\nInstruksi Penyampaian Hasil Pencarian:\n- Jawablah menggunakan fakta di atas dengan gaya bahasa santai, cerdas, dan hangat khas Azura.\n- Susun penjelasan secara rapi dan enak dibaca.\n- Cantumkan tautan link sumber jika relevan.`;
+  }
 
   const messages = [
     { role: 'system', content: systemMessage },

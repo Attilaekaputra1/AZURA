@@ -1034,6 +1034,70 @@ function recordSessionEntry(guildId, speaker, text) {
   }
 }
 
+/**
+ * Get active voice session metadata for a guild
+ */
+function getActiveVoiceSession(guildId) {
+  return voiceSessions.get(guildId) || null;
+}
+
+/**
+ * Get formatted recent live voice transcript for context injection
+ */
+function getLiveVoiceTranscriptContext(guildId, maxEntries = 20) {
+  const session = voiceSessions.get(guildId);
+  if (!session || !session.entries || session.entries.length === 0) return null;
+  const recent = session.entries.slice(-maxEntries);
+  return recent.map(e => `[${e.time}] ${e.speaker}: "${e.text}"`).join('\n');
+}
+
+/**
+ * Generate real-time summary of ongoing VC conversation when asked in text chat
+ */
+async function generateLiveVoiceSummary(guildId, requesterName = 'Pengguna') {
+  const session = voiceSessions.get(guildId);
+  if (!session || !session.entries || session.entries.length < 2) {
+    return `Saat ini lagi belum ada obrolan aktif di Voice Channel #${session?.channelName || 'voice'} nih ${requesterName}. Yuk join dan mulai ngobrol bareng! 🎙️✨`;
+  }
+
+  const recentEntries = session.entries.slice(-25);
+  const transcriptText = recentEntries.map(e => `[${e.time}] ${e.speaker}: "${e.text}"`).join('\n');
+
+  const openai = getOpenAI();
+  if (!openai) {
+    return `Di Voice Channel #${session.channelName}, teman-teman lagi ngobrol santai nih.`;
+  }
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang ikut di Voice Channel #${session.channelName}.
+Seseorang di text chat Discord bernama "${requesterName}" baru saja bertanya: "Lagi pada bahas apa di VC?".
+
+Berikut transkrip latar belakang percakapan langsung yang sedang terjadi di Voice Channel:
+${transcriptText}
+
+TUGAS:
+- Jelaskan secara singkat, padat, dan seru (2-3 kalimat saja) apa topik utama yang sedang dibahas teman-teman di VC.
+- Sebutkan siapa yang tadi ngomongin topik itu secara natural (misal: "Tadi Attila sama koshi lagi ngobrolin...").
+- Gunakan bahasa santai, cerdas, dan hangat ala cewek Gen Z Discord.
+- DILARANG menggunakan format list atau poin bullet.`
+        },
+        { role: 'user', content: 'Lagi pada bahas apa di VC?' }
+      ],
+      max_completion_tokens: 200
+    });
+
+    return res.choices[0]?.message?.content?.trim() || `Tadi teman-teman di VC #${session.channelName} lagi ngobrol santai nih.`;
+  } catch (err) {
+    console.error('[Live VC Summary Error]:', err.message);
+    return `Di VC #${session.channelName} lagi ada obrolan aktif antara ${session.entries[session.entries.length - 1].speaker} dan yang lainnya!`;
+  }
+}
+
 // ============================================================
 // Voice State Handler (Join / Leave / Move)
 // ============================================================
@@ -1566,6 +1630,9 @@ module.exports = {
   joinAttilaVoiceChannel,
   leaveVoiceChannel,
   playMusicAutonomous,
+  getActiveVoiceSession,
+  getLiveVoiceTranscriptContext,
+  generateLiveVoiceSummary,
   audioPlayers,
   activeConnections
 };

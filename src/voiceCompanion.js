@@ -327,39 +327,14 @@ async function playMusicAutonomous(client, guildId, channel, songTitle, requeste
 
     const ytSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(songTitle)}`;
 
-    const musicEmbed = new EmbedBuilder()
-      .setTitle('📺 YouTube Watch Together — Voice Channel')
-      .setDescription(
-        `🎧 **Lagu / Video:** \`${songTitle}\`\n` +
-        `👤 **Diminta oleh:** **${requesterName}**\n` +
-        (voiceChannel ? `🔊 **Voice Channel:** **#${voiceChannel.name}**\n\n` : '\n') +
-        `Klik tombol di bawah untuk langsung membuka sesi **YouTube Watch Together** di Discord atau cari langsung di YouTube!`
-      )
-      .setColor(0xFF0000)
-      .setFooter({ text: 'Discord Official Activity • YouTube Watch Together' })
-      .setTimestamp();
+    const targetChannel = (voiceChannel && voiceChannel.isTextBased?.()) ? voiceChannel : (channel || companionTextChannels.get(guildId));
+    if (!targetChannel) return false;
 
-    const row = new ActionRowBuilder();
-    if (inviteUrl) {
-      row.addComponents(
-        new ButtonBuilder()
-          .setLabel('▶️ Buka YouTube di Discord')
-          .setStyle(ButtonStyle.Link)
-          .setURL(inviteUrl)
-      );
-    }
-    row.addComponents(
-      new ButtonBuilder()
-        .setLabel('🔍 Cari di YouTube')
-        .setStyle(ButtonStyle.Link)
-        .setURL(ytSearchUrl)
-    );
-
-    await channel.send({ embeds: [musicEmbed], components: [row] }).catch(() => {});
+    await targetChannel.send({ embeds: [musicEmbed], components: [row] }).catch(() => {});
 
     // Send the activity invite link directly so Discord natively renders the interactive start card
     if (inviteUrl) {
-      await channel.send(inviteUrl).catch(() => {});
+      await targetChannel.send(inviteUrl).catch(() => {});
     }
 
     // Backup: Dispatch standard music bot commands
@@ -998,8 +973,8 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
         }
       });
 
-      // Find best text channel for texting "aku ikut kamu yaa"
-      const textChannel = findBestTextChannel(guild, newChannel, client);
+      // Text channel is strictly the voice channel itself (Text-in-Voice)
+      const textChannel = (newChannel && newChannel.isTextBased?.()) ? newChannel : findBestTextChannel(guild, newChannel, client);
       if (textChannel) {
         companionTextChannels.set(guildId, textChannel);
         await textChannel.send('aku ikut kamu yaa').catch(() => {});

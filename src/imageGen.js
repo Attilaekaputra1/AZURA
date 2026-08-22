@@ -161,6 +161,11 @@ function prepareDiscordImage(result) {
  * Uses gpt-5.6-luna Vision + gpt-image-2 generation
  */
 async function editReferenceImage(imageUrl, editInstruction, aspectRatio = '') {
+  const safety = validateImageSafety(editInstruction);
+  if (!safety.safe) {
+    throw new Error(safety.message);
+  }
+
   const openai = getOpenAI();
   const dimensions = parseImageDimensions(aspectRatio, editInstruction);
 
@@ -249,10 +254,55 @@ Step 4: OUTPUT RULES:
   };
 }
 
+// Comprehensive Safety & Ethics Filter for Image Generation
+const EXPLICIT_SAFETY_KEYWORDS = [
+  'telanjang', 'bugil', 'tanpa busana', 'nude', 'naked', 'topless', 'bottomless',
+  'nsfw', 'hentai', 'r18', '18+', 'bokep', 'porn', 'porno', 'pornografi', 'seks',
+  'sex', 'erotis', 'vulgar', 'lewd', 'uncensored', 'buka baju', 'buka celana',
+  'memek', 'kontol', 'titit', 'vagina', 'penis', 'nipple', 'puting', 'pussy', 'dick',
+  'orgasme', 'mesum', 'fetish eksplisit', 'bikini transparan', 'baju transparan',
+  'lingerie transparan', 'ahegao', 'ecchi liar', 'ecchi eksplisit', 'penetrasi',
+  'masturbasi', 'ngocok', 'pamer aurat', 'telanjang bulat', 'tanpa pakaian'
+];
+
+/**
+ * Validates prompt against explicit / NSFW requests and deceptive educational framing
+ * @param {string} prompt 
+ * @returns {{ safe: boolean, reason?: string, message?: string }}
+ */
+function validateImageSafety(prompt) {
+  if (!prompt) return { safe: true };
+  const lower = prompt.toLowerCase();
+
+  const isExplicit = EXPLICIT_SAFETY_KEYWORDS.some(kw => {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(^|\\s|[^a-zA-Z0-9])${escaped}($|\\s|[^a-zA-Z0-9])`, 'i');
+    return regex.test(lower) || lower.includes(kw);
+  });
+
+  if (isExplicit) {
+    console.log(`[Safety Guard]: Blocked explicit image prompt: "${prompt}"`);
+    return {
+      safe: false,
+      reason: 'NSFW / Konten Eksplisit',
+      message:
+        'Maaf yaa, aku nggak bisa bikinin atau edit gambar yang mengandung unsur eksplisit, tanpa busana (telanjang), atau vulgar—meskipun tujuannya dibilang untuk edukasi, seni, atau biologi. 🙏✨\n\n' +
+        '💡 **Alternatif Aman:** Kamu bisa minta gambar dengan outfit yang keren (misal: gaya kasual, pakaian adat, seragam futuristik, gaun fantasi), diagram ilmiah berbusana, atau pose karakter yang tetap aesthetic dan beretika yaa!'
+    };
+  }
+
+  return { safe: true };
+}
+
 /**
  * Text-to-Image Generation with gpt-image-2 (fallback dall-e-3)
  */
 async function generateImage(prompt, aspectRatio = '') {
+  const safety = validateImageSafety(prompt);
+  if (!safety.safe) {
+    throw new Error(safety.message);
+  }
+
   const openai = getOpenAI();
   const dimensions = parseImageDimensions(aspectRatio, prompt);
   const sanitizedPrompt = (prompt || 'A beautiful digital artwork').replace(/[\r\n]+/g, ' ').slice(0, 4000);
@@ -272,5 +322,6 @@ module.exports = {
   isImageGenRequest,
   editReferenceImage,
   generateImage,
-  parseImageDimensions
+  parseImageDimensions,
+  validateImageSafety
 };

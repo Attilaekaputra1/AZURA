@@ -144,6 +144,13 @@ client.on('messageCreate', async (message) => {
     const isGenMode = imageUrls.length === 0 && isImageGenRequest(rawPrompt);
 
     if (isEditMode || isGenMode) {
+      // Safety & Ethics Guard for Image Generation
+      const { validateImageSafety } = require('./imageGen');
+      const safety = validateImageSafety(rawPrompt);
+      if (!safety.safe) {
+        return message.reply(safety.message);
+      }
+
       // Check Daily Server Quota (10 Generates / Day per Server)
       const { checkServerQuota, incrementServerQuota } = require('./imageQuota');
       const quota = checkServerQuota(message.guild?.id, message.author.id);

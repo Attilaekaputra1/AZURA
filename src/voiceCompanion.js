@@ -27,9 +27,9 @@ const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 // ============================================================
 // Configuration
 // ============================================================
-const VOICE_COOLDOWN_MS = 3000;       // 3 second cooldown between responses
-const SILENCE_DURATION_MS = 1000;      // 1.0s silence = speech ended (balanced: fast detection without cutting mid-sentence)
-const MIN_AUDIO_BYTES = 192000;       // ~1.0s at 48kHz stereo 16-bit (reject noise/coughs/breaths/keyboard)
+const VOICE_COOLDOWN_MS = 1000;       // 1s cooldown for regular members (0ms for Owner)
+const SILENCE_DURATION_MS = 800;       // 0.8s silence = speech ended
+const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
 const MAX_NORMAL_CHARS = 1000;        // ~1 minute of normal TTS speech (max 1 min)
 const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
@@ -579,14 +579,18 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // ── Energy Gate: Calculate RMS to reject silent/noise-only recordings ──
-  const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
-  let sumSquares = 0;
-  for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
-  const rms = Math.sqrt(sumSquares / samples.length);
-  if (rms < 300) {
-    console.log(`[Voice Pipeline]: Audio too quiet (RMS=${rms.toFixed(0)}), likely background noise. Skipping.`);
-    return;
+  const isOwner = userId === config.OWNER_DISCORD_ID;
+
+  // ── Energy Gate: Calculate RMS for non-owner members to reject background noise ──
+  if (!isOwner) {
+    const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+    const rms = Math.sqrt(sumSquares / samples.length);
+    if (rms < 80) {
+      console.log(`[Voice Pipeline]: Member audio too quiet (RMS=${rms.toFixed(0)}), skipping.`);
+      return;
+    }
   }
 
   voiceCooldowns.set(userId, Date.now());
@@ -594,7 +598,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   const sizeKB = (pcmBuffer.length / 1024).toFixed(0);
   const durationSec = (pcmBuffer.length / (48000 * 2 * 2)).toFixed(1);
-  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s, RMS=${rms.toFixed(0)}). Transcribing...`);
+  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s) from ${isOwner ? 'Attila' : 'Member'}. Transcribing...`);
 
   // ── Step 1: PCM → WAV → Whisper ──
   const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
@@ -611,20 +615,19 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     console.log(`[Voice Pipeline]: 🚫 Whisper hallucination detected: "${transcript}". Ignoring.`);
     return;
   }
-  // Also reject if transcript is just repeated single word/syllable
-  if (normalizedTranscript.length < 4 && !/\b(?:azura|ara|zura)\b/i.test(normalizedTranscript)) {
+  // Also reject if transcript is just repeated single word/syllable (only for non-owner)
+  if (!isOwner && normalizedTranscript.length < 4 && !/\b(?:azura|ara|zura)\b/i.test(normalizedTranscript)) {
     console.log(`[Voice Pipeline]: Transcript too short to be meaningful: "${transcript}". Ignoring.`);
     return;
   }
 
-  console.log(`[Voice Pipeline]: 📝 Transcript: "${transcript}"`);
+  console.log(`[Voice Pipeline]: 📝 Transcript from ${isOwner ? 'Attila' : 'Member'}: "${transcript}"`);
 
   // ── Step 2: Wake-Word Filter ──
   // For Attila (Owner), we NEVER drop commands even in crowded rooms.
   // For other members in crowded rooms, we require wake-word unless it's a direct leave/system command.
   const nonBotMembers = voiceChannel?.members ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
   const isCrowded = nonBotMembers > 1;
-  const isOwner = userId === config.OWNER_DISCORD_ID;
 
   const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|kak azura|kak ara|bot)\b/i.test(transcript);
   const hasDirectCommand = /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar|putar|setel|play|musik|lagu|youtube|yt)\b/i.test(transcript);
@@ -661,20 +664,21 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
     const textChannel = companionTextChannels.get(guildId) || voiceChannel;
     if (textChannel) {
-      await textChannel.send(textLeave).catch(() => {});
+      textChannel.send(textLeave).catch(() => {});
     }
 
     try {
       const audioResource = await textToAudioResource(spokenLeave, client);
       if (audioResource) {
-        await playInVC(guildId, audioResource);
+        await Promise.race([
+          playInVC(guildId, audioResource),
+          new Promise(r => setTimeout(r, 4500))
+        ]);
       }
     } catch (err) {
       console.warn('[Leave VC TTS Playback error]:', err.message);
     }
 
-    // Brief delay to ensure Discord completes UDP audio packet delivery before destroying connection
-    await new Promise(r => setTimeout(r, 600));
     await cleanupGuild(guildId, client);
     return;
   }
@@ -1099,10 +1103,21 @@ async function cleanupGuild(guildId, client) {
   if (conn) {
     try { conn.destroy(); } catch (_) {}
   }
+
+  // Also destroy via Discord.js voice registry directly
+  try {
+    const { getVoiceConnection } = require('@discordjs/voice');
+    const djsConn = getVoiceConnection(guildId);
+    if (djsConn) {
+      djsConn.destroy();
+    }
+  } catch (_) {}
+
   activeConnections.delete(guildId);
   companionTextChannels.delete(guildId);
   audioPlayers.delete(guildId);
   isBotSpeaking.delete(guildId);
+  activeRecordings.clear();
 
   // Send session transcript + AI summary document to Owner DM ONLY IF session >= 30 minutes AND actively conversational
   const session = voiceSessions.get(guildId);

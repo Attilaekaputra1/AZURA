@@ -151,6 +151,17 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const imageGenResponse = await processImageIntelligence(userPrompt, userName, guildId, userId, isOwner, imageUrls);
   if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
 
+  // Dedicated News / Headline Search Card (Visual Rich Embed with Thumbnail & Link Buttons)
+  const isDedicatedNewsQuery = /\b(?:berita|news|kabar\s+terkini|isu\s+terkini|berita\s+hari\s+ini|headline)\b/i.test(userPrompt);
+  if (isDedicatedNewsQuery && imageUrls.length === 0) {
+    const { searchTavilyCard } = require('./tavily');
+    console.log(`[AZURA News Card]: Generating Rich News Card for: "${userPrompt}"`);
+    const card = await searchTavilyCard(userPrompt, 'news', userName);
+    if (typeof card === 'object' && card.embeds) {
+      return card;
+    }
+  }
+
   const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}_user_${userId}`;
   const history = budgetGuard.getContext(contextKey);
   const systemPrompt = getSystemPrompt(userName, userId, isDM);

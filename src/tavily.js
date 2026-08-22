@@ -158,9 +158,120 @@ async function processTavilyIntelligence(prompt) {
   return await searchTavily(prompt, 'general');
 }
 
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
+/**
+ * Searches Tavily and formats into a rich, compact Discord Embed with Thumbnail and Link Buttons.
+ * Eliminates long scroll walls and makes news interactive and visually appealing.
+ * @param {string} query
+ * @param {string} topicMode
+ * @param {string} userName
+ * @returns {Promise<{ embeds: EmbedBuilder[], components: ActionRowBuilder[] } | string>}
+ */
+async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna') {
+  try {
+    const cleanQuery = query.replace(/^(?:cariin|cari|search|googling|info|berita|kabar)\s+(?:tentang|soal|terbaru|terkini)?\s*/i, '').trim() || query;
+    
+    console.log(`[Tavily News Card]: Fetching advanced news card for query "${cleanQuery}"...`);
+    const response = await tavilyApiCall('/search', {
+      query: cleanQuery,
+      topic: topicMode,
+      search_depth: 'advanced',
+      include_answer: true,
+      include_images: true,
+      max_results: 3
+    });
+
+    const safeResults = filterSafeResults(response.results);
+    if (!safeResults || safeResults.length === 0) {
+      return `Maaf ${userName}, aku nggak nemu berita terverifikasi terkait "${cleanQuery}" di internet.`;
+    }
+
+    // Get valid thumbnail image if available, fallback to sleek news icon
+    let thumbnailImage = null;
+    if (response.images && Array.isArray(response.images)) {
+      for (const imgUrl of response.images) {
+        if (typeof imgUrl === 'string' && imgUrl.startsWith('http') && !GAMBLING_DOMAINS.some(d => imgUrl.toLowerCase().includes(d))) {
+          thumbnailImage = imgUrl;
+          break;
+        }
+      }
+    }
+    if (!thumbnailImage && safeResults) {
+      for (const r of safeResults) {
+        if (r.image && typeof r.image === 'string' && r.image.startsWith('http')) {
+          thumbnailImage = r.image;
+          break;
+        }
+      }
+    }
+    // Sleek fallback news thumbnail if API returned no image
+    if (!thumbnailImage) {
+      thumbnailImage = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=400&auto=format&fit=crop&q=60';
+    }
+
+    // High quality concise summary (under 300 chars to avoid long scrolls)
+    let summaryText = response.answer || '';
+    if (containsGamblingContent(summaryText)) summaryText = '';
+    if (summaryText.length > 280) {
+      summaryText = summaryText.slice(0, 280) + '...';
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📰 Berita & Riset Terkini: ${cleanQuery.slice(0, 80)}`)
+      .setColor(0x2B82EA)
+      .setDescription(summaryText ? `💡 **Ringkasan Inti:**\n${summaryText}` : `Berikut rangkuman informasi terverifikasi dari internet:`)
+      .setFooter({ text: 'AZURA News Intelligence • Real-Time Web Data 2026' })
+      .setTimestamp();
+
+    if (thumbnailImage) {
+      embed.setThumbnail(thumbnailImage);
+    }
+
+    // Add top 3 clean, structured fields
+    safeResults.slice(0, 3).forEach((r, idx) => {
+      const title = r.title || `Artikel #${idx + 1}`;
+      const snippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 140);
+      const dateStr = r.published_date ? ` • 📅 ${r.published_date.slice(0, 16)}` : '';
+      
+      embed.addFields({
+        name: `📌 ${idx + 1}. ${title.slice(0, 80)}`,
+        value: `${snippet}...${dateStr}`,
+        inline: false
+      });
+    });
+
+    // Create interactive Link Buttons (one click to open source)
+    const row = new ActionRowBuilder();
+    safeResults.slice(0, 3).forEach((r, idx) => {
+      if (r.url && r.url.startsWith('http')) {
+        let label = `Sumber ${idx + 1}`;
+        try {
+          const domain = new URL(r.url).hostname.replace('www.', '');
+          label = domain.slice(0, 18);
+        } catch (_) {}
+
+        row.addComponents(
+          new ButtonBuilder()
+            .setLabel(`🔗 ${label}`)
+            .setStyle(ButtonStyle.Link)
+            .setURL(r.url)
+        );
+      }
+    });
+
+    const components = row.components.length > 0 ? [row] : [];
+    return { embeds: [embed], components };
+  } catch (err) {
+    console.error('[Tavily Card Error]:', err.message);
+    return `Gagal mengambil berita: ${err.message}`;
+  }
+}
+
 module.exports = {
   tavilyApiCall,
   searchTavily,
+  searchTavilyCard,
   extractTavilyUrl,
   processTavilyIntelligence
 };

@@ -403,8 +403,13 @@ async function handleSlashCommand(interaction, startTime) {
     await interaction.deferReply();
 
     try {
-      const response = await askAzura(user.id, `Cari info terbaru dari internet tentang: ${query}`, user.username, [], !interaction.guild, interaction.channelId);
-      await interaction.editReply(response);
+      const { searchTavilyCard } = require('./tavily');
+      const cardResult = await searchTavilyCard(query, 'news', user.username);
+      if (typeof cardResult === 'object' && cardResult.embeds) {
+        await interaction.editReply(cardResult);
+      } else {
+        await interaction.editReply(cardResult);
+      }
     } catch (error) {
       await interaction.editReply('gagal melakukan pencarian web. coba lagi nanti ya!');
     }

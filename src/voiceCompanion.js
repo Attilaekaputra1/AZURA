@@ -590,31 +590,21 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     /\b(?:keluar|leave|cabut)\b/i.test(cleanTranscript);
 
   if (isLeaveIntent) {
-    console.log('[Voice Pipeline]: 🚪 Detected Leave VC command from Attila!');
+    console.log('[Voice Pipeline]: 🚪 Detected Leave VC command from Attila! Disconnecting IMMEDIATELY...');
 
-    const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
     const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
     recordSessionEntry(guildId, 'Attila', transcript);
     recordSessionEntry(guildId, 'AZURA', textLeave);
 
+    // Send text farewell immediately
     const textChannel = companionTextChannels.get(guildId) || voiceChannel;
     if (textChannel) {
       textChannel.send(textLeave).catch(() => {});
     }
 
-    try {
-      const audioResource = await textToAudioResource(spokenLeave, client);
-      if (audioResource) {
-        await Promise.race([
-          playInVC(guildId, audioResource),
-          new Promise(r => setTimeout(r, 4500))
-        ]);
-      }
-    } catch (err) {
-      console.warn('[Leave VC TTS Playback error]:', err.message);
-    }
-
+    // DISCONNECT IMMEDIATELY — no TTS farewell, just GO
+    // (The user's #1 complaint is "she won't leave". Speed > farewell audio.)
     await cleanupGuild(guildId, client);
     return;
   }
@@ -1040,19 +1030,73 @@ async function cleanupGuild(guildId, client) {
     idleTimers.delete(guildId);
   }
 
+  // === LAYER 1: Native Discord REST disconnect via GuildMember.voice.setChannel(null) ===
+  // This is the most reliable method - it sends a PATCH to Discord REST API
+  let nativeDisconnected = false;
+  if (client && client.guilds) {
+    try {
+      const guild = client.guilds.cache.get(guildId);
+      if (guild) {
+        const me = guild.members.me || await guild.members.fetch(client.user.id).catch(() => null);
+        if (me && me.voice && me.voice.channel) {
+          console.log(`[cleanupGuild]: LAYER 1 - setChannel(null) in "${guild.name}" (#${me.voice.channel.name})...`);
+          await me.voice.setChannel(null);
+          nativeDisconnected = true;
+          console.log(`[cleanupGuild]: LAYER 1 SUCCESS - Bot disconnected via setChannel(null)`);
+        }
+      }
+    } catch (e) {
+      console.warn('[cleanupGuild]: LAYER 1 setChannel(null) failed:', e.message);
+      // Fallback: try disconnect() method
+      try {
+        const guild = client.guilds.cache.get(guildId);
+        if (guild) {
+          const me = guild.members.me;
+          if (me && me.voice && me.voice.channel) {
+            await me.voice.disconnect();
+            nativeDisconnected = true;
+            console.log(`[cleanupGuild]: LAYER 1 FALLBACK - disconnect() succeeded`);
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Small delay to let Discord Gateway process the disconnect before we destroy local state
+  if (nativeDisconnected) {
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // === LAYER 2: Destroy @discordjs/voice connection objects ===
   const conn = activeConnections.get(guildId);
   if (conn) {
     try { conn.destroy(); } catch (_) {}
   }
-
-  // Also destroy via Discord.js voice registry directly
   try {
     const { getVoiceConnection } = require('@discordjs/voice');
     const djsConn = getVoiceConnection(guildId);
-    if (djsConn) {
-      djsConn.destroy();
-    }
+    if (djsConn) djsConn.destroy();
   } catch (_) {}
+
+  // === LAYER 3: Raw Gateway Opcode 4 - Nuclear option (if layers 1-2 didn't work) ===
+  if (!nativeDisconnected && client && client.ws) {
+    try {
+      console.log(`[cleanupGuild]: LAYER 3 - Sending raw Gateway Opcode 4 for guild ${guildId}`);
+      client.ws.shards.forEach(shard => {
+        shard.send({
+          op: 4,
+          d: {
+            guild_id: guildId,
+            channel_id: null,
+            self_mute: false,
+            self_deaf: false
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('[cleanupGuild]: LAYER 3 raw gateway send failed:', e.message);
+    }
+  }
 
   activeConnections.delete(guildId);
   companionTextChannels.delete(guildId);
@@ -1280,56 +1324,50 @@ async function joinAttilaVoiceChannel(client) {
 
 /**
  * Programmatically leave Voice Channel (Forced Guaranteed Disconnect)
+ * Uses 3-layer disconnect: setChannel(null) -> destroy() -> raw Gateway Opcode 4
  * @param {import('discord.js').Client} client 
  * @param {string} guildId 
  * @returns {Promise<{ success: boolean, message: string }>}
  */
 async function leaveVoiceChannel(client, guildId = null) {
-  const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
   const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
   console.log('[Leave VC Controller]: Forcibly disconnecting AZURA from Voice Channels...');
 
-  // 1. Play farewell in the active VC if possible
-  if (guildId && activeConnections.has(guildId)) {
+  // Send text farewell immediately (non-blocking)
+  if (guildId) {
     const textChannel = companionTextChannels.get(guildId);
     if (textChannel) {
       textChannel.send(textLeave).catch(() => {});
     }
-
-    try {
-      const audioResource = await textToAudioResource(spokenLeave, client);
-      if (audioResource) {
-        await Promise.race([
-          playInVC(guildId, audioResource),
-          new Promise(r => setTimeout(r, 3500))
-        ]);
-      }
-    } catch (_) {}
   }
 
-  // 2. Native Discord GuildMember disconnect across all guilds (Guaranteed physical kick from VC)
+  // Skip TTS farewell — just disconnect IMMEDIATELY for reliability
+  // (User's #1 complaint is "she won't leave". Speed > politeness.)
+
+  // If specific guild, cleanup that guild
+  if (guildId) {
+    await cleanupGuild(guildId, client);
+  }
+
+  // Also brute-force disconnect from ALL guilds where bot is in a voice channel
   if (client && client.guilds && client.guilds.cache) {
     for (const guild of client.guilds.cache.values()) {
       try {
-        const me = guild.members.me || guild.members.cache.get(client.user.id);
+        const me = guild.members.me || await guild.members.fetch(client.user.id).catch(() => null);
         if (me && me.voice && me.voice.channel) {
-          console.log(`[Leave VC]: Disconnecting from #${me.voice.channel.name} in "${guild.name}"`);
-          me.voice.disconnect().catch(() => {});
+          console.log(`[Leave VC]: Brute force setChannel(null) from #${me.voice.channel.name} in "${guild.name}"`);
+          await me.voice.setChannel(null).catch(() => {});
         }
-      } catch (_) {}
-
-      try {
-        const { getVoiceConnection } = require('@discordjs/voice');
-        const djsConn = getVoiceConnection(guild.id);
-        if (djsConn) djsConn.destroy();
       } catch (_) {}
     }
   }
 
-  // 3. Clear all active connections in memory
+  // Clear all remaining local state
   for (const [gid] of activeConnections) {
-    await cleanupGuild(gid, client);
+    if (gid !== guildId) { // Don't double-cleanup
+      await cleanupGuild(gid, client);
+    }
   }
   activeConnections.clear();
   audioPlayers.clear();

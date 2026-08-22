@@ -382,22 +382,30 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
   const receiver = connection.receiver;
 
   receiver.speaking.on('start', (userId) => {
-    // === Gate 1: Owner only (Attila identification) ===
-    if (userId !== config.OWNER_DISCORD_ID) return;
+    // === Gate 1: Check if bot is speaking (prevent feedback loop) ===
+    if (isBotSpeaking.has(guildId)) return;
 
     // === Gate 2: Not already recording this user ===
     if (activeRecordings.has(userId)) return;
 
-    // === Gate 3: Bot is not speaking (prevent feedback loop) ===
-    if (isBotSpeaking.has(guildId)) return;
+    const isOwner = userId === config.OWNER_DISCORD_ID;
 
-    // === Gate 4: Cooldown ===
+    // If Attila speaks in VC, clear any pending 10-second call countdown
+    if (isOwner && pendingAttilaVoiceCalls.has(guildId)) {
+      clearTimeout(pendingAttilaVoiceCalls.get(guildId).timer);
+      pendingAttilaVoiceCalls.delete(guildId);
+      console.log(`[Voice Listener]: Attila answered/spoke in VC. Cancelled 10s absence auto-reply.`);
+    }
+
+    // Cooldown check per user
     const lastTime = voiceCooldowns.get(userId) || 0;
-    if (Date.now() - lastTime < VOICE_COOLDOWN_MS) return;
+    if (Date.now() - lastTime < (isOwner ? VOICE_COOLDOWN_MS : 3000)) return;
 
     activeRecordings.add(userId);
     resetIdleTimer(guildId);
-    console.log('[Voice Listener]: Attila started speaking. Recording...');
+
+    const speakerTag = isOwner ? 'Attila' : `Member (${userId})`;
+    console.log(`[Voice Listener]: ${speakerTag} started speaking in VC. Recording...`);
 
     try {
       const opusStream = receiver.subscribe(userId, {
@@ -412,18 +420,25 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
       const pcmStream = opusStream.pipe(decoder);
 
       const maxTimer = setTimeout(() => {
-        console.log('[Voice Listener]: Max recording duration reached (30s). Stopping.');
+        console.log(`[Voice Listener]: Max recording duration reached for ${speakerTag}. Stopping.`);
         opusStream.destroy();
-      }, MAX_RECORDING_MS);
+      }, isOwner ? MAX_RECORDING_MS : 15000);
 
       pcmStream.on('data', (chunk) => pcmChunks.push(chunk));
 
       pcmStream.on('end', () => {
         clearTimeout(maxTimer);
         activeRecordings.delete(userId);
-        processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
-          console.error('[Voice Pipeline Fatal]:', err.message);
-        });
+
+        if (isOwner) {
+          processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
+            console.error('[Voice Pipeline Fatal]:', err.message);
+          });
+        } else {
+          processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
+            console.error('[Member Voice Pipeline Fatal]:', err.message);
+          });
+        }
       });
 
       pcmStream.on('error', (err) => {
@@ -443,7 +458,92 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
     }
   });
 
-  console.log(`[Voice Listener]: Active — listening for Attila in guild ${guildId}`);
+  console.log(`[Voice Listener]: Active — listening for Attila & member calls in guild ${guildId}`);
+}
+
+// Track pending 10-second absence timer when members call Attila in VC
+const pendingAttilaVoiceCalls = new Map(); // guildId -> { timer, callerId, callerName, transcript }
+
+/**
+ * Process voice speech from a non-owner member in VC:
+ * Detects if the member is calling Attila ("Att", "Attila", "Til") and starts 10-second absence timer.
+ */
+async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel) {
+  const pcmBuffer = Buffer.concat(pcmChunks);
+  if (pcmBuffer.length < MIN_AUDIO_BYTES) return;
+
+  voiceCooldowns.set(userId, Date.now());
+
+  const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
+  const transcript = await transcribeVoice(wavBuffer);
+  if (!transcript || transcript.length < 2) return;
+
+  const member = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
+  const callerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
+
+  console.log(`[Voice Pipeline]: Member "${callerName}" (${userId}) said in VC: "${transcript}"`);
+
+  // Record to session transcript
+  recordSessionEntry(guildId, callerName, transcript);
+
+  // Check if member is calling Attila ("Att", "Attila", "Til", "Atila")
+  const isCallingAttila = /\b(?:attila|att|til|atila|tatil)\b/i.test(transcript);
+  if (!isCallingAttila) return;
+
+  console.log(`[Voice Pipeline]: Member "${callerName}" called Attila in VC! Starting 10-second absence countdown...`);
+
+  // Clear existing timer if any
+  if (pendingAttilaVoiceCalls.has(guildId)) {
+    clearTimeout(pendingAttilaVoiceCalls.get(guildId).timer);
+    pendingAttilaVoiceCalls.delete(guildId);
+  }
+
+  const timer = setTimeout(async () => {
+    pendingAttilaVoiceCalls.delete(guildId);
+    console.log(`[Voice Pipeline]: 10 seconds elapsed without Attila speaking in VC. AZURA responding on Attila's behalf...`);
+
+    // Voice response text
+    const spokenReply = 'Hmmm... [sighs] kayaknya Attila lagi ada masalah jaringan atau di kamar mandi deh, bentar aku bantu panggilin dulu yaa~';
+    recordSessionEntry(guildId, 'AZURA', spokenReply);
+
+    const audioResource = await textToAudioResource(spokenReply);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+
+    // Ensure bot returns to mute after speaking
+    const conn = activeConnections.get(guildId);
+    if (conn) {
+      try {
+        conn.rejoin({ selfMute: true, selfDeaf: false });
+      } catch (_) {}
+    }
+
+    // Send DM alert to Attila
+    try {
+      const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+      if (owner) {
+        const chName = voiceChannel?.name ? `#${voiceChannel.name}` : 'Voice Channel';
+        const gName = voiceChannel?.guild?.name || 'Server';
+        await owner.send(
+          `📢 **[PANGGILAN DI VOICE CHANNEL - 10 DETIK TANPA RESPON]**\n\n` +
+          `Tadi kamu dipanggil di Voice Channel **${chName}** (${gName}) sama **${callerName}** (<@${userId}>):\n` +
+          `• **Ucapan di VC**: "${transcript}"\n\n` +
+          `*AZURA sudah bantu kasih tahu di VC bahwa kamu lagi ada masalah jaringan/away.*`
+        );
+        console.log(`[Voice Pipeline]: Sent 10s voice call notification to Attila's DM.`);
+      }
+    } catch (dmErr) {
+      console.error('[Voice Pipeline DM Error]:', dmErr.message);
+    }
+  }, 10000); // 10 seconds
+
+  pendingAttilaVoiceCalls.set(guildId, {
+    timer,
+    callerId: userId,
+    callerName,
+    transcript
+  });
 }
 
 /**

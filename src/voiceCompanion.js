@@ -669,12 +669,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  const musicPattern = /(?:setel|play|puterin|putar|puter|mainkan|mainin|setelin|nyalain|pasang|dengerin)\s*(?:in)?\s*(?:musik|lagu|song|lagunya)?\s*(.+)/i;
+  const musicPattern = /(?:setel|stella|stela|stel|play|puterin|putar|puter|mainkan|mainin|setelin|nyalain|pasang|dengerin)\s*(?:in)?\s*(?:musik|lagu|gu|song|lagunya)?\s*(.+)/i;
   const musicMatch = cleanTranscript.match(musicPattern) || transcript.match(musicPattern);
 
   if (musicMatch) {
     let songTitle = musicMatch[1]
-      .replace(/\b(?:musik|lagu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
+      .replace(/\b(?:musik|lagu|gu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
       .replace(/[.,!?;:'"()\[\]]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -819,8 +819,7 @@ ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1 MENIT):
     const res = await openai.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages,
-      max_completion_tokens: maxTokens,
-      temperature: 0.85
+      max_completion_tokens: maxTokens
     });
 
     const reply = res.choices[0]?.message?.content?.trim() || 'Iya Attila?';

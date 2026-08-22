@@ -577,9 +577,10 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     const askAzura = getAskAzura();
     const voicePrompt =
       `[KAMU SEDANG NGOBROL LANGSUNG DI VOICE CHANNEL DENGAN ATTILA. ` +
-      `JAWAB SANGAT RINGKAS (MAKSIMAL 1-2 KALIMAT PENDEK, MAX 15-20 DETIK BICARA). ` +
-      `GAYA BAHASA: Cewek Gen Z 22 tahun yang manis, ekspresif, santai, boleh sesekali pakai kata gaul seperti "jir", "anjir" kalau kaget/lucu, "ehehe", atau teasing "ara-ara~". ` +
-      `FITUR EMOSI SUARA ELEVENLABS V3: Kamu BISA menyisipkan audio tag seperti [laughs], [giggles], [sighs], [whispers], atau [gasp] di dalam kalimat agar suaramu tertawa, menghela nafas, atau berbisik secara nyata. ` +
+      `JAWAB SANGAT RINGKAS (MAKSIMAL 1-2 KALIMAT PENDEK, MAX 15 DETIK BICARA). ` +
+      `GAYA BAHASA: Cewek Gen Z 22 tahun yang manis, ekspresif, santai, boleh sesekali pakai kata gaul spontan seperti "jir" atau "anjir" kalau kaget/lucu. ` +
+      `EMOSI SUARA NYATA ELEVENLABS V3: JANGAN MENULISKAN TAWA SEPERTI "ehehe", "wkwk", ATAU "haha" (karena itu dibaca aneh). ` +
+      `GUNAKAN TAG EMOSI: Sisipkan tag [laughs] kalau lucu/ngakak, [giggles] kalau cekikikan manis, [gasp] kalau kaget, [sighs] kalau menghela nafas, atau [whispers] kalau berbisik. ElevenLabs akan membunyikan tawa/nafas itu secara nyata! ` +
       `PENTING: Gunakan tanda baca rapi, JANGAN gunakan format markdown bintang/bold atau emoji]: ${transcript}`;
 
     const aiResponse = await askAzura(userId, voicePrompt, 'Attila', [], false, null);

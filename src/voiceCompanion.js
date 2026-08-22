@@ -1279,7 +1279,7 @@ async function joinAttilaVoiceChannel(client) {
 }
 
 /**
- * Programmatically leave Voice Channel
+ * Programmatically leave Voice Channel (Forced Guaranteed Disconnect)
  * @param {import('discord.js').Client} client 
  * @param {string} guildId 
  * @returns {Promise<{ success: boolean, message: string }>}
@@ -1288,25 +1288,55 @@ async function leaveVoiceChannel(client, guildId = null) {
   const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
   const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
+  console.log('[Leave VC Controller]: Forcibly disconnecting AZURA from Voice Channels...');
+
+  // 1. Play farewell in the active VC if possible
   if (guildId && activeConnections.has(guildId)) {
     const textChannel = companionTextChannels.get(guildId);
     if (textChannel) {
-      await textChannel.send(textLeave).catch(() => {});
+      textChannel.send(textLeave).catch(() => {});
     }
 
-    const audioResource = await textToAudioResource(spokenLeave, client);
-    if (audioResource) {
-      await playInVC(guildId, audioResource);
-    }
-
-    await cleanupGuild(guildId, client);
-    return { success: true, message: textLeave };
+    try {
+      const audioResource = await textToAudioResource(spokenLeave, client);
+      if (audioResource) {
+        await Promise.race([
+          playInVC(guildId, audioResource),
+          new Promise(r => setTimeout(r, 3500))
+        ]);
+      }
+    } catch (_) {}
   }
 
-  // If no guild specified, leave all
+  // 2. Native Discord GuildMember disconnect across all guilds (Guaranteed physical kick from VC)
+  if (client && client.guilds && client.guilds.cache) {
+    for (const guild of client.guilds.cache.values()) {
+      try {
+        const me = guild.members.me || guild.members.cache.get(client.user.id);
+        if (me && me.voice && me.voice.channel) {
+          console.log(`[Leave VC]: Disconnecting from #${me.voice.channel.name} in "${guild.name}"`);
+          me.voice.disconnect().catch(() => {});
+        }
+      } catch (_) {}
+
+      try {
+        const { getVoiceConnection } = require('@discordjs/voice');
+        const djsConn = getVoiceConnection(guild.id);
+        if (djsConn) djsConn.destroy();
+      } catch (_) {}
+    }
+  }
+
+  // 3. Clear all active connections in memory
   for (const [gid] of activeConnections) {
     await cleanupGuild(gid, client);
   }
+  activeConnections.clear();
+  audioPlayers.clear();
+  companionTextChannels.clear();
+  isBotSpeaking.clear();
+  activeRecordings.clear();
+
   return { success: true, message: textLeave };
 }
 

@@ -95,8 +95,15 @@ client.on('messageCreate', async (message) => {
   const inVCMode = !isDM && message.guild && isInCompanionMode(message.guild.id);
   const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
 
-  // If it's not a DM and not mentioned, not replied to bot, and not called by name, ignore
-  if (!isDM && !isMentioned && !isReplyToBot && !startsWithName && !calledByName) return;
+  const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
+  const isVoiceCommand = isOwner && (
+    /\b(?:keluar|leave|cabut|disconnect|dc|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini)/i.test(message.content) ||
+    /\b(?:keluar\s+vc|leave\s+vc|cabut\s+vc|join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
+    /\b(?:keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(message.content)
+  );
+
+  // If it's not a DM and not mentioned, not replied to bot, not called by name, and not owner voice command, ignore
+  if (!isDM && !isMentioned && !isReplyToBot && !startsWithName && !calledByName && !isVoiceCommand) return;
 
   // Clean prompt by removing bot mention tag and leading 'azura' / 'ara' / 'zura' prefix
   let rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();

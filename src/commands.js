@@ -74,6 +74,14 @@ const commands = [
         .setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName('agent')
+    .setDescription('Jalankan tugas otonom, riset teknis, atau automasi dengan Hermes Agent (Khusus Owner)')
+    .addStringOption(option =>
+      option.setName('tugas')
+        .setDescription('Instruksi atau tugas yang ingin dijalankan oleh Hermes Agent')
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('crypto')
     .setDescription('Cek harga kripto / kurs USD real-time (CoinGecko & ExchangeRate-API)')
     .addStringOption(option =>
@@ -251,7 +259,7 @@ async function handleSlashCommand(interaction, startTime) {
     if (isOwner) {
       helpEmbed.addFields({
         name: '👑 Fitur Khusus Owner (Attila)',
-        value: '`/senddm` • `/scheduled` • `/setowner` • Standby 2-Min Assistant'
+        value: '`/agent` • `/senddm` • `/scheduled` • `/setowner` • Standby 2-Min Assistant'
       });
     }
 
@@ -265,7 +273,7 @@ async function handleSlashCommand(interaction, startTime) {
     ];
 
     if (isOwner) {
-      options.push({ label: '👑 Fitur Khusus Owner', value: 'cat_owner', description: '/senddm, /scheduled, /setowner, & Auto-Reply' });
+      options.push({ label: '👑 Fitur Khusus Owner', value: 'cat_owner', description: '/agent, /senddm, /scheduled, & Auto-Reply' });
     }
 
     options.push(
@@ -308,12 +316,12 @@ async function handleSlashCommand(interaction, startTime) {
 ⚡ **AZURA Status System**
 
 • **Status Bot**: 🟢 Online & Siap
-• **AI Engine**: \`OpenAI (${config.OPENAI_MODEL})\`
+• **AI Engine**: \`OpenAI (${config.OPENAI_MODEL})\` & \`Hermes Agent (VPS)\`
 • **Latency**: \`${latency} ms\`
 • **Uptime**: \`${uptimeStr}\`
 • **Target Budget**: \`$${config.MONTHLY_BUDGET_TARGET} / bulan\`
 • **Max Context Limit**: \`${config.MAX_CONTEXT_MESSAGES} pesan\`
-• **Features**: Vision 📸 | VoiceNote 🎙️ | Whisper STT 🎧 | Tavily AI Search 🌐 | Img2Img 🎨 | Autonomous Catalyst 🔥 | Long-Term Memory 🧠 | Crypto & Kurs 🪙 | Anime Engine 🎬 | DM Scheduler ⏰ | Daily Digest 📊
+• **Features**: Vision 📸 | VoiceNote 🎙️ | Whisper STT 🎧 | Tavily AI Search 🌐 | Hermes Agent ⚡ | Img2Img 🎨 | Autonomous Catalyst 🔥 | Long-Term Memory 🧠 | Crypto & Kurs 🪙 | Anime Engine 🎬 | DM Scheduler ⏰ | Daily Digest 📊
     `.trim();
 
     await interaction.reply({
@@ -412,6 +420,18 @@ async function handleSlashCommand(interaction, startTime) {
       }
     } catch (error) {
       await interaction.editReply('gagal melakukan pencarian web. coba lagi nanti ya!');
+    }
+
+  } else if (commandName === 'agent') {
+    const task = interaction.options.getString('tugas');
+    await interaction.deferReply();
+
+    try {
+      const { executeHermesTask } = require('./hermes');
+      const result = await executeHermesTask(task, user.id, user.username);
+      await interaction.editReply(result.payload);
+    } catch (error) {
+      await interaction.editReply('gagal menjalankan tugas agent. coba lagi nanti ya!');
     }
 
   } else if (commandName === 'crypto') {

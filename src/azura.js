@@ -151,6 +151,18 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const imageGenResponse = await processImageIntelligence(userPrompt, userName, guildId, userId, isOwner, imageUrls);
   if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
 
+  // Hermes Autonomous Agent Task Trigger (Owner Exclusive / Explicit Agent Tasks)
+  const isAgentTask = /\b(?:hermes\s+agent|suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes)\b/i.test(userPrompt);
+  if (isAgentTask) {
+    const { executeHermesTask } = require('./hermes');
+    const cleanTask = userPrompt
+      .replace(/\b(?:azura|ara|zura|tolong|coba|dong|plis)\b/gi, '')
+      .replace(/\b(?:suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes|hermes\s+agent)\b/gi, '')
+      .trim();
+    const agentRes = await executeHermesTask(cleanTask || userPrompt, userId, userName);
+    return agentRes.payload;
+  }
+
   // Dedicated News / Headline Search Card (Visual Rich Embed with Thumbnail & Link Buttons)
   const isDedicatedNewsQuery = /\b(?:berita|news|kabar\s+terkini|isu\s+terkini|berita\s+hari\s+ini|headline)\b/i.test(userPrompt);
   if (isDedicatedNewsQuery && imageUrls.length === 0) {

@@ -28,8 +28,8 @@ const dismissedGuilds = new Set();        // guildIds where bot was dismissed by
 // Summon-Based Conversation State Machine
 // guildId -> { mode: 'PASSIVE'|'ACTIVE', lastActiveAt: number, turnCount: number }
 const conversationMode = new Map();
-const activeExpireTimers = new Map();     // guildId -> NodeJS.Timeout (15s auto-expire to PASSIVE)
-const ACTIVE_EXPIRE_MS = 15000;           // 15 seconds of silence -> back to PASSIVE
+const activeExpireTimers = new Map();     // guildId -> NodeJS.Timeout (6s auto-expire to PASSIVE in Solo Mode)
+const ACTIVE_EXPIRE_MS = 6000;            // 6 seconds of silence -> back to PASSIVE in Solo Mode
 
 // ============================================================
 // Configuration
@@ -757,7 +757,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
 
   // ══════════════════════════════════════════════════════════════
-  // ── Step 3: SUMMON GATE (Core Logic) ──
+  // ── Step 3: SUMMON GATE (Adaptive Room Mode & Prefix Guard) ──
   // ══════════════════════════════════════════════════════════════
 
   // Only Attila (owner) can interact with Azura via voice
@@ -766,32 +766,47 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  const hasWakeWord = /\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|kak azura|kak ara)\b/i.test(transcript);
+  // Count human members other than Attila and the bot
+  const otherHumans = voiceChannel?.members
+    ? voiceChannel.members.filter(m => !m.user.bot && m.id !== config.OWNER_DISCORD_ID).size
+    : 0;
+  const isCrowdedVC = otherHumans > 0;
+
+  const hasWakeWord = isWakeWordInvoked(transcript);
   const currentMode = conversationMode.get(guildId) || { mode: 'PASSIVE', lastActiveAt: 0, turnCount: 0 };
 
-  if (currentMode.mode === 'PASSIVE') {
-    // ── PASSIVE MODE: Only activate if wake-word is detected ──
+  if (isCrowdedVC) {
+    // ── CROWDED VC (≥ 1 Other Human in Room): STRICT SINGLE-TURN PUSH-TO-WAKE ──
+    // In a group VC, Attila is mostly talking to his friends.
+    // Azura MUST ONLY respond if explicitly summoned with wake-word in the prefix.
+    // She will respond exactly ONCE, then immediately return to PASSIVE & Mute.
     if (!hasWakeWord) {
-      console.log(`[Voice Pipeline]: 🔇 PASSIVE mode — no wake-word in "${transcript}". Azura stays silent.`);
+      console.log(`[Voice Pipeline]: 🔇 Crowded VC (${otherHumans} friends present) — no wake-word prefix in "${transcript}". Azura staying silent.`);
       return;
     }
-    // Wake-word detected! Activate conversation mode
-    console.log(`[Voice Pipeline]: 🔔 Wake-word detected! Switching to ACTIVE mode.`);
-    setActiveMode(guildId);
+    console.log(`[Voice Pipeline]: 🔔 Crowded VC — explicit summon detected ("${transcript}"). Executing Single-Turn Response...`);
   } else {
-    // ── ACTIVE MODE: Already in conversation ──
-    // Reset the expire timer since Attila is still talking
-    setActiveMode(guildId);
-
-    // If no wake-word, check with GPT if this utterance is still directed at Azura
-    if (!hasWakeWord) {
-      const isForAzura = await checkIfDirectedAtAzura(transcript, guildId, userId);
-      if (!isForAzura) {
-        console.log(`[Voice Pipeline]: 🔇 GPT determined "${transcript}" is NOT for Azura. Returning to PASSIVE.`);
-        setPassiveMode(guildId);
+    // ── SOLO VC (Only Attila & Azura): CONTINUOUS FLOWING CONVERSATION ──
+    if (currentMode.mode === 'PASSIVE') {
+      if (!hasWakeWord) {
+        console.log(`[Voice Pipeline]: 🔇 Solo VC (PASSIVE) — no wake-word in "${transcript}". Azura stays silent.`);
         return;
       }
-      console.log(`[Voice Pipeline]: 💬 GPT confirmed "${transcript}" is a follow-up for Azura. Continuing ACTIVE.`);
+      console.log(`[Voice Pipeline]: 🔔 Solo VC — wake-word detected! Switching to ACTIVE mode.`);
+      setActiveMode(guildId);
+    } else {
+      // Already in ACTIVE mode in Solo VC
+      setActiveMode(guildId);
+
+      if (!hasWakeWord) {
+        const isForAzura = await checkIfDirectedAtAzura(transcript, guildId, userId);
+        if (!isForAzura) {
+          console.log(`[Voice Pipeline]: 🔇 Solo VC — GPT determined "${transcript}" is NOT for Azura. Returning to PASSIVE.`);
+          setPassiveMode(guildId);
+          return;
+        }
+        console.log(`[Voice Pipeline]: 💬 Solo VC — GPT confirmed "${transcript}" is a follow-up for Azura. Continuing ACTIVE.`);
+      }
     }
   }
 
@@ -855,9 +870,52 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     console.log('[Voice Pipeline]: 🔊 Playing in VC...');
     await playInVC(guildId, audioResource);
     console.log('[Voice Pipeline]: ✅ Done.');
+
+    // If in Crowded VC, enforce instant return to PASSIVE & Mute (Single-Turn complete)
+    if (isCrowdedVC) {
+      setPassiveMode(guildId);
+      console.log(`[Voice Pipeline]: 🔒 Crowded VC (${otherHumans} friends) — Single-turn completed. Returned to PASSIVE & Muted.`);
+    }
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
   }
+}
+
+/**
+ * Strict Wake-Word & Prefix Guard:
+ * Checks if Attila explicitly addresses Azura in the beginning of his speech (first 3 words).
+ * Rejects false alarms (e.g. "arah", "asuransi", or stories about Azura told to friends).
+ * @param {string} transcript
+ * @returns {boolean}
+ */
+function isWakeWordInvoked(transcript) {
+  if (!transcript || typeof transcript !== 'string') return false;
+  const clean = transcript.trim().toLowerCase().replace(/[.,!?;:'"()[\]]/g, ' ');
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+
+  const friendGreetings = ['bro', 'cuy', 'cuk', 'ges', 'gais', 'guys', 'man', 'kalian', 'cok', 'lu'];
+  const firstWord = words[0];
+
+  // If starts with friend greeting, only trigger if Azura is explicitly addressed in first 2 words (e.g. "Bro Azura")
+  if (friendGreetings.includes(firstWord)) {
+    if (words.length > 1 && (words[1] === 'azura' || words[1] === 'zura' || words[1] === 'ara')) {
+      return true;
+    }
+    return false;
+  }
+
+  // Otherwise, Azura must be invoked in the first 3 words of the sentence (Prefix Guard)
+  for (let i = 0; i < Math.min(words.length, 3); i++) {
+    if (words[i] === 'azura' || words[i] === 'zura' || words[i] === 'ara') {
+      return true;
+    }
+    if (words[i] === 'kak' && i + 1 < words.length && (words[i + 1] === 'azura' || words[i + 1] === 'ara')) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ============================================================

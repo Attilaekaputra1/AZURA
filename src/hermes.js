@@ -106,13 +106,20 @@ async function executeHermesTask(taskPrompt, userId, userName = 'Attila') {
     if (status.available) {
       const sanitizedPrompt = taskPrompt.replace(/"/g, '\\"');
       const hermesPromise = new Promise((resolve, reject) => {
-        // Run hermes with safe timeout of 35 seconds
-        exec(`hermes run "${sanitizedPrompt}" 2>&1 || hermes "${sanitizedPrompt}" 2>&1`, { timeout: 35000 }, (err, stdout, stderr) => {
+        // Correct Hermes CLI one-shot execution flag: -z PROMPT or chat -z PROMPT
+        const hermesCmd = `hermes -z "${sanitizedPrompt}" 2>&1 || hermes chat -z "${sanitizedPrompt}" 2>&1`;
+        exec(hermesCmd, { timeout: 35000 }, (err, stdout, stderr) => {
           const output = (stdout || stderr || '').trim();
-          if (output && output.length > 5 && !output.includes('command not found')) {
+          const isCliError =
+            output.includes('usage: hermes') ||
+            output.includes('hermes: error:') ||
+            output.includes('invalid choice:') ||
+            output.includes('unrecognized arguments:');
+
+          if (output && output.length > 5 && !isCliError && !output.includes('command not found')) {
             resolve({ output, modelUsed: status.version });
           } else {
-            reject(new Error(output || 'Hermes CLI returned empty output'));
+            reject(new Error(output || 'Hermes CLI returned error or usage help'));
           }
         });
       });

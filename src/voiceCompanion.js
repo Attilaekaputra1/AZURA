@@ -173,18 +173,13 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
 
   // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria with audio tags support & Quota Guard)
   if (config.ELEVENLABS_API_KEY) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        console.log(`[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria) [Attempt ${attempt}]...`);
-        const { generateElevenLabsTTS } = require('./elevenlabs');
-        const audioBuffer = await generateElevenLabsTTS(clean, null, client);
-        return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
-      } catch (elevenErr) {
-        console.warn(`[Voice TTS Warning]: ElevenLabs attempt ${attempt} failed:`, elevenErr.message);
-        if (attempt === 1 && !elevenErr.message.includes('Batas kuota')) {
-          await new Promise(r => setTimeout(r, 400));
-        }
-      }
+    try {
+      console.log('[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria)...');
+      const { generateElevenLabsTTS } = require('./elevenlabs');
+      const audioBuffer = await generateElevenLabsTTS(clean, null, client);
+      return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
+    } catch (elevenErr) {
+      console.warn('[Voice TTS Warning]: ElevenLabs failed, fast-switching to OpenAI TTS:', elevenErr.message);
     }
   }
 

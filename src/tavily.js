@@ -1,7 +1,7 @@
 const https = require('https');
 const config = require('./config');
 
-const TAVILY_API_KEY = config.TAVILY_API_KEY || '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';
+const TAVILY_API_KEY = config.TAVILY_API_KEY;
 
 // Anti-Judol / Anti-Gambling domain & keyword blacklists
 const GAMBLING_DOMAINS = [
@@ -54,6 +54,9 @@ function containsGamblingContent(text) {
 
 function tavilyApiCall(endpoint, payload) {
   return new Promise((resolve, reject) => {
+    if (!TAVILY_API_KEY) {
+      return reject(new Error('TAVILY_API_KEY belum dikonfigurasi di file .env'));
+    }
     const postData = JSON.stringify(payload);
     const req = https.request({
       hostname: 'api.tavily.com',

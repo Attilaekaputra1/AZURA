@@ -1,7 +1,7 @@
 const https = require('https');
 const config = require('./config');
 
-const TAVILY_API_KEY = config.TAVILY_API_KEY;
+const TAVILY_API_KEY = config.TAVILY_API_KEY || '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';
 
 // Anti-Judol / Anti-Gambling domain & keyword blacklists
 const GAMBLING_DOMAINS = [

@@ -172,10 +172,14 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Handle Natural Advice & Report Feedback Trigger (Server or DM)
+  // Handle Natural Advice & Report Feedback Trigger (Server or DM) - Completely Confidential
   const { parseNaturalFeedback, submitFeedback } = require('./feedback');
   const naturalFeedback = parseNaturalFeedback(rawPrompt || message.content);
   if (naturalFeedback.isFeedback && naturalFeedback.content) {
+    // Delete public message if sent in server to ensure privacy
+    if (message.guild) {
+      await message.delete().catch(() => {});
+    }
     const attachUrl = imageUrls.length > 0 ? imageUrls[0] : null;
     const fbRes = await submitFeedback(client, {
       userId: message.author.id,
@@ -187,7 +191,21 @@ client.on('messageCreate', async (message) => {
       channelName: message.channel?.name || null,
       imageUrl: attachUrl
     });
-    return message.reply(fbRes.message);
+
+    if (message.guild) {
+      try {
+        await message.author.send(fbRes.message);
+      } catch (_) {
+        // Fallback: send temporary self-deleting message in channel
+        const tempMsg = await message.channel.send(`🔒 <@${message.author.id}>, masukan/laporanmu sudah diteruskan secara rahasia ke Creator yaa! (Pesan ini akan terhapus otomatis)`).catch(() => null);
+        if (tempMsg) {
+          setTimeout(() => tempMsg.delete().catch(() => {}), 8000);
+        }
+      }
+      return;
+    } else {
+      return message.reply(fbRes.message);
+    }
   }
 
   let finalPrompt = rawPrompt;

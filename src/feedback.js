@@ -1,6 +1,7 @@
 /**
- * AZURA Advice & Report System (Public Feedback & Bug Reporting)
+ * AZURA Advice & Report System (Confidential Feedback & Bug Reporting)
  * Allows any member/user (in server or DM) to send Advice or Bug Reports directly to the Owner (Attila).
+ * Completely PRIVATE & EPHEMERAL — no public leaks or exposed messages.
  */
 
 const { EmbedBuilder } = require('discord.js');
@@ -40,9 +41,9 @@ async function submitFeedback(client, data) {
 
   const embed = new EmbedBuilder()
     .setColor(isAdvice ? 0xFEE75C : 0xED4245)
-    .setTitle(isAdvice ? '💡 Saran & Masukan Baru Masuk (Advice)!' : '🐛 Laporan Bug / Kendala Baru Masuk (Report)!')
+    .setTitle(isAdvice ? '💡 [CONFIDENTIAL] Saran & Masukan Baru Masuk (Advice)!' : '🐛 [CONFIDENTIAL] Laporan Bug / Kendala Baru Masuk (Report)!')
     .setDescription(
-      `Halo Attila! Ada ${isAdvice ? 'saran/masukan' : 'laporan bug'} baru dari pengguna AZURA:\n\n` +
+      `Halo Attila! Ada ${isAdvice ? 'saran/masukan rahasia' : 'laporan bug rahasia'} baru dari pengguna AZURA:\n\n` +
       `👤 **Pengirim:** **${data.userName}** (\`${data.userTag || data.userName}\`)\n` +
       `🆔 **User ID:** \`${data.userId}\`\n` +
       `📍 **Lokasi Pengiriman:** ${locationStr}\n` +
@@ -50,7 +51,7 @@ async function submitFeedback(client, data) {
       `📝 **Isi ${isAdvice ? 'Saran/Masukan' : 'Laporan Bug'}:**\n` +
       `>>> ${data.content}`
     )
-    .setFooter({ text: 'AZURA Advice & Report System • Diteruskan otomatis ke Owner' })
+    .setFooter({ text: 'AZURA Confidential Feedback System • Diteruskan langsung ke Owner' })
     .setTimestamp();
 
   if (data.imageUrl) {
@@ -64,11 +65,11 @@ async function submitFeedback(client, data) {
     }
 
     await ownerUser.send({ embeds: [embed] });
-    console.log(`[Feedback System]: Successfully forwarded ${data.type.toUpperCase()} from ${data.userName} (${data.userId}) to Owner DM.`);
+    console.log(`[Feedback System]: Confidential ${data.type.toUpperCase()} from ${data.userName} (${data.userId}) forwarded to Owner DM.`);
 
     const replyGreeting = isAdvice
-      ? `Makasih banyak masukannya yaa **${data.userName}**! ✨ Saran kamu sudah langsung aku teruskan ke DM Attila (Creator AZURA) untuk bahan pengembangan aku ke depannya! 💡💖`
-      : `Makasih laporannya yaa **${data.userName}**! 🛠️ Laporan kendala/bug kamu sudah langsung aku sampaikan ke DM Attila (Creator AZURA) agar segera ditinjau dan diperbaiki. 🐛✨`;
+      ? `🔒 **Pesan Rahasia Terkirim!**\nMakasih banyak sarannya yaa **${data.userName}**! ✨ Masukan kamu sudah langsung aku teruskan secara privat ke DM Attila (Creator AZURA). Pesan ini bersifat rahasia dan hanya kamu yang bisa melihat balasan ini. 💡💖`
+      : `🔒 **Laporan Rahasia Terkirim!**\nMakasih laporannya yaa **${data.userName}**! 🛠️ Laporan bug/kendala kamu sudah langsung aku sampaikan secara privat ke DM Attila (Creator AZURA) agar segera ditinjau dan diperbaiki. Pesan ini bersifat rahasia dan hanya kamu yang bisa melihat balasan ini. 🐛✨`;
 
     return {
       success: true,
@@ -85,6 +86,7 @@ async function submitFeedback(client, data) {
 
 /**
  * Handle Slash Command interaction for /report or /advice
+ * Strictly EPHEMERAL (flags: 64) — Only the calling user can see the message.
  * @param {import('discord.js').ChatInputCommandInteraction} interaction 
  */
 async function handleFeedbackSlash(interaction) {
@@ -110,11 +112,11 @@ async function handleFeedbackSlash(interaction) {
     imageUrl
   });
 
-  if (result.success) {
-    await interaction.reply({ content: result.message });
-  } else {
-    await interaction.reply({ content: result.message, flags: 64 });
-  }
+  // Always reply with flags: 64 (EPHEMERAL / ONLY USER CAN SEE)
+  await interaction.reply({
+    content: result.message,
+    flags: 64
+  });
 }
 
 /**
@@ -124,8 +126,6 @@ async function handleFeedbackSlash(interaction) {
  */
 function parseNaturalFeedback(prompt) {
   if (!prompt) return { isFeedback: false };
-
-  const lower = prompt.toLowerCase();
 
   // Report Bug Trigger: "lapor bug: ...", "report bug: ...", "ada bug: ...", "lapor kendala: ..."
   const bugMatch = prompt.match(/(?:lapor\s+bug|report\s+bug|lapor\s+kendala|lapor\s+error|lapor\s+masalah|ada\s+bug|ada\s+error)\s*[:,]?\s*(.+)/i);

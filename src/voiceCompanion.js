@@ -606,7 +606,8 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
         displayName: callerName,
         guildName: voiceChannel?.guild?.name || null,
         channelName: voiceChannel?.name ? `#${voiceChannel.name}` : 'Voice Channel',
-        textContent: transcript
+        textContent: transcript,
+        isVoice: true
       });
     } catch (_) {}
 
@@ -751,7 +752,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       displayName: speakerMember?.displayName || (isOwner ? 'Attila' : 'Member'),
       guildName: voiceChannel?.guild?.name || null,
       channelName: voiceChannel?.name ? `#${voiceChannel.name}` : 'Voice Channel',
-      textContent: transcript
+      textContent: transcript,
+      isVoice: true
     });
   } catch (_) {}
 

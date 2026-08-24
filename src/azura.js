@@ -40,13 +40,23 @@ function getSystemPrompt(userName, userId, isDM = false) {
     ? facts.map((f, i) => `  ${i + 1}. ${f}`).join('\n')
     : '  (Belum ada fakta khusus yang tersimpan)';
 
-  let realNamePrompt = '';
+  let personalizationPrompt = '';
   if (userId) {
     try {
-      const { getUserRecord } = require('./vault');
+      const { getUserRecord, getRelationshipTier } = require('./vault');
       const record = getUserRecord(userId);
-      if (record && record.knownRealName) {
-        realNamePrompt = `\n- Nama asli / nama panggilan yang disukai oleh ${userName} adalah "${record.knownRealName}". Kamu dapat memanggilnya dengan "${record.knownRealName}" atau "${userName}" secara hangat dan akrab.`;
+      if (record) {
+        const total = record.totalInteractions || (record.totalMessages || 0) + (record.totalVoiceTurns || 0);
+        const relTier = getRelationshipTier(userId, total);
+        const firstSeenDate = record.firstSeen
+          ? new Date(record.firstSeen).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })
+          : 'hari ini';
+
+        const realNameInfo = record.knownRealName
+          ? `\n- Nama asli / nama panggilan yang disukai oleh ${userName} adalah "${record.knownRealName}". Panggil dia dengan nama "${record.knownRealName}" atau "${userName}" secara hangat dan akrab.`
+          : '';
+
+        personalizationPrompt = `${realNameInfo}\n- Total Interaksi Lifetime: ${total} interaksi (Aktif mengobrol bersamamu sejak ${firstSeenDate}).\n- Tingkat Keakraban / Relationship Tier: ${relTier.badge} (Level ${relTier.level}/5).\n- Panduan Sikap & Personalisasi Karakter: ${relTier.promptHint}`;
       }
     } catch (_) {}
   }
@@ -81,8 +91,8 @@ Informasi Waktu Real-Time:
 - Hari ini adalah ${todayStr}, pukul ${timeStr} WIB.
 - Batas pengetahuan bawaanmu adalah 16 Februari 2026. Untuk info setelah tanggal tersebut, gunakan fitur pencarian web.
 
-Informasi Memori Jangka Panjang Pengguna:
-- Lawan bicaramu bernama "${userName}".${realNamePrompt}
+Informasi Memori Jangka Panjang & Personalisasi Pengguna:
+- Lawan bicaramu bernama "${userName}".${personalizationPrompt}
 - Catatan fakta penting tentang ${userName}:
 ${factsFormatted}
 

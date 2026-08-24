@@ -181,7 +181,58 @@ function extractRealName(text) {
 }
 
 /**
- * Record a user interaction into the encrypted database
+ * Calculate dynamic relationship tier and behavioral personalization hints based on lifetime interactions
+ * @param {string} userId 
+ * @param {number} totalInteractions 
+ * @returns {{ tier: string, level: number, badge: string, promptHint: string }}
+ */
+function getRelationshipTier(userId, totalInteractions = 0) {
+  if (config.OWNER_DISCORD_ID && userId === config.OWNER_DISCORD_ID) {
+    return {
+      tier: 'Creator & Owner',
+      badge: '👑 Creator / Owner (Attila)',
+      level: 5,
+      promptHint: 'Lawan bicaramu adalah Attila, penciptamu dan pemilik bot. Berikan loyalitas tertinggi, kehangatan penuh, perhatian ekstra, dan respon istimewa tanpa pernah bersikap formal kaku.'
+    };
+  }
+
+  if (totalInteractions >= 200) {
+    return {
+      tier: 'Sahabat Karib',
+      badge: '💖 Sahabat Karib (Ultra Close)',
+      level: 4,
+      promptHint: 'Pengguna ini adalah sahabat karibmu yang sangat sering mengobrol (interaksi lifetime > 200). Perlakukan dia layaknya teman dekat lama: sangat akrab, hangat, ingat kebiasaannya, gunakan lelucon santai, dan tunjukkan empati mendalam.'
+    };
+  }
+
+  if (totalInteractions >= 50) {
+    return {
+      tier: 'Bestie Server',
+      badge: '✨ Bestie Server (Close)',
+      level: 3,
+      promptHint: 'Pengguna ini adalah teman setia / Bestie di server (interaksi lifetime 50-200). Bersikaplah akrab, ceria, asyik, dan santai layaknya teman satu sirkel.'
+    };
+  }
+
+  if (totalInteractions >= 10) {
+    return {
+      tier: 'Teman Ngobrol',
+      badge: '💬 Teman Ngobrol (Familiar)',
+      level: 2,
+      promptHint: 'Pengguna ini sudah beberapa kali mengobrol denganmu (interaksi lifetime 10-50). Bersikaplah ramah, santai, dan terbuka untuk mengobrol lebih jauh.'
+    };
+  }
+
+  return {
+    tier: 'Member Baru',
+    badge: '🌱 Member Baru (Newbie)',
+    level: 1,
+    promptHint: 'Pengguna ini masih baru berinteraksi denganmu (interaksi lifetime < 10). Sambut dengan ramah, hangat, sopan, dan perkenalkan dirimu jika relevan.'
+  };
+}
+
+/**
+ * Record a user interaction into the encrypted database (Accumulates Lifetime Metrics)
  * @param {string} userId 
  * @param {object} meta 
  * @param {string} meta.username
@@ -189,6 +240,7 @@ function extractRealName(text) {
  * @param {string} [meta.guildName]
  * @param {string} [meta.channelName]
  * @param {string} [meta.textContent]
+ * @param {boolean} [meta.isVoice]
  */
 function recordUserInteraction(userId, meta = {}) {
   if (!userId) return;
@@ -206,6 +258,8 @@ function recordUserInteraction(userId, meta = {}) {
       firstSeen: nowIso,
       lastSeen: nowIso,
       totalMessages: 0,
+      totalVoiceTurns: 0,
+      totalInteractions: 0,
       sessionCookie: generateSessionCookie(userId, nowIso),
       activeServers: [],
       activeChannels: [],
@@ -217,7 +271,13 @@ function recordUserInteraction(userId, meta = {}) {
   user.username = meta.username || user.username;
   user.displayName = meta.displayName || user.displayName;
   user.lastSeen = nowIso;
-  user.totalMessages = (user.totalMessages || 0) + 1;
+
+  if (meta.isVoice) {
+    user.totalVoiceTurns = (user.totalVoiceTurns || 0) + 1;
+  } else {
+    user.totalMessages = (user.totalMessages || 0) + 1;
+  }
+  user.totalInteractions = (user.totalMessages || 0) + (user.totalVoiceTurns || 0);
 
   if (meta.guildName && !user.activeServers.includes(meta.guildName)) {
     user.activeServers.push(meta.guildName);
@@ -248,6 +308,8 @@ function getVaultStats() {
   const allUsers = Array.from(userVaultCache.values());
   const totalUsers = allUsers.length;
   const totalMessages = allUsers.reduce((sum, u) => sum + (u.totalMessages || 0), 0);
+  const totalVoiceTurns = allUsers.reduce((sum, u) => sum + (u.totalVoiceTurns || 0), 0);
+  const totalInteractions = totalMessages + totalVoiceTurns;
 
   const now = Date.now();
   const activeToday = allUsers.filter(u => {
@@ -256,20 +318,30 @@ function getVaultStats() {
   }).length;
 
   const topUsers = [...allUsers]
-    .sort((a, b) => (b.totalMessages || 0) - (a.totalMessages || 0))
+    .sort((a, b) => (b.totalInteractions || (b.totalMessages || 0) + (b.totalVoiceTurns || 0)) - (a.totalInteractions || (a.totalMessages || 0) + (a.totalVoiceTurns || 0)))
     .slice(0, 10)
-    .map(u => ({
-      userId: u.userId,
-      displayName: u.displayName,
-      username: u.username,
-      knownRealName: u.knownRealName || null,
-      totalMessages: u.totalMessages,
-      lastSeen: u.lastSeen
-    }));
+    .map(u => {
+      const count = (u.totalInteractions || (u.totalMessages || 0) + (u.totalVoiceTurns || 0));
+      const relTier = getRelationshipTier(u.userId, count);
+      return {
+        userId: u.userId,
+        displayName: u.displayName,
+        username: u.username,
+        knownRealName: u.knownRealName || null,
+        totalMessages: u.totalMessages || 0,
+        totalVoiceTurns: u.totalVoiceTurns || 0,
+        totalInteractions: count,
+        relationshipTier: relTier.badge,
+        firstSeen: u.firstSeen,
+        lastSeen: u.lastSeen
+      };
+    });
 
   return {
     totalUsers,
     totalMessages,
+    totalVoiceTurns,
+    totalInteractions,
     activeToday,
     topUsers,
     storageFile: VAULT_FILE_PATH,
@@ -287,18 +359,29 @@ function getUserRecord(query) {
   if (!query) return null;
   const q = String(query).replace(/<@!?(\d+)>/, '$1').trim().toLowerCase();
 
-  // Direct ID lookup
+  let user = null;
   if (userVaultCache.has(q)) {
-    return userVaultCache.get(q);
+    user = userVaultCache.get(q);
+  } else {
+    for (const u of userVaultCache.values()) {
+      if (u.userId === q ||
+          (u.username && u.username.toLowerCase().includes(q)) ||
+          (u.displayName && u.displayName.toLowerCase().includes(q))) {
+        user = u;
+        break;
+      }
+    }
   }
 
-  // Username / Display Name lookup
-  for (const user of userVaultCache.values()) {
-    if (user.userId === q ||
-        (user.username && user.username.toLowerCase().includes(q)) ||
-        (user.displayName && user.displayName.toLowerCase().includes(q))) {
-      return user;
-    }
+  if (user) {
+    const count = (user.totalInteractions || (user.totalMessages || 0) + (user.totalVoiceTurns || 0));
+    const relTier = getRelationshipTier(user.userId, count);
+    return {
+      ...user,
+      totalInteractions: count,
+      relationshipTier: relTier.badge,
+      relationshipPromptHint: relTier.promptHint
+    };
   }
 
   return null;
@@ -314,18 +397,23 @@ function exportVaultData(format = 'json') {
   const allUsers = Array.from(userVaultCache.values());
 
   if (format === 'csv') {
-    const headers = ['User ID', 'Username', 'Display Name', 'Known Real Name', 'Total Messages', 'First Seen', 'Last Seen', 'Active Servers', 'Session Cookie'];
-    const rows = allUsers.map(u => [
-      `"${u.userId}"`,
-      `"${(u.username || '').replace(/"/g, '""')}"`,
-      `"${(u.displayName || '').replace(/"/g, '""')}"`,
-      `"${(u.knownRealName || '-').replace(/"/g, '""')}"`,
-      u.totalMessages || 0,
-      `"${u.firstSeen}"`,
-      `"${u.lastSeen}"`,
-      `"${(u.activeServers || []).join(', ').replace(/"/g, '""')}"`,
-      `"${u.sessionCookie || '-'}"`
-    ]);
+    const headers = ['User ID', 'Username', 'Display Name', 'Known Real Name', 'Total Interactions', 'Total Messages', 'Total Voice Turns', 'First Seen', 'Last Seen', 'Active Servers', 'Session Cookie'];
+    const rows = allUsers.map(u => {
+      const count = (u.totalInteractions || (u.totalMessages || 0) + (u.totalVoiceTurns || 0));
+      return [
+        `"${u.userId}"`,
+        `"${(u.username || '').replace(/"/g, '""')}"`,
+        `"${(u.displayName || '').replace(/"/g, '""')}"`,
+        `"${(u.knownRealName || '-').replace(/"/g, '""')}"`,
+        count,
+        u.totalMessages || 0,
+        u.totalVoiceTurns || 0,
+        `"${u.firstSeen}"`,
+        `"${u.lastSeen}"`,
+        `"${(u.activeServers || []).join(', ').replace(/"/g, '""')}"`,
+        `"${u.sessionCookie || '-'}"`
+      ];
+    });
     return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   }
 
@@ -337,6 +425,7 @@ module.exports = {
   saveVault,
   recordUserInteraction,
   extractRealName,
+  getRelationshipTier,
   getVaultStats,
   getUserRecord,
   exportVaultData,

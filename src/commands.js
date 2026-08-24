@@ -708,19 +708,22 @@ async function handleSlashCommand(interaction, startTime) {
       const stats = getVaultStats();
       const topList = stats.topUsers.map((u, i) => {
         const aliasStr = u.knownRealName ? `\n   📛 **Nama Asli/Panggilan:** \`${u.knownRealName}\`` : '';
-        return `${i + 1}. **${u.displayName}** (\`${u.username}\`) • \`${u.totalMessages} pesan\`${aliasStr}`;
+        const voiceStr = u.totalVoiceTurns ? ` (${u.totalMessages} teks, ${u.totalVoiceTurns} voice)` : '';
+        const firstDate = u.firstSeen ? new Date(u.firstSeen).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
+        return `${i + 1}. **${u.displayName}** (\`${u.username}\`) • \`${u.totalInteractions} interaksi lifetime\`${voiceStr}${aliasStr}\n   🎖️ **Tingkat Keakraban:** ${u.relationshipTier}\n   📅 **Pertama Kali Chat:** \`${firstDate}\``;
       }).join('\n\n') || '(Belum ada pengguna aktif)';
+
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('🔒 AZURA Zero-Knowledge Encrypted Vault')
         .setDescription(
           `🛡️ **Status Enkripsi:** \`AES-256-GCM (Authenticated)\`\n` +
           `👥 **Total Pengguna Terdaftar:** \`${stats.totalUsers}\` user\n` +
-          `💬 **Total Interaksi Pesan:** \`${stats.totalMessages}\` pesan\n` +
+          `💬 **Total Interaksi Lifetime Terakumulasi:** \`${stats.totalInteractions}\` interaksi (\`${stats.totalMessages}\` teks, \`${stats.totalVoiceTurns || 0}\` voice)\n` +
           `⚡ **Pengguna Aktif 24 Jam Terakhir:** \`${stats.activeToday}\` user\n\n` +
-          `🏆 **Top Pengguna Paling Aktif (Real-Time Database):**\n${topList}`
+          `🏆 **Top Pengguna Lifetime Paling Aktif (Akumulasi Sejak Update):**\n${topList}`
         )
-        .setFooter({ text: 'Data tersimpan dalam keadaan terenkripsi penuh di data/user_vault.enc' })
+        .setFooter({ text: 'Data diakumulasikan secara aman & terenkripsi di data/user_vault.enc' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], flags: 64 });
@@ -735,18 +738,22 @@ async function handleSlashCommand(interaction, startTime) {
         });
       }
 
+      const firstDate = record.firstSeen ? new Date(record.firstSeen).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-';
+      const lastDate = record.lastSeen ? new Date(record.lastSeen).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+
       const embed = new EmbedBuilder()
         .setColor(0x2ECC71)
-        .setTitle(`👤 Profil Pengguna: ${record.displayName} (@${record.username})`)
+        .setTitle(`👤 Profil Pengguna Lifetime: ${record.displayName} (@${record.username})`)
         .setDescription(
           `🆔 **User ID:** \`${record.userId}\`\n` +
           `👤 **Display Name:** **${record.displayName}**\n` +
           `🏷️ **Username:** \`@${record.username}\`\n` +
           `📛 **Nama Asli/Panggilan:** **${record.knownRealName ? `\`${record.knownRealName}\`` : '*(Belum pernah menyebutkan)*'}**\n` +
+          `🎖️ **Tingkat Keakraban:** ${record.relationshipTier || '🌱 Member Baru'}\n` +
+          `📊 **Total Interaksi Lifetime:** \`${record.totalInteractions}\` interaksi (\`${record.totalMessages || 0}\` teks, \`${record.totalVoiceTurns || 0}\` voice)\n` +
           `🍪 **Session Cookie:** \`${record.sessionCookie || '-'}\`\n` +
-          `💬 **Total Pesan:** \`${record.totalMessages}\`\n` +
-          `📅 **Pertama Kali Chat:** \`${record.firstSeen}\`\n` +
-          `⏰ **Terakhir Kali Aktif:** \`${record.lastSeen}\`\n` +
+          `📅 **Pertama Kali Chat:** \`${firstDate}\`\n` +
+          `⏰ **Terakhir Kali Aktif:** \`${lastDate}\` WIB\n` +
           `🏛️ **Server Aktif:** ${record.activeServers?.length ? record.activeServers.join(', ') : 'DM Pribadi'}`
         )
         .setFooter({ text: 'Didekripsi secara aman dengan kunci master AES-256-GCM' })

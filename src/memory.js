@@ -121,26 +121,37 @@ function clearUserMemory(userId) {
 function autoExtractFact(userId, prompt) {
   const lower = prompt.toLowerCase().trim();
 
-  // Explicit trigger: "ingat ya...", "catat ya...", "remember...", "ingetin ya..."
-  const explicitMatch = lower.match(/(?:ingat|ingetin|catat|remember|simpan)\s*(?:ya|yah|nih)?\s*[:,]?\s*(.+)/i);
+  // Explicit trigger: "ingat ya...", "catat ya...", "remember...", "ingetin ya...", "fyi..."
+  const explicitMatch = lower.match(/(?:ingat|ingetin|catat|remember|simpan|fyi)\s*(?:ya|yah|nih|bro|azura|ara)?\s*[:,]?\s*(.+)/i);
   if (explicitMatch && explicitMatch[1]) {
     let fact = explicitMatch[1].trim();
     // Clean up ending punctuation/words
     fact = fact.replace(/(?:ya|yah|dong|pls|please)[!.]*$/i, '').trim();
-    if (fact.length >= 3) {
+    if (fact.length >= 3 && fact.length <= 150) {
       addFact(userId, fact);
-      console.log(`[Memory Auto-Save] Saved fact for ${userId}: "${fact}"`);
+      console.log(`[Memory Auto-Save] Saved explicit fact for ${userId}: "${fact}"`);
       return fact;
     }
   }
 
-  // Personal attributes trigger: "hobi gw...", "panggil gw...", "ultah gw..."
-  const attrMatch = lower.match(/(?:hobi|panggil|panggilan|nama panggilan|ultah|ulang tahun|tanggal lahir|makanan favorit|minuman favorit)\s*(?:gw|aku|saya)\s*[:=]?\s*(.+)/i);
+  // Personal attributes & profile trigger: "hobi gw...", "panggil gw...", "ultah gw..."
+  const attrMatch = lower.match(/(?:hobi|panggil|panggilan|nama panggilan|ultah|ulang tahun|tanggal lahir|makanan favorit|minuman favorit|game favorit|anime favorit)\s*(?:gw|aku|saya|gua)\s*[:=]?\s*(.+)/i);
   if (attrMatch && attrMatch[1]) {
     let fact = prompt.trim();
-    if (fact.length >= 5) {
+    if (fact.length >= 5 && fact.length <= 150) {
       addFact(userId, fact);
       console.log(`[Memory Auto-Save] Saved attribute fact for ${userId}: "${fact}"`);
+      return fact;
+    }
+  }
+
+  // Career, project, tech stack & lifestyle trigger: "gw kerja sebagai...", "gw lagi bikin...", "tech stack gw..."
+  const careerMatch = lower.match(/(?:(?:gw|aku|saya|gua)\s+(?:kerja sebagai|seorang|lagi ngerjain project|lagi bikin|pake stack|pake framework|tinggal di|asal dari)\s+.+)/i);
+  if (careerMatch) {
+    let fact = prompt.trim();
+    if (fact.length >= 8 && fact.length <= 150) {
+      addFact(userId, fact);
+      console.log(`[Memory Auto-Save] Saved career/context fact for ${userId}: "${fact}"`);
       return fact;
     }
   }

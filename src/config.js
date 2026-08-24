@@ -21,7 +21,7 @@ const config = {
 
   // Cost & Performance Parameters
   MAX_OUTPUT_TOKENS: parseInt(process.env.MAX_OUTPUT_TOKENS || '50000', 10),
-  MAX_CONTEXT_MESSAGES: parseInt(process.env.MAX_CONTEXT_MESSAGES || '10', 10),
+  MAX_CONTEXT_MESSAGES: parseInt(process.env.MAX_CONTEXT_MESSAGES || '40', 10),
   RATE_LIMIT_COOLDOWN_MS: parseInt(process.env.RATE_LIMIT_COOLDOWN_MS || '500', 10),
   MONTHLY_BUDGET_TARGET: parseFloat(process.env.MONTHLY_BUDGET_TARGET || '5'),
 

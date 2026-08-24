@@ -93,6 +93,23 @@ client.on('messageCreate', async (message) => {
   const { extractVisualMedia } = require('./visionHelper');
   const { imageUrls, visualContextPrompt } = await extractVisualMedia(message);
 
+  // Extract Discord Reply / Reference Context (Message Threading & Continuity)
+  let replyContextPrompt = '';
+  if (message.reference && message.reference.messageId) {
+    try {
+      const referencedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+      if (referencedMsg) {
+        const refAuthor = referencedMsg.member?.displayName || referencedMsg.author.displayName || referencedMsg.author.username;
+        const refContent = (referencedMsg.content || '').replace(/<@!?\d+>/g, '').trim();
+        if (refContent) {
+          replyContextPrompt = `[Konteks Membalas Pesan @${refAuthor}]: "${refContent.slice(0, 600)}"`;
+        }
+      }
+    } catch (refErr) {
+      console.warn('[Reply Context Warning]: Failed to fetch referenced message:', refErr.message);
+    }
+  }
+
   // Extract audio attachments for Whisper STT
   let voicePrompt = '';
   if (message.attachments.size > 0) {
@@ -110,6 +127,9 @@ client.on('messageCreate', async (message) => {
   }
 
   let finalPrompt = rawPrompt;
+  if (replyContextPrompt) {
+    finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;
+  }
   if (voicePrompt) {
     finalPrompt = finalPrompt ? `${finalPrompt}\n${voicePrompt}` : voicePrompt;
   }

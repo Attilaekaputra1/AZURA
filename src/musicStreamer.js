@@ -32,11 +32,12 @@ async function initPlayDl() {
   }
 }
 
-// Map of active guild music state: guildId -> { currentTrack, textChannel, player }
+// Map of active guild music state: guildId -> { currentTrack, textChannel, player, isPlaying }
 const guildMusicSessions = new Map();
 
 /**
  * Search and stream a song directly into the Voice Channel AudioPlayer.
+ * Seamlessly stops/swaps any currently playing track.
  * @param {string} guildId 
  * @param {string} query 
  * @param {import('@discordjs/voice').AudioPlayer} player 
@@ -63,6 +64,15 @@ async function streamMusicDirect(guildId, query, player, textChannel, requesterN
     const track = results[0];
     console.log(`[Music Streamer]: 🎵 Found track: "${track.name}" (${track.url})`);
 
+    // Stop any existing song stream before playing the new one
+    const existing = guildMusicSessions.get(guildId);
+    if (existing && existing.player) {
+      console.log(`[Music Streamer]: 🔄 Stopping previous track to switch to "${track.name}"...`);
+      try {
+        existing.player.stop();
+      } catch (_) {}
+    }
+
     const stream = await play.stream(track.url);
     console.log(`[Music Streamer]: Audio stream extracted successfully (type: ${stream.type}). Creating AudioResource...`);
 
@@ -70,6 +80,13 @@ async function streamMusicDirect(guildId, query, player, textChannel, requesterN
     audioResource.playStream.on('error', (err) => {
       console.error('[Music Stream Resource Error]:', err.message);
     });
+
+    // Ensure bot is unmuted in Voice Channel
+    try {
+      const { activeConnections } = require('./voiceCompanion');
+      const conn = activeConnections.get(guildId);
+      if (conn) conn.rejoin({ selfMute: false, selfDeaf: false });
+    } catch (_) {}
 
     // Play on the AudioPlayer
     player.play(audioResource);
@@ -133,22 +150,49 @@ async function streamMusicDirect(guildId, query, player, textChannel, requesterN
   }
 }
 
-function pauseOrResumeMusic(guildId) {
+function pauseMusic(guildId) {
   const session = guildMusicSessions.get(guildId);
-  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar.' };
+  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar di Voice Channel.' };
+
+  if (session.player.state.status === AudioPlayerStatus.Paused) {
+    return { success: true, message: '⏸️ Musik sudah dalam keadaan dijeda (paused).' };
+  }
+  session.player.pause();
+  session.isPlaying = false;
+  console.log(`[Music Streamer]: ⏸️ Music paused in guild ${guildId}`);
+  return { success: true, message: `⏸️ Musik **${session.currentTrack?.name || 'lagu'}** sudah dijeda (pause).` };
+}
+
+function resumeMusic(guildId) {
+  const session = guildMusicSessions.get(guildId);
+  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar atau dijeda di Voice Channel.' };
 
   if (session.player.state.status === AudioPlayerStatus.Paused) {
     session.player.unpause();
-    return { success: true, message: '▶️ Musik dilanjutkan.' };
+    session.isPlaying = true;
+    console.log(`[Music Streamer]: ▶️ Music resumed in guild ${guildId}`);
+    return { success: true, message: `▶️ Musik **${session.currentTrack?.name || 'lagu'}** dilanjutkan kembali!` };
+  } else if (session.player.state.status === AudioPlayerStatus.Playing) {
+    return { success: true, message: '▶️ Musik sedang berjalan normal.' };
   } else {
-    session.player.pause();
-    return { success: true, message: '⏸️ Musik dijeda (pause).' };
+    return { success: false, message: 'Tidak ada lagu yang sedang dijeda untuk dilanjutkan.' };
+  }
+}
+
+function pauseOrResumeMusic(guildId) {
+  const session = guildMusicSessions.get(guildId);
+  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar di Voice Channel.' };
+
+  if (session.player.state.status === AudioPlayerStatus.Paused) {
+    return resumeMusic(guildId);
+  } else {
+    return pauseMusic(guildId);
   }
 }
 
 function stopMusic(guildId) {
   const session = guildMusicSessions.get(guildId);
-  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar.' };
+  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar di Voice Channel.' };
 
   session.player.stop();
   guildMusicSessions.delete(guildId);
@@ -165,6 +209,8 @@ function stopMusic(guildId) {
 
 module.exports = {
   streamMusicDirect,
+  pauseMusic,
+  resumeMusic,
   pauseOrResumeMusic,
   stopMusic,
   guildMusicSessions

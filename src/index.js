@@ -315,17 +315,36 @@ client.on('messageCreate', async (message) => {
         return message.reply(leaveRes.message);
       }
 
-      // Direct Play Music trigger from chat (Direct Voice Music Streaming)
-      const musicMatch = fullText.match(/(?:setel|puterin|putar|mainkan|setelin)\s+(?:lagu|musik|lagunya)?\s*(.+)/i);
+      // Direct Music Commands from text chat (Attila Only)
+      const { streamMusicDirect, pauseMusic, resumeMusic, stopMusic } = require('./musicStreamer');
+      const { audioPlayers } = require('./voiceCompanion');
+
+      const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya)\b/i.test(fullText);
+      if (isStopMusic) {
+        const res = stopMusic(guildId);
+        return message.reply(res.message);
+      }
+
+      const isPauseMusic = /\b(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i.test(fullText);
+      if (isPauseMusic) {
+        const res = pauseMusic(guildId);
+        return message.reply(res.message);
+      }
+
+      const isResumeMusic = /\b(?:resume|unpause|lanjut|lanjutkan|play\s+lagi|puter\s+lagi)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i.test(fullText);
+      if (isResumeMusic) {
+        const res = resumeMusic(guildId);
+        return message.reply(res.message);
+      }
+
+      const musicMatch = fullText.match(/(?:ganti|ubah|switch|setel|puterin|putar|mainkan|setelin|nyalain|pasang)\s+(?:ke|dengan)?\s*(?:lagu|musik|lagunya)?\s*(.+)/i);
       if (musicMatch) {
         let songTitle = musicMatch[1]
           .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot)\b/gi, '')
           .replace(/\s+/g, ' ')
           .trim();
         if (songTitle.length > 1) {
-          console.log(`[Music Streamer]: Attila triggered music from text: "${songTitle}"`);
-          const { streamMusicDirect } = require('./musicStreamer');
-          const { audioPlayers, companionTextChannels } = require('./voiceCompanion');
+          console.log(`[Music Streamer]: Attila triggered music (Play/Switch) from text: "${songTitle}"`);
           const player = audioPlayers.get(guildId);
           if (player) {
             const res = await streamMusicDirect(guildId, songTitle, player, message.channel, userName);

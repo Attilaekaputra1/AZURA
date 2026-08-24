@@ -686,11 +686,14 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     }
 
     // --- INTENT C: Music Commands (Attila Only) ---
+    const textChannel = (voiceChannel && voiceChannel.isTextBased?.()) ? voiceChannel : (companionTextChannels.get(guildId) || voiceChannel);
+
     const stopPattern = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
     if (stopPattern.test(transcript) || stopPattern.test(cleanTranscript)) {
       console.log('[Voice Pipeline]: ⏹️ Stop Music command detected.');
       const { stopMusic } = require('./musicStreamer');
-      stopMusic(guildId);
+      const res = stopMusic(guildId);
+      if (textChannel) textChannel.send(res.message).catch(() => {});
 
       const spokenResponse = 'Siap Attila sayang, musiknya udah aku matikan yaa!';
       recordSessionEntry(guildId, 'AZURA', spokenResponse);
@@ -702,23 +705,25 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
-    const pausePattern = /\b(?:pause|jeda|unpause|resume|lanjut|lanjutkan)\s+(?:musik|lagu|musiknya|lagunya)\b/i;
+    const pausePattern = /\b(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
     if (pausePattern.test(transcript) || pausePattern.test(cleanTranscript)) {
-      console.log('[Voice Pipeline]: ⏸️ Pause/Resume Music command detected.');
-      const { pauseOrResumeMusic } = require('./musicStreamer');
-      const res = pauseOrResumeMusic(guildId);
-
-      const spokenResponse = res.message.includes('jeda') ? 'Oke Attila sayang, musiknya aku jeda dulu ya!' : 'Lanjut lagi ya musiknya! [giggles]';
-      recordSessionEntry(guildId, 'AZURA', spokenResponse);
-
-      const audioResource = await textToAudioResource(spokenResponse, client);
-      if (audioResource) {
-        await playInVC(guildId, audioResource);
-      }
+      console.log('[Voice Pipeline]: ⏸️ Pause Music command detected.');
+      const { pauseMusic } = require('./musicStreamer');
+      const res = pauseMusic(guildId);
+      if (textChannel) textChannel.send(res.message).catch(() => {});
       return;
     }
 
-    const musicPattern = /(?:setel|stella|stela|stel|play|puterin|putar|puter|mainkan|mainin|setelin|nyalain|pasang|dengerin)\s*(?:in)?\s*(?:musik|lagu|gu|song|lagunya)?\s*(.+)/i;
+    const resumePattern = /\b(?:resume|unpause|lanjut|lanjutkan|puter\s+lagi|play\s+lagi|mainkan\s+lagi)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
+    if (resumePattern.test(transcript) || resumePattern.test(cleanTranscript)) {
+      console.log('[Voice Pipeline]: ▶️ Resume Music command detected.');
+      const { resumeMusic } = require('./musicStreamer');
+      const res = resumeMusic(guildId);
+      if (textChannel) textChannel.send(res.message).catch(() => {});
+      return;
+    }
+
+    const musicPattern = /(?:ganti|ubah|switch|setel|stella|stela|stel|play|puterin|putar|puter|mainkan|mainin|setelin|nyalain|pasang|dengerin)\s*(?:in)?\s*(?:ke|dengan)?\s*(?:musik|lagu|gu|song|lagunya)?\s*(.+)/i;
     const musicMatch = cleanTranscript.match(musicPattern) || transcript.match(musicPattern);
 
     if (musicMatch) {
@@ -729,17 +734,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         .trim();
 
       if (songTitle.length > 1) {
-        console.log(`[Voice Pipeline]: 🎵 Direct Voice Music Streamer triggered -> Song: "${songTitle}"`);
-
-        const textChannel = (voiceChannel && voiceChannel.isTextBased?.()) ? voiceChannel : (companionTextChannels.get(guildId) || voiceChannel);
-
-        const spokenResponse = `Siap Attila sayang, lagi aku puterin lagu ${songTitle} langsung di Voice Channel nih, selamat mendengarkan yaa! [giggles]`;
-        recordSessionEntry(guildId, 'AZURA', spokenResponse);
-
-        const audioResource = await textToAudioResource(spokenResponse, client);
-        if (audioResource) {
-          await playInVC(guildId, audioResource);
-        }
+        console.log(`[Voice Pipeline]: 🎵 Direct Voice Music Streamer triggered (Play/Switch) -> Song: "${songTitle}"`);
 
         const player = audioPlayers.get(guildId);
         if (player) {

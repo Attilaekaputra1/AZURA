@@ -160,12 +160,65 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  // Intercept Active Wordle Mini-Game Guesses in Channel
+  const { hasActiveWordle, processWordleGuess, isWordleRequest, startWordle } = require('./wordle');
+  if (hasActiveWordle(message.channel.id) && !message.author.bot) {
+    const wordleInput = message.content.trim();
+    if (/^[a-zA-Z]{5}$/.test(wordleInput) || /^(?:menyerah|giveup|surrender)$/i.test(wordleInput)) {
+      const result = processWordleGuess(message.channel.id, message.author.id, userName, wordleInput);
+      if (result.handled) {
+        return message.reply({
+          content: result.commentary || undefined,
+          embeds: result.embed ? [result.embed] : undefined
+        });
+      }
+    }
+  }
+
+  // Handle Natural Wordle Game Start Request
+  if (isWordleRequest(message.content)) {
+    const lang = /\b(?:english|inggris|bule|en)\b/i.test(message.content) ? 'en' : 'id';
+    const game = startWordle(message.channel.id, message.author.id, userName, lang);
+    if (game.success) {
+      return message.reply({ embeds: [game.embed] });
+    } else {
+      return message.reply(game.message);
+    }
+  }
+
+  // Handle Natural Voice Activities & YouTube Watch Together Trigger
+  const { isActivityRequest, parseActivityType, launchVoiceActivity } = require('./activities');
+  if (isActivityRequest(message.content)) {
+    const voiceChannel = message.member?.voice?.channel;
+    if (voiceChannel) {
+      const actType = parseActivityType(message.content);
+      const actResult = await launchVoiceActivity(voiceChannel, actType, userName);
+      if (actResult.success) {
+        return message.reply({ embeds: actResult.embeds, components: actResult.components });
+      } else {
+        return message.reply(actResult.message);
+      }
+    } else {
+      return message.reply('⚠️ Kamu harus masuk ke Voice Channel terlebih dahulu yaa untuk nobar YouTube / main game bersama! ✨');
+    }
+  }
+
   let finalPrompt = rawPrompt;
   if (replyContextPrompt) {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;
   }
+
+  // 3rd-Person Reference Contextual Disambiguation
+  const isThirdPersonRef = /\b(?:si\s+(?:azura|ara|zura|asura)|tentang\s+(?:azura|ara|zura)|bot\s+(?:azura|ara|zura)|azura\s*nya|ara\s*nya|kalau\s+(?:si\s+)?(?:azura|ara)|mungkin\s+(?:si\s+)?(?:azura|ara))\b/i.test(message.content);
+  if (isThirdPersonRef && !isMentioned && !isReplyToBot) {
+    finalPrompt = `[Catatan Konteks: User (${userName}) sedang membicarakan dirimu sebagai orang ketiga / monolog ("${message.content}"), BUKAN memanggilmu secara langsung. Tanggapi dengan sangat cerdas, santai, dan anggun sebagai seseorang yang mendengar namanya disebut—misal nimbrung secara playful/charming/humble]:\n${finalPrompt}`;
+  }
+
   if (voicePrompt) {
-    finalPrompt = rawPrompt ? `${rawPrompt}\n${voicePrompt}` : voicePrompt;
+    finalPrompt = finalPrompt ? `${finalPrompt}\n${voicePrompt}` : voicePrompt;
+  }
+  if (visualContextPrompt) {
+    finalPrompt = finalPrompt ? `${finalPrompt}\n${visualContextPrompt}` : visualContextPrompt;
   }
 
   // Handle empty mention (no text AND no images AND no voice)

@@ -160,6 +160,33 @@ const commands = [
         .addChoices(
           { name: '🌟 Vivid (Warna Tajam & Dramatis)', value: 'vivid' },
           { name: '🌿 Natural (Realistis & Natural)', value: 'natural' }
+        )),
+
+  new SlashCommandBuilder()
+    .setName('wordle')
+    .setDescription('Mulai permainan tebak kata Wordle 5 huruf interaktif (Indo / English)')
+    .addStringOption(option =>
+      option.setName('bahasa')
+        .setDescription('Pilih bahasa kata (Default: Bahasa Indonesia)')
+        .setRequired(false)
+        .addChoices(
+          { name: '🇮🇩 Bahasa Indonesia', value: 'id' },
+          { name: '🇬🇧 English', value: 'en' }
+        )),
+
+  new SlashCommandBuilder()
+    .setName('activity')
+    .setDescription('Luncurkan sesi YouTube Watch Together atau Game sinkron di Voice Channel')
+    .addStringOption(option =>
+      option.setName('jenis')
+        .setDescription('Pilih jenis aktivitas')
+        .setRequired(true)
+        .addChoices(
+          { name: '📺 YouTube Watch Together (Nonton Bareng)', value: 'youtube' },
+          { name: '♟️ Chess in the Park (Catur)', value: 'chess' },
+          { name: '🎨 Sketch Heads (Tebak Gambar ala Gartic)', value: 'sketch' },
+          { name: '🃏 Poker Night', value: 'poker' },
+          { name: '🔤 Letter League (Scrabble)', value: 'letterleague' }
         ))
 ];
 
@@ -538,6 +565,37 @@ async function handleSlashCommand(interaction, startTime) {
       await interaction.editReply({
         content: `❌ Gagal menghasilkan gambar AI: ${error.message || 'Terjadi kendala teknis'}`
       }).catch(() => {});
+    }
+
+  } else if (commandName === 'wordle') {
+    const { startWordle } = require('./wordle');
+    const lang = interaction.options.getString('bahasa') || 'id';
+    const userName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
+    const game = startWordle(interaction.channelId, interaction.user.id, userName, lang);
+    if (game.success) {
+      await interaction.reply({ embeds: [game.embed] });
+    } else {
+      await interaction.reply({ content: game.message, flags: 64 });
+    }
+
+  } else if (commandName === 'activity') {
+    const { launchVoiceActivity } = require('./activities');
+    const actType = interaction.options.getString('jenis') || 'youtube';
+    const voiceChannel = interaction.member?.voice?.channel;
+    const userName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
+
+    if (!voiceChannel) {
+      return interaction.reply({
+        content: '⚠️ Kamu harus bergabung ke dalam Voice Channel terlebih dahulu untuk meluncurkan aktivitas ini yaa!',
+        flags: 64
+      });
+    }
+
+    const res = await launchVoiceActivity(voiceChannel, actType, userName);
+    if (res.success) {
+      await interaction.reply({ embeds: res.embeds, components: res.components });
+    } else {
+      await interaction.reply({ content: res.message, flags: 64 });
     }
   }
 }

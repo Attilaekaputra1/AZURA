@@ -25,6 +25,18 @@ const GAMBLING_KEYWORDS = [
   'anti rungkad', 'pasti profit', 'cuan slot', 'modal receh'
 ];
 
+// Sacred / Sensitive Data Blacklist (Prevent scraping sacred credentials, private keys, leaked DBs, banking data)
+const SACRED_DATA_PATTERNS = [
+  /\b(?:password|passwd|pin\s+atm|cvv|nomor\s+kartu\s+kredit|seed\s+phrase|recovery\s+phrase|private\s+key|secret\s+key|api_key|token\s+jwt|id_rsa)\b/i,
+  /\b(?:database\s+leak|leaked\s+credentials|dump\s+password|hack\s+akun|doxxing|ktp\s+asli|nik\s+pribadi|kartu\s+keluarga)\b/i
+];
+
+function isSacredData(queryOrUrl) {
+  if (!queryOrUrl) return false;
+  const lower = queryOrUrl.toLowerCase();
+  return SACRED_DATA_PATTERNS.some(pattern => pattern.test(lower));
+}
+
 function filterSafeResults(results) {
   if (!results || !Array.isArray(results)) return [];
   return results.filter(r => {
@@ -271,10 +283,99 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
   }
 }
 
+/**
+ * Scrapes and extracts deep structured web data based on user input.
+ * Supports URL scraping, technical documentation, tables, pricing, statistics, code, and specifications.
+ * Enforces Sacred Data Shield to protect sensitive personal/system data.
+ * @param {string} targetInput - Target query or URL
+ * @param {string} dataGoal - Extraction focus (e.g., 'table', 'specs', 'pricing', 'general')
+ * @returns {Promise<{ success: boolean, data: string, sources: Array<{ title: string, url: string }>, isBlocked?: boolean }>}
+ */
+async function scrapeWebData(targetInput, dataGoal = 'general') {
+  if (isSacredData(targetInput)) {
+    console.log(`[Tavily Scraper]: 🛑 Blocked scraping attempt on SACRED DATA: "${targetInput}"`);
+    return {
+      success: false,
+      isBlocked: true,
+      data: 'Permintaan scraping dibatalkan: Target pencarian mengandung pola "Data Sakral" (kredensial, kunci privat, PIN, token, atau data rahasia terlindungi) yang dilarang oleh protokol keamanan AZURA.'
+    };
+  }
+
+  const urlMatch = targetInput.match(/https?:\/\/[^\s]+/i);
+  if (urlMatch) {
+    const targetUrl = urlMatch[0];
+    try {
+      console.log(`[Tavily Scraper]: 🕷️ Deep scraping direct URL: ${targetUrl}`);
+      const res = await tavilyApiCall('/extract', { urls: [targetUrl] });
+      if (res.results && res.results.length > 0) {
+        const item = res.results[0];
+        const content = item.raw_content ? item.raw_content.slice(0, 6000) : 'Tidak ada konten teks yang dapat diekstrak.';
+        return {
+          success: true,
+          data: `📊 **Hasil Web Scraping Langsung (Tavily Deep Extract):**\n` +
+            `🔗 **URL:** ${targetUrl}\n` +
+            `📌 **Judul:** ${item.title || 'Dokumen Web'}\n\n` +
+            `📝 **Konten & Data Terstruktur:**\n${content}`,
+          sources: [{ title: item.title || 'Sumber Web', url: targetUrl }]
+        };
+      }
+    } catch (err) {
+      console.warn('[Tavily Extract Scrape Error]:', err.message);
+    }
+  }
+
+  // Multi-source deep scraping for queries
+  try {
+    console.log(`[Tavily Scraper]: 🌐 Multi-source deep data scraping for: "${targetInput}" (Focus: ${dataGoal})`);
+    const searchRes = await tavilyApiCall('/search', {
+      query: targetInput,
+      search_depth: 'advanced',
+      include_raw_content: true,
+      include_answer: true,
+      max_results: 5
+    });
+
+    const safeResults = filterSafeResults(searchRes.results);
+    if (!safeResults || safeResults.length === 0) {
+      return {
+        success: false,
+        data: `Tidak ditemukan data web yang relevan untuk query: "${targetInput}".`
+      };
+    }
+
+    let structuredOutput = '';
+    if (searchRes.answer) {
+      structuredOutput += `🧠 **Analisis & Ekstraksi Data Inti:**\n${searchRes.answer}\n\n`;
+    }
+
+    structuredOutput += `📊 **Data Mentah & Bukti dari ${safeResults.length} Sumber Terverifikasi:**\n\n`;
+    safeResults.forEach((r, i) => {
+      const title = r.title || `Data #${i + 1}`;
+      const snippet = r.raw_content ? r.raw_content.slice(0, 1200) : r.content;
+      structuredOutput += `### [${i + 1}] ${title}\n🔗 ${r.url}\n${snippet}\n\n`;
+    });
+
+    const sources = safeResults.map(r => ({ title: r.title, url: r.url }));
+    return {
+      success: true,
+      data: structuredOutput,
+      sources
+    };
+  } catch (err) {
+    console.error('[Tavily Deep Scrape Error]:', err.message);
+    return {
+      success: false,
+      data: `Gagal melakukan scraping data: ${err.message}`
+    };
+  }
+}
+
 module.exports = {
   tavilyApiCall,
   searchTavily,
   searchTavilyCard,
   extractTavilyUrl,
+  scrapeWebData,
+  isSacredData,
   processTavilyIntelligence
 };

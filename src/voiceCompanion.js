@@ -598,6 +598,18 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
     // Record to session transcript
     recordSessionEntry(guildId, callerName, transcript);
 
+    // Record to User Vault Database
+    try {
+      const { recordUserInteraction } = require('./vault');
+      recordUserInteraction(userId, {
+        username: member?.user?.username || 'unknown',
+        displayName: callerName,
+        guildName: voiceChannel?.guild?.name || null,
+        channelName: voiceChannel?.name ? `#${voiceChannel.name}` : 'Voice Channel',
+        textContent: transcript
+      });
+    } catch (_) {}
+
     // Check if member is calling Attila ("Att", "Attila", "Til", "Atila")
     // NOTE: Members have NO access to call Azura or issue commands (music, leave, etc.)
     // Only the 10-second Attila-absent fallback is available for members.
@@ -729,6 +741,19 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── ALWAYS record session entry (Azura hears everything, even in PASSIVE) ──
   recordSessionEntry(guildId, isOwner ? 'Attila' : 'Member', transcript);
+
+  // ── Record to User Vault Database (real-time encrypted profile & nickname tracking) ──
+  try {
+    const { recordUserInteraction } = require('./vault');
+    const speakerMember = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
+    recordUserInteraction(userId, {
+      username: speakerMember?.user?.username || (isOwner ? 'attilaekaputra' : 'user'),
+      displayName: speakerMember?.displayName || (isOwner ? 'Attila' : 'Member'),
+      guildName: voiceChannel?.guild?.name || null,
+      channelName: voiceChannel?.name ? `#${voiceChannel.name}` : 'Voice Channel',
+      textContent: transcript
+    });
+  } catch (_) {}
 
   // Clean transcript for intent matching
   const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|jura|juraa|zuraa|kak azura|kak ara)\b/gi, '').trim();

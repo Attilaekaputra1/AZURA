@@ -40,6 +40,17 @@ function getSystemPrompt(userName, userId, isDM = false) {
     ? facts.map((f, i) => `  ${i + 1}. ${f}`).join('\n')
     : '  (Belum ada fakta khusus yang tersimpan)';
 
+  let realNamePrompt = '';
+  if (userId) {
+    try {
+      const { getUserRecord } = require('./vault');
+      const record = getUserRecord(userId);
+      if (record && record.knownRealName) {
+        realNamePrompt = `\n- Nama asli / nama panggilan yang disukai oleh ${userName} adalah "${record.knownRealName}". Kamu dapat memanggilnya dengan "${record.knownRealName}" atau "${userName}" secara hangat dan akrab.`;
+      }
+    } catch (_) {}
+  }
+
   const callSignRule = isDM
     ? `- Konteks Chat: Ini adalah Direct Message (DM / Japri pribadi). Panggilan "Say" HANYA BOLEH digunakan jika user memanggilmu "Say" lebih dulu. Jika lawan bicara di DM adalah pengguna lain, panggil dengan nama "${userName}" atau "kamu".`
     : `- KETAT (SANGAT PENTING): DILARANG KERAS MEMANGGIL SIAPA PUN DENGAN "Say" KARENA INI DI SERVER / CHANNEL PUBLIK! Panggil pengguna dengan nama "${userName}", "kamu", atau "lu" secara alami.`;
@@ -71,7 +82,7 @@ Informasi Waktu Real-Time:
 - Batas pengetahuan bawaanmu adalah 16 Februari 2026. Untuk info setelah tanggal tersebut, gunakan fitur pencarian web.
 
 Informasi Memori Jangka Panjang Pengguna:
-- Lawan bicaramu bernama "${userName}".
+- Lawan bicaramu bernama "${userName}".${realNamePrompt}
 - Catatan fakta penting tentang ${userName}:
 ${factsFormatted}
 

@@ -706,7 +706,10 @@ async function handleSlashCommand(interaction, startTime) {
 
     if (subcommand === 'stats') {
       const stats = getVaultStats();
-      const topList = stats.topUsers.map((u, i) => `${i + 1}. **${u.displayName}** (\`${u.username}\`): \`${u.totalMessages} pesan\``).join('\n') || '(Belum ada pengguna aktif)';
+      const topList = stats.topUsers.map((u, i) => {
+        const aliasStr = u.knownRealName ? `\n   📛 **Nama Asli/Panggilan:** \`${u.knownRealName}\`` : '';
+        return `${i + 1}. **${u.displayName}** (\`${u.username}\`) • \`${u.totalMessages} pesan\`${aliasStr}`;
+      }).join('\n\n') || '(Belum ada pengguna aktif)';
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('🔒 AZURA Zero-Knowledge Encrypted Vault')
@@ -715,7 +718,7 @@ async function handleSlashCommand(interaction, startTime) {
           `👥 **Total Pengguna Terdaftar:** \`${stats.totalUsers}\` user\n` +
           `💬 **Total Interaksi Pesan:** \`${stats.totalMessages}\` pesan\n` +
           `⚡ **Pengguna Aktif 24 Jam Terakhir:** \`${stats.activeToday}\` user\n\n` +
-          `🏆 **Top 5 Pengguna Paling Aktif:**\n${topList}`
+          `🏆 **Top Pengguna Paling Aktif (Real-Time Database):**\n${topList}`
         )
         .setFooter({ text: 'Data tersimpan dalam keadaan terenkripsi penuh di data/user_vault.enc' })
         .setTimestamp();
@@ -734,18 +737,19 @@ async function handleSlashCommand(interaction, startTime) {
 
       const embed = new EmbedBuilder()
         .setColor(0x2ECC71)
-        .setTitle(`👤 Profil Pengguna Terenkripsi: ${record.displayName}`)
+        .setTitle(`👤 Profil Pengguna: ${record.displayName} (@${record.username})`)
         .setDescription(
           `🆔 **User ID:** \`${record.userId}\`\n` +
+          `👤 **Display Name:** **${record.displayName}**\n` +
           `🏷️ **Username:** \`@${record.username}\`\n` +
-          `📛 **Nama Panggilan/Asli:** **${record.knownRealName || '*(Belum pernah menyebutkan)*'}**\n` +
+          `📛 **Nama Asli/Panggilan:** **${record.knownRealName ? `\`${record.knownRealName}\`` : '*(Belum pernah menyebutkan)*'}**\n` +
           `🍪 **Session Cookie:** \`${record.sessionCookie || '-'}\`\n` +
           `💬 **Total Pesan:** \`${record.totalMessages}\`\n` +
           `📅 **Pertama Kali Chat:** \`${record.firstSeen}\`\n` +
           `⏰ **Terakhir Kali Aktif:** \`${record.lastSeen}\`\n` +
           `🏛️ **Server Aktif:** ${record.activeServers?.length ? record.activeServers.join(', ') : 'DM Pribadi'}`
         )
-        .setFooter({ text: 'Didekripsi secara aman dengan kunci master owner' })
+        .setFooter({ text: 'Didekripsi secara aman dengan kunci master AES-256-GCM' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], flags: 64 });

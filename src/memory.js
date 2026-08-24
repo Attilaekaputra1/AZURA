@@ -134,8 +134,8 @@ function autoExtractFact(userId, prompt) {
     }
   }
 
-  // Personal attributes & profile trigger: "hobi gw...", "panggil gw...", "ultah gw..."
-  const attrMatch = lower.match(/(?:hobi|panggil|panggilan|nama panggilan|ultah|ulang tahun|tanggal lahir|makanan favorit|minuman favorit|game favorit|anime favorit)\s*(?:gw|aku|saya|gua)\s*[:=]?\s*(.+)/i);
+  // Personal attributes & profile trigger: "nama asli gw...", "nama panggilan gw...", "hobi gw...", "panggil gw...", "ultah gw..."
+  const attrMatch = lower.match(/(?:nama\s+asli|nama\s+panggilan|nama|panggil\s+aja|panggilan|hobi|ultah|ulang tahun|tanggal lahir|makanan favorit|minuman favorit|game favorit|anime favorit)\s*(?:gw|gue|gua|aku|saya|ane|ku)?\s*[:=]?\s*(.+)/i);
   if (attrMatch && attrMatch[1]) {
     let fact = prompt.trim();
     if (fact.length >= 5 && fact.length <= 150) {

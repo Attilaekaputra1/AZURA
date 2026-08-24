@@ -149,12 +149,32 @@ function generateSessionCookie(userId, firstSeen) {
  * @returns {string|null}
  */
 function extractRealName(text) {
-  if (!text) return null;
-  const match = text.match(/(?:nama\s+(?:asli\s+)?(?:gw|aku|saya|gua)|panggil\s+(?:aja\s+)?(?:gw|aku|saya|gua))\s*(?:adalah|yaitu|:)?\s*([a-zA-Z\s]{2,30})/i);
-  if (match && match[1]) {
-    const clean = match[1].replace(/\b(?:ya|yah|dong|plis|bang|kak)\b/gi, '').trim();
-    if (clean.length >= 2 && clean.length <= 30) {
-      return clean;
+  if (!text || typeof text !== 'string') return null;
+
+  const patterns = [
+    // "nama asli gw/gue/gua/aku/saya/ane/ku putra" or "nama asliku putra"
+    /(?:nama\s+asli\s*(?:gw|gue|gua|aku|saya|ane|ku)?|nama\s+asliku)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i,
+    // "nama panggilan gw/aku/saya/ku putra" or "nama panggilanku putra"
+    /(?:nama\s+panggilan\s*(?:gw|gue|gua|aku|saya|ane|ku)?|nama\s+panggilanku)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i,
+    // "panggil gw/gue/gua/aku/saya/aja/ane putra" or "panggilan gw putra"
+    /(?:panggil\s*(?:aja\s+)?(?:gw|gue|gua|aku|saya|ane|ku)?|panggilan(?:ku)?)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i,
+    // "nama gw/gue/gua/aku/saya/ane putra" or "namaku putra"
+    /(?:nama\s+(?:gw|gue|gua|aku|saya|ane)|namaku)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i
+  ];
+
+  for (const pat of patterns) {
+    const match = text.match(pat);
+    if (match && match[1]) {
+      let clean = match[1]
+        .replace(/\b(?:ya|yah|dong|plis|please|bang|kak|om|bro|sis|nih|deh|aja|sih|azura|ara|zura)\b/gi, '')
+        .replace(/[.,!?;:'"()[\]]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const stopWords = ['bukan', 'siapa', 'apa', 'kenapa', 'gimana', 'bisa', 'mau', 'lagi', 'udah', 'belum'];
+      if (clean && !stopWords.includes(clean.toLowerCase()) && clean.length >= 2 && clean.length <= 30) {
+        return clean.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      }
     }
   }
   return null;
@@ -206,12 +226,12 @@ function recordUserInteraction(userId, meta = {}) {
     user.activeChannels.push(meta.channelName);
   }
 
-  // Auto extract real name if not already known
-  if (!user.knownRealName && meta.textContent) {
+  // Real-time auto extract real name/nickname whenever mentioned
+  if (meta.textContent) {
     const extracted = extractRealName(meta.textContent);
     if (extracted) {
       user.knownRealName = extracted;
-      console.log(`[User Vault]: 💡 Extracted real name for ${userId}: "${extracted}"`);
+      console.log(`[User Vault]: 💡 Real-time updated real name for ${userId} (@${user.username}): "${extracted}"`);
     }
   }
 
@@ -237,11 +257,12 @@ function getVaultStats() {
 
   const topUsers = [...allUsers]
     .sort((a, b) => (b.totalMessages || 0) - (a.totalMessages || 0))
-    .slice(0, 5)
+    .slice(0, 10)
     .map(u => ({
       userId: u.userId,
       displayName: u.displayName,
       username: u.username,
+      knownRealName: u.knownRealName || null,
       totalMessages: u.totalMessages,
       lastSeen: u.lastSeen
     }));

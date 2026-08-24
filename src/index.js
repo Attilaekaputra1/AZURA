@@ -305,17 +305,17 @@ client.on('messageCreate', async (message) => {
     // Show typing status in Discord channel
     await message.channel.sendTyping();
 
-    // Direct Voice Channel Join & Leave trigger for Attila (supports Azura / Ara / Zura / @mention)
-    if (isOwner) {
-      const fullText = (message.content + ' ' + finalPrompt).toLowerCase().trim();
+    // Direct Voice Channel Join & Leave trigger for Attila (Only when NOT a 3rd-person nimbrung mention)
+    if (isOwner && !isThirdPersonNimbrung) {
+      const userText = message.content.toLowerCase().trim();
       const isJoinTrigger =
-        /\b(?:join\s+vc\s+lagi|masuk\s+vc\s+lagi|masuk\s+vc\s+lagi\s+dong|join\s+vc\s+lagi\s+dong)\b/i.test(fullText) ||
-        /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(fullText);
+        /\b(?:join\s+vc\s+lagi|masuk\s+vc\s+lagi|masuk\s+vc\s+lagi\s+dong|join\s+vc\s+lagi\s+dong)\b/i.test(userText) ||
+        /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(userText);
 
       const isLeaveTrigger =
-        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(fullText) ||
-        /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(fullText) ||
-        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar\s+aja|leave\s+aja|cabut\s+aja|off\s+aja|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(fullText);
+        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(userText) ||
+        /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(userText) ||
+        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar\s+aja|leave\s+aja|cabut\s+aja|off\s+aja|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(userText);
 
       if (isJoinTrigger) {
         console.log(`[VC Controller]: Attila triggered Join VC from text chat (${message.channel.name || 'DM'}).`);
@@ -335,25 +335,25 @@ client.on('messageCreate', async (message) => {
       const { streamMusicDirect, pauseMusic, resumeMusic, stopMusic } = require('./musicStreamer');
       const { audioPlayers } = require('./voiceCompanion');
 
-      const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya)\b/i.test(fullText);
+      const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(userText);
       if (isStopMusic) {
         const res = stopMusic(guildId);
         return message.reply(res.message);
       }
 
-      const isPauseMusic = /\b(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i.test(fullText);
+      const isPauseMusic = /\b(?:pause|jeda)\s+(?:in\s+)?(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(userText) || /^(?:pause|jeda)$/i.test(userText);
       if (isPauseMusic) {
         const res = pauseMusic(guildId);
         return message.reply(res.message);
       }
 
-      const isResumeMusic = /\b(?:resume|unpause|lanjut|lanjutkan|play\s+lagi|puter\s+lagi)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i.test(fullText);
+      const isResumeMusic = /\b(?:resume|unpause|puter\s+lagi|play\s+lagi|mainkan\s+lagi|lanjutkan\s+lagu)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i.test(userText) || /^(?:resume|unpause)$/i.test(userText);
       if (isResumeMusic) {
         const res = resumeMusic(guildId);
         return message.reply(res.message);
       }
 
-      const musicMatch = fullText.match(/(?:ganti|ubah|switch|setel|puterin|putar|mainkan|setelin|nyalain|pasang)\s+(?:ke|dengan)?\s*(?:lagu|musik|lagunya)?\s*(.+)/i);
+      const musicMatch = userText.match(/^(?:azura|ara|zura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|puterin|putar|mainkan|setelin|nyalain|pasang)\s+(?:ke|dengan)?\s*(?:lagu|musik|lagunya)?\s*(.+)/i);
       if (musicMatch) {
         let songTitle = musicMatch[1]
           .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot)\b/gi, '')
@@ -372,7 +372,7 @@ client.on('messageCreate', async (message) => {
       }
 
       // Headless Browser Direct Text Triggers (Attila Only)
-      const isYtBrowse = fullText.match(/(?:bukain|buka|search|cariin|cari|putar|tonton)\s+(?:di\s+)?(?:youtube|yt)\s*(?:cari|tentang|video)?\s*(.+)/i);
+      const isYtBrowse = userText.match(/(?:bukain|buka|search|cariin|cari|putar|tonton)\s+(?:di\s+)?(?:youtube|yt)\s*(?:cari|tentang|video)?\s*(.+)/i);
       if (isYtBrowse) {
         const query = isYtBrowse[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
         const { browseYouTube, sendVisualSnapshotCard } = require('./headlessBrowser');
@@ -386,7 +386,7 @@ client.on('messageCreate', async (message) => {
         }
       }
 
-      const isWebBrowse = fullText.match(/(?:bukain|buka|kunjungi|browsing|cek)\s+(?:situs|website|web|link|halaman|url)\s*(.+)/i);
+      const isWebBrowse = userText.match(/(?:bukain|buka|kunjungi|browsing|cek)\s+(?:situs|website|web|link|halaman|url)\s*(.+)/i);
       if (isWebBrowse) {
         const targetUrl = isWebBrowse[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
         const { openWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
@@ -400,9 +400,9 @@ client.on('messageCreate', async (message) => {
         }
       }
 
-      const isScroll = fullText.match(/\b(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i);
+      const isScroll = userText.match(/\b(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i);
       if (isScroll) {
-        const isUp = /\b(?:atas|up)\b/i.test(fullText);
+        const isUp = /\b(?:atas|up)\b/i.test(userText);
         const direction = isUp ? 'up' : 'down';
         const { scrollWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
         const scrollRes = await scrollWebpage(guildId, direction);
@@ -413,7 +413,7 @@ client.on('messageCreate', async (message) => {
         }
       }
 
-      const isCloseBrowser = /\b(?:tutup|close|stop|matikan)\s+(?:browser|web|tab|layar|sharescreen)\b/i.test(fullText);
+      const isCloseBrowser = /\b(?:tutup|close|stop|matikan)\s+(?:browser|web|tab|layar|sharescreen)\b/i.test(userText);
       if (isCloseBrowser) {
         const { closeBrowserSession } = require('./headlessBrowser');
         const closeRes = await closeBrowserSession(guildId);

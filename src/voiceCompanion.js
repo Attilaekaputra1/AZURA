@@ -161,8 +161,28 @@ async function transcribeVoice(wavBuffer) {
 
 
 /**
- * Generate TTS audio and wrap it as a Discord AudioResource.
- * Primary: ElevenLabs (Kak Ceria) — Fallback 1: OpenAI TTS (nova) — Fallback 2: Edge TTS
+ * Format text for natural, conversational fallback TTS (OpenAI / Edge)
+ * Converts ElevenLabs emotion tags into natural spoken interjections and pauses.
+ * @param {string} raw 
+ * @returns {string}
+ */
+function prepareNaturalTextForFallbackTts(raw) {
+  return raw
+    .replace(/\[laughs\]/gi, ', hehe,')
+    .replace(/\[giggles\]/gi, ', hihi,')
+    .replace(/\[sighs\]/gi, ', fyuuh...')
+    .replace(/\[whispers\]/gi, 'psst,')
+    .replace(/\[gasp\]/gi, 'Wah,')
+    .replace(/\[chuckles\]/gi, ', haha,')
+    .replace(/\[(?:action|emotion):[^\]]+\]/gi, '')
+    .replace(/,\s*,/g, ',')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Generate TTS audio and wrap it as a Discord AudioResource with Volume Booster & Natural Intonation.
+ * Primary: ElevenLabs (Kak Ceria) — Fallback 1: OpenAI TTS-1-HD (nova) — Fallback 2: Edge TTS
  */
 async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CHARS) {
   const clean = text
@@ -179,29 +199,48 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
       console.log('[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria)...');
       const { generateElevenLabsTTS } = require('./elevenlabs');
       const audioBuffer = await generateElevenLabsTTS(clean, null, client);
-      return createAudioResource(Readable.from(audioBuffer), { inputType: StreamType.Arbitrary });
+      const resource = createAudioResource(Readable.from(audioBuffer), {
+        inputType: StreamType.Arbitrary,
+        inlineVolume: true
+      });
+      if (resource.volume) {
+        resource.volume.setVolume(1.4); // +3dB balanced clarity
+      }
+      return resource;
     } catch (elevenErr) {
       console.warn('[Voice TTS Warning]: ElevenLabs failed, fast-switching to OpenAI TTS:', elevenErr.message);
     }
   }
 
-  // Strip audio tags for fallback engines (OpenAI / Edge) so they don't read tags literally
-  const cleanFallback = clean.replace(/\[(?:laughs|giggles|sighs|whispers|gasp|chuckles)\]/gi, '').trim();
+  // Convert audio tags into natural conversational Indonesian interjections for Fallback TTS
+  const naturalFallbackText = prepareNaturalTextForFallbackTts(clean);
 
-  // 2. Fallback 1: OpenAI TTS-1 (nova - natural Gen Z female)
+  // 2. Fallback 1: OpenAI TTS-1-HD (nova - lively Gen Z tone with speed 1.06 & 220% Volume Boost)
   try {
     const openai = getOpenAI();
     if (openai) {
-      console.log('[Voice TTS]: Generating audio via OpenAI TTS (nova)...');
-      const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'nova', input: cleanFallback });
+      console.log('[Voice TTS]: Generating audio via OpenAI TTS-1-HD (nova with 220% Volume Booster & Natural Intonation)...');
+      const mp3 = await openai.audio.speech.create({
+        model: 'tts-1-hd',
+        voice: 'nova',
+        input: naturalFallbackText,
+        speed: 1.06 // Brisker, lively, non-robotic intonation
+      });
       const buf = Buffer.from(await mp3.arrayBuffer());
-      return createAudioResource(Readable.from(buf), { inputType: StreamType.Arbitrary });
+      const resource = createAudioResource(Readable.from(buf), {
+        inputType: StreamType.Arbitrary,
+        inlineVolume: true
+      });
+      if (resource.volume) {
+        resource.volume.setVolume(2.2); // Loud & clear volume boost (220%)
+      }
+      return resource;
     }
   } catch (err) {
     console.warn('[Voice TTS Warning]: OpenAI TTS failed, falling back to Edge TTS:', err.message);
   }
 
-  // 3. Fallback 2: Microsoft Edge Neural TTS (Free)
+  // 3. Fallback 2: Microsoft Edge Neural TTS (Gadis Neural with 200% Volume Boost)
   const tempPath = path.join(TEMP_DIR, `vc_tts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp3`);
   try {
     const { EdgeTTS } = require('node-edge-tts');
@@ -210,10 +249,17 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
       lang: 'id-ID',
       outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
     });
-    await tts.ttsPromise(cleanFallback, tempPath);
+    await tts.ttsPromise(naturalFallbackText, tempPath);
     const buf = fs.readFileSync(tempPath);
     fs.unlink(tempPath, () => {});
-    return createAudioResource(Readable.from(buf), { inputType: StreamType.Arbitrary });
+    const resource = createAudioResource(Readable.from(buf), {
+      inputType: StreamType.Arbitrary,
+      inlineVolume: true
+    });
+    if (resource.volume) {
+      resource.volume.setVolume(2.0); // 200% volume boost
+    }
+    return resource;
   } catch (edgeErr) {
     console.error('[Voice TTS Fallback Error]: EdgeTTS failed:', edgeErr.message);
     if (fs.existsSync(tempPath)) fs.unlink(tempPath, () => {});

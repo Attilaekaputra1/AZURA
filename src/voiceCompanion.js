@@ -892,6 +892,92 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
     }
+
+    // --- INTENT D: Headless Browser & Visual Companion (Attila Only) ---
+    const ytBrowsePattern = /(?:bukain|buka|search|cariin|cari|putar|tonton)\s+(?:di\s+)?(?:youtube|yt)\s*(?:cari|tentang|video)?\s*(.+)/i;
+    const ytMatch = cleanTranscript.match(ytBrowsePattern) || transcript.match(ytBrowsePattern);
+
+    if (ytMatch) {
+      const query = ytMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
+      console.log(`[Voice Pipeline]: 🌐 Headless Browser YouTube triggered -> "${query}"`);
+
+      const spokenGreeting = 'Siap Attila sayang, ini aku bukain YouTube dan cariin videonya yaa [laughs]~';
+      recordSessionEntry(guildId, 'AZURA', spokenGreeting);
+
+      const audioResource = await textToAudioResource(spokenGreeting, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+
+      const { browseYouTube, sendVisualSnapshotCard } = require('./headlessBrowser');
+      const ytRes = await browseYouTube(guildId, query, client, voiceChannel, textChannel);
+
+      if (ytRes.success && ytRes.screenshot && textChannel) {
+        await sendVisualSnapshotCard(textChannel, ytRes.title, ytRes.url, ytRes.screenshot, 'Video YouTube berhasil dimuat & audio dialirkan langsung ke VC!');
+      }
+      return;
+    }
+
+    const webBrowsePattern = /(?:bukain|buka|kunjungi|browsing|cek)\s+(?:situs|website|web|link|halaman|url)\s*(.+)/i;
+    const webMatch = cleanTranscript.match(webBrowsePattern) || transcript.match(webBrowsePattern);
+
+    if (webMatch) {
+      const targetUrl = webMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
+      console.log(`[Voice Pipeline]: 🌐 Headless Browser Webpage triggered -> "${targetUrl}"`);
+
+      const spokenGreeting = 'Oke Attila, aku bukain halamannya di browser sekarang yaa~';
+      recordSessionEntry(guildId, 'AZURA', spokenGreeting);
+
+      const audioResource = await textToAudioResource(spokenGreeting, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+
+      const { openWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
+      const webRes = await openWebpage(guildId, targetUrl);
+
+      if (webRes.success && webRes.screenshot && textChannel) {
+        await sendVisualSnapshotCard(textChannel, webRes.title, webRes.url, webRes.screenshot, 'Halaman web berhasil dimuat di browser headless.');
+      } else if (!webRes.success && textChannel) {
+        textChannel.send(`❌ ${webRes.error}`).catch(() => {});
+      }
+      return;
+    }
+
+    const scrollPattern = /\b(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i;
+    if (scrollPattern.test(cleanTranscript) || scrollPattern.test(transcript)) {
+      const isUp = /\b(?:atas|up)\b/i.test(transcript);
+      const direction = isUp ? 'up' : 'down';
+      console.log(`[Voice Pipeline]: 📜 Scroll webpage triggered (${direction})`);
+
+      const { scrollWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
+      const scrollRes = await scrollWebpage(guildId, direction);
+
+      if (scrollRes.success && scrollRes.screenshot && textChannel) {
+        await sendVisualSnapshotCard(textChannel, scrollRes.title, scrollRes.url, scrollRes.screenshot, `Halaman digulir ke ${direction === 'down' ? 'bawah ⬇️' : 'atas ⬆️'}.`);
+      }
+      return;
+    }
+
+    const closeBrowserPattern = /\b(?:tutup|close|stop|matikan)\s+(?:browser|web|tab|layar|sharescreen)\b/i;
+    if (closeBrowserPattern.test(cleanTranscript) || closeBrowserPattern.test(transcript)) {
+      console.log('[Voice Pipeline]: 🔒 Close Browser command detected.');
+      const { closeBrowserSession } = require('./headlessBrowser');
+      const closeRes = await closeBrowserSession(guildId);
+
+      const spokenClose = 'Sesi browser udah aku tutup ya Attila, RAM sudah dibebaskan!';
+      recordSessionEntry(guildId, 'AZURA', spokenClose);
+
+      if (textChannel) {
+        textChannel.send(`🔒 **[AZURA Browser]** ${closeRes.message}`).catch(() => {});
+      }
+
+      const audioResource = await textToAudioResource(spokenClose, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+      return;
+    }
   }
 
   // ══════════════════════════════════════════════════════════════

@@ -370,6 +370,55 @@ client.on('messageCreate', async (message) => {
           }
         }
       }
+
+      // Headless Browser Direct Text Triggers (Attila Only)
+      const isYtBrowse = fullText.match(/(?:bukain|buka|search|cariin|cari|putar|tonton)\s+(?:di\s+)?(?:youtube|yt)\s*(?:cari|tentang|video)?\s*(.+)/i);
+      if (isYtBrowse) {
+        const query = isYtBrowse[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
+        const { browseYouTube, sendVisualSnapshotCard } = require('./headlessBrowser');
+        const loadingMsg = await message.reply('⏳ *Membuka YouTube di browser headless & menyiapkan audio...*').catch(() => null);
+        const ytRes = await browseYouTube(guildId, query, client, null, message.channel);
+        if (loadingMsg && loadingMsg.deletable) loadingMsg.delete().catch(() => {});
+        if (ytRes.success && ytRes.screenshot) {
+          return await sendVisualSnapshotCard(message.channel, ytRes.title, ytRes.url, ytRes.screenshot, 'Video YouTube berhasil dimuat!');
+        } else if (!ytRes.success) {
+          return message.reply(`❌ ${ytRes.error}`);
+        }
+      }
+
+      const isWebBrowse = fullText.match(/(?:bukain|buka|kunjungi|browsing|cek)\s+(?:situs|website|web|link|halaman|url)\s*(.+)/i);
+      if (isWebBrowse) {
+        const targetUrl = isWebBrowse[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
+        const { openWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
+        const loadingMsg = await message.reply('⏳ *Memuat halaman web di browser headless...*').catch(() => null);
+        const webRes = await openWebpage(guildId, targetUrl);
+        if (loadingMsg && loadingMsg.deletable) loadingMsg.delete().catch(() => {});
+        if (webRes.success && webRes.screenshot) {
+          return await sendVisualSnapshotCard(message.channel, webRes.title, webRes.url, webRes.screenshot, 'Halaman web berhasil dimuat!');
+        } else if (!webRes.success) {
+          return message.reply(`❌ ${webRes.error}`);
+        }
+      }
+
+      const isScroll = fullText.match(/\b(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i);
+      if (isScroll) {
+        const isUp = /\b(?:atas|up)\b/i.test(fullText);
+        const direction = isUp ? 'up' : 'down';
+        const { scrollWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
+        const scrollRes = await scrollWebpage(guildId, direction);
+        if (scrollRes.success && scrollRes.screenshot) {
+          return await sendVisualSnapshotCard(message.channel, scrollRes.title, scrollRes.url, scrollRes.screenshot, `Halaman digulir ke ${direction === 'down' ? 'bawah ⬇️' : 'atas ⬆️'}.`);
+        } else if (!scrollRes.success) {
+          return message.reply(`❌ ${scrollRes.error}`);
+        }
+      }
+
+      const isCloseBrowser = /\b(?:tutup|close|stop|matikan)\s+(?:browser|web|tab|layar|sharescreen)\b/i.test(fullText);
+      if (isCloseBrowser) {
+        const { closeBrowserSession } = require('./headlessBrowser');
+        const closeRes = await closeBrowserSession(guildId);
+        return message.reply(`🔒 **[AZURA Browser]** ${closeRes.message}`);
+      }
     }
 
     // Call OpenAI API via AZURA module (with optional images for Vision)

@@ -824,8 +824,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       clearActiveExpireTimer(guildId);
       console.log(`[Voice Pipeline]: 🚪 Trigger Leave VC ("${transcript}") detected from Attila! Marked dismissed.`);
 
-      const spokenLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
-      const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
+      const spokenLeave = 'Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
+      const textLeave = 'Gais aku off dluan ya, babay';
 
       recordSessionEntry(guildId, 'AZURA', textLeave);
 
@@ -1132,8 +1132,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     // Check if AI brain autonomously decided to leave VC
     if (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse)) {
       console.log('[Voice Pipeline]: 🚪 AI Brain triggered LEAVE_VC action!');
-      const farewellSpoken = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
-      const farewellText = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
+      const farewellSpoken = 'Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
+      const farewellText = 'Gais aku off dluan ya, babay';
 
       recordSessionEntry(guildId, 'AZURA', farewellText);
 
@@ -1412,7 +1412,7 @@ Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
 
 ATURAN PERINTAH KELUAR DARI VC:
 HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (misal: "Azura kamu keluar ya", "Ara leave vc sekarang"), jawablah dengan:
-"Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
+"Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli makan", "uang keluar", "keluar bentar"), DILARANG KERAS memicu [ACTION:LEAVE_VC]! Jawablah topik tersebut secara santai dan natural.
 
 ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1.5 MENIT):

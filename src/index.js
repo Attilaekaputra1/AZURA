@@ -78,6 +78,10 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot || message.mentions.everyone) return;
 
   const isDM = !message.guild;
+  const userName = message.member?.displayName || message.author.displayName || message.author.username;
+  const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
+  const guildId = message.guild?.id || null;
+
   const isMentioned = message.mentions.has(client.user.id);
   const startsWithName = /^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)\b/i.test(message.content.trim());
 
@@ -95,7 +99,6 @@ client.on('messageCreate', async (message) => {
   const inVCMode = !isDM && message.guild && isInCompanionMode(message.guild.id);
   const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
 
-  const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
   const isVoiceCommand = isOwner && (
     /\b(?:keluar|leave|cabut|disconnect|dc|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini)/i.test(message.content) ||
     /\b(?:keluar\s+vc|leave\s+vc|cabut\s+vc|join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
@@ -104,6 +107,10 @@ client.on('messageCreate', async (message) => {
 
   // If it's not a DM and not mentioned, not replied to bot, not called by name, and not owner voice command, ignore
   if (!isDM && !isMentioned && !isReplyToBot && !startsWithName && !calledByName && !isVoiceCommand) return;
+
+  // Extract Visual Media for Vision (Attachments, Discord Stickers, Tenor/Giphy GIFs, Embeds)
+  const { extractVisualMedia } = require('./visionHelper');
+  const { imageUrls, visualContextPrompt } = await extractVisualMedia(message);
 
   // Extract Discord Reply / Reference Context (Message Threading & Continuity)
   let replyContextPrompt = '';
@@ -128,33 +135,17 @@ client.on('messageCreate', async (message) => {
     rawPrompt = rawPrompt.replace(/^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)[,:\s]+/i, '').trim();
   }
 
-  // Extract image attachments for Vision & audio attachments for Whisper STT
-  const imageUrls = [];
+  // Extract audio attachments for Whisper STT
   let voicePrompt = '';
-
   if (message.attachments.size > 0) {
     for (const att of message.attachments.values()) {
-      if (att.contentType && att.contentType.startsWith('image/')) {
-        imageUrls.push(att.url);
-      } else if (att.contentType && (att.contentType.startsWith('audio/') || att.name.endsWith('.ogg') || att.name.endsWith('.mp3') || att.name.endsWith('.wav'))) {
+      if (att.contentType && (att.contentType.startsWith('audio/') || att.name.endsWith('.ogg') || att.name.endsWith('.mp3') || att.name.endsWith('.wav'))) {
         const { transcribeAudioAttachment } = require('./stt');
         await message.channel.sendTyping().catch(() => {});
         const transcribedText = await transcribeAudioAttachment(att.url);
         if (transcribedText) {
           voicePrompt = `[Transkrip Suara]: "${transcribedText}"`;
           console.log(`[Whisper STT Transcribed]: ${transcribedText}`);
-        }
-      }
-    }
-  }
-
-  // If no direct image attachment, check if user replied to a message containing an image
-  if (imageUrls.length === 0 && message.reference && message.reference.messageId) {
-    const referencedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
-    if (referencedMsg && referencedMsg.attachments && referencedMsg.attachments.size > 0) {
-      for (const att of referencedMsg.attachments.values()) {
-        if (att.contentType && att.contentType.startsWith('image/')) {
-          imageUrls.push(att.url);
         }
       }
     }
@@ -242,11 +233,6 @@ client.on('messageCreate', async (message) => {
   try {
     // Show typing status in Discord channel
     await message.channel.sendTyping();
-
-    // Get user's display name from Discord profile
-    const userName = message.member?.displayName || message.author.displayName || message.author.username;
-    const guildId = message.guild?.id || null;
-    const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
 
     // Direct Voice Channel Join & Leave trigger for Attila (supports Azura / Ara / Zura / @mention)
     if (isOwner) {

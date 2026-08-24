@@ -14,6 +14,20 @@ const DISCORD_ACTIVITIES = {
     color: 0xFF0000,
     description: 'Nonton bareng video YouTube tersinkronisasi dalam resolusi Full HD dengan kontrol playlist bersama!'
   },
+  wordle: {
+    id: '879863686511382570', // Discord Letter League / Wordle-style Word Game Activity
+    name: 'Wordle / Letter League Activity',
+    emoji: '🟩',
+    color: 0x57F287,
+    description: 'Main game susun kata & tebak kata Wordle resmi Discord langsung di Voice Channel bersama teman!'
+  },
+  spellcast: {
+    id: '852509694341283871',
+    name: 'SpellCast Word Game',
+    emoji: '🔮',
+    color: 0x9B59B6,
+    description: 'Game susun kata sihir kompetitif 4-player resmi Discord di Voice Channel.'
+  },
   chess: {
     id: '832012774040141894',
     name: 'Chess in the Park',
@@ -35,12 +49,12 @@ const DISCORD_ACTIVITIES = {
     color: 0x57F287,
     description: 'Permainan kartu Texas Hold’em poker multiplayer santai di VC.'
   },
-  letterleague: {
-    id: '879863686511382570',
-    name: 'Letter League',
-    emoji: '🔤',
-    color: 0xFEE75C,
-    description: 'Permainan susun kata kompetitif multiplayer ala Scrabble di Voice Channel.'
+  puttparty: {
+    id: '945737671538946068',
+    name: 'Putt Party (Mini Golf)',
+    emoji: '⛳',
+    color: 0x2ECC71,
+    description: 'Game mini golf seru multiplayer langsung di Voice Channel!'
   }
 };
 
@@ -60,7 +74,7 @@ async function launchVoiceActivity(voiceChannel, activityKey = 'youtube', reques
   }
 
   const key = activityKey.toLowerCase().trim();
-  const activity = DISCORD_ACTIVITIES[key] || DISCORD_ACTIVITIES.youtube;
+  const activity = DISCORD_ACTIVITIES[key] || (key.includes('word') ? DISCORD_ACTIVITIES.wordle : DISCORD_ACTIVITIES.youtube);
 
   try {
     const invite = await voiceChannel.createInvite({
@@ -78,9 +92,9 @@ async function launchVoiceActivity(voiceChannel, activityKey = 'youtube', reques
       .setDescription(
         `**${requesterName}** telah meluncurkan sesi **${activity.name}** di **#${voiceChannel.name}**!\n\n` +
         `📝 ${activity.description}\n\n` +
-        `*Klik tombol di bawah ini untuk langsung bergabung ke player tersinkronisasi di Voice Channel.*`
+        `*Klik tombol di bawah ini untuk langsung bergabung ke aktivitas di Voice Channel.*`
       )
-      .setFooter({ text: 'Official Discord Embedded Activity • Zero Latency Full HD' })
+      .setFooter({ text: 'Official Discord Embedded Voice Activity • Zero Latency Full HD' })
       .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
@@ -111,7 +125,7 @@ async function launchVoiceActivity(voiceChannel, activityKey = 'youtube', reques
  */
 function isActivityRequest(prompt) {
   if (!prompt) return false;
-  return /\b(?:youtube\s+together|watch\s+together|nobar\s+youtube|buka\s+youtube|setel\s+youtube|main\s+catur\s+di\s+vc|main\s+chess|main\s+sketch|main\s+game\s+di\s+vc|buka\s+game\s+vc)\b/i.test(prompt);
+  return /\b(?:youtube\s+together|watch\s+together|nobar\s+youtube|buka\s+youtube|setel\s+youtube|main\s+wordle\s+di\s+vc|wordle\s+activity|buka\s+wordle\s+di\s+vc|main\s+catur\s+di\s+vc|main\s+chess|main\s+sketch|main\s+golf|main\s+game\s+di\s+vc|buka\s+game\s+vc)\b/i.test(prompt);
 }
 
 /**
@@ -121,10 +135,11 @@ function isActivityRequest(prompt) {
  */
 function parseActivityType(prompt) {
   const lower = (prompt || '').toLowerCase();
+  if (lower.includes('wordle') || lower.includes('spellcast') || lower.includes('kata')) return 'wordle';
   if (lower.includes('chess') || lower.includes('catur')) return 'chess';
   if (lower.includes('sketch') || lower.includes('gambar') || lower.includes('gartic')) return 'sketch';
   if (lower.includes('poker')) return 'poker';
-  if (lower.includes('letter') || lower.includes('scrabble')) return 'letterleague';
+  if (lower.includes('golf') || lower.includes('putt')) return 'puttparty';
   return 'youtube';
 }
 

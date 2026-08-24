@@ -1,4 +1,4 @@
-const { REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits } = require('discord.js');
 const config = require('./config');
 const budgetGuard = require('./budget');
 const { addReminder } = require('./reminder');
@@ -19,7 +19,8 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('scheduled')
-    .setDescription('Lihat & kelola antrean DM yang sedang dijadwalkan (Khusus Owner)'),
+    .setDescription('Lihat & kelola antrean DM yang sedang dijadwalkan (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('reset')
@@ -76,6 +77,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('agent')
     .setDescription('Jalankan tugas otonom, riset teknis, atau automasi dengan Hermes Agent (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option =>
       option.setName('tugas')
         .setDescription('Instruksi atau tugas yang ingin dijalankan oleh Hermes Agent')
@@ -104,6 +106,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('setowner')
     .setDescription('Daftarkan/ubah Owner utama AZURA (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option =>
       option.setName('target')
         .setDescription('Pilih user Discord yang ingin dijadikan Owner baru (Kosongkan untuk diri sendiri)')
@@ -112,6 +115,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('senddm')
     .setDescription('Kirim Direct Message (DM) ke member server (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option =>
       option.setName('target')
         .setDescription('Display Name / Username / Nickname / ID member yang ingin dikirimi DM')
@@ -124,6 +128,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('sendch')
     .setDescription('Kirim pesan ke channel server melalui AZURA (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan yang ingin dikirim ke channel server')
@@ -200,6 +205,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('vault')
     .setDescription('Kelola & lihat Database Pengguna Terenkripsi AES-256-GCM (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(sub =>
       sub.setName('stats')
         .setDescription('Lihat statistik & rekap pengguna aktif di database terenkripsi'))
@@ -483,8 +489,16 @@ async function handleSlashCommand(interaction, startTime) {
     }
 
   } else if (commandName === 'agent') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({
+        content: '🔒 **Akses Ditolak!** Fitur Autonomous Agent ini khusus untuk Owner (Attila).',
+        flags: 64
+      });
+    }
+
     const task = interaction.options.getString('tugas');
-    await interaction.deferReply();
+    await interaction.deferReply({ flags: 64 });
 
     try {
       const { executeHermesTask } = require('./hermes');

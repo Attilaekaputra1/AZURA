@@ -311,8 +311,6 @@ async function handleSlashCommand(interaction, startTime) {
   const { commandName, user } = interaction;
 
   if (commandName === 'help') {
-    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
-
     const helpEmbed = new EmbedBuilder()
       .setTitle('✨ AZURA Assistant - Pusat Panduan & Fitur')
       .setDescription('Selamat datang di panduan **AZURA (v3.0)**! Pilih kategori fitur dari menu dropdown di bawah ini untuk melihat daftar perintah lengkap:')
@@ -327,13 +325,6 @@ async function handleSlashCommand(interaction, startTime) {
       { name: '⏰ Produktivitas & Memori', value: '`/remindme` • `/memory` • `/vn` • `/status` • `/reset`' }
     );
 
-    if (isOwner) {
-      helpEmbed.addFields({
-        name: '👑 Fitur Khusus Owner (Attila)',
-        value: '`/vault` (Encrypted DB) • `/agent` (Hermes) • `/senddm` • `/scheduled` • `/sendch` • Standby 2-Min'
-      });
-    }
-
     const options = [
       { label: '💬 Obrolan & AI Engine', value: 'cat_ai', description: 'Vision, Whisper Voice Note, & /image' },
       { label: '🎮 Aktivitas VC & Musik', value: 'cat_activity', description: 'YouTube Nobar, Catur, Game VC & Music Streaming' },
@@ -341,10 +332,6 @@ async function handleSlashCommand(interaction, startTime) {
       { label: '🌐 Pencarian Live & Utility', value: 'cat_search', description: 'Tavily Search, Crypto/USD, & Anime Info' },
       { label: '⏰ Produktivitas & Pengingat', value: 'cat_prod', description: 'Reminder, Memory Management, Status, & Reset' }
     ];
-
-    if (isOwner) {
-      options.push({ label: '👑 Fitur Khusus Owner', value: 'cat_owner', description: '/vault, /agent, /senddm, /scheduled, & /setowner' });
-    }
 
     const menu = new StringSelectMenuBuilder()
       .setCustomId('help_category_select')
@@ -370,6 +357,9 @@ async function handleSlashCommand(interaction, startTime) {
     });
 
   } else if (commandName === 'status') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    await interaction.deferReply({ flags: 64 });
+
     const wsPing = Math.round(interaction.client.ws.ping);
     const roundTripLatency = Date.now() - interaction.createdTimestamp;
 
@@ -390,21 +380,15 @@ async function handleSlashCommand(interaction, startTime) {
     const usedSysMemGB = (totalSysMemGB - freeSysMemGB).toFixed(2);
     const sysMemPercent = ((1 - (os.freemem() / os.totalmem())) * 100).toFixed(1);
 
-    // Real-time Voice Quota
-    let voiceInfoStr = '40.000 chars / bulan';
-    try {
-      const { loadQuotaData } = require('./voiceQuota');
-      const voiceData = loadQuotaData();
-      const voicePercent = ((voiceData.usedChars / voiceData.maxMonthlyChars) * 100).toFixed(1);
-      voiceInfoStr = `\`${voiceData.usedChars.toLocaleString('id-ID')} / ${voiceData.maxMonthlyChars.toLocaleString('id-ID')} chars\` (\`${voicePercent}%\` terpakai)`;
-    } catch (_) {}
+    // Direct Live API Integration with ElevenLabs
+    const { fetchLiveElevenLabsQuota } = require('./voiceQuota');
+    const liveVoice = await fetchLiveElevenLabsQuota();
 
     // Real-time Encrypted User Vault
-    let vaultInfoStr = 'Active';
+    let vaultStats = { totalUsers: 0, totalMessages: 0 };
     try {
       const { getVaultStats } = require('./vault');
-      const vaultStats = getVaultStats();
-      vaultInfoStr = `\`${vaultStats.totalUsers} pengguna terdaftar\` (\`${vaultStats.totalMessages} interaksi terenkripsi\`)`;
+      vaultStats = getVaultStats();
     } catch (_) {}
 
     const totalGuilds = interaction.client.guilds.cache.size;
@@ -435,22 +419,34 @@ async function handleSlashCommand(interaction, startTime) {
           inline: false
         },
         {
-          name: '🧠 AI Engine & Voice Companion',
-          value: `• **Brain Core LLM**: \`${config.OPENAI_MODEL}\`\n• **Vision & Image Engine**: \`${config.IMAGE_MODEL}\`\n• **Voice TTS Quota (ElevenLabs v3)**: ${voiceInfoStr}`,
-          inline: false
-        },
-        {
-          name: '🔒 Database & Konektivitas Discord',
-          value: `• **Zero-Knowledge Vault**: ${vaultInfoStr}\n• **Status Enkripsi**: \`AES-256-GCM (Authenticated)\`\n• **Jangkauan Bot**: \`${totalGuilds} Server\` • \`${totalChannels} Channel\``,
+          name: '🧠 AI & Voice Engine',
+          value: isOwner
+            ? `• **Brain Core LLM**: \`${config.OPENAI_MODEL}\` (OpenAI)\n• **Vision & Image Engine**: \`${config.IMAGE_MODEL}\`\n• **ElevenLabs v3 (Live API)**: \`${liveVoice.character_count.toLocaleString('id-ID')} / ${liveVoice.character_limit.toLocaleString('id-ID')} chars\` (\`${liveVoice.percent}%\` terpakai)\n• **Tier / Status**: \`${liveVoice.tier.toUpperCase()}\` (\`${liveVoice.status}\`)\n• **Reset Kuota Berikutnya**: \`${liveVoice.next_reset}\``
+            : `• **Brain Core LLM**: \`${config.OPENAI_MODEL}\`\n• **Vision & Image**: \`${config.IMAGE_MODEL}\`\n• **Voice Companion**: \`ElevenLabs v3 (Kak Ceria)\` (\`Active 🟢\`)`,
           inline: false
         }
-      )
+      );
+
+    if (isOwner) {
+      statusEmbed.addFields({
+        name: '🔒 Database & Jaringan Discord (Khusus Owner)',
+        value: `• **Zero-Knowledge Vault**: \`${vaultStats.totalUsers} pengguna terdaftar\` (\`${vaultStats.totalMessages} interaksi terenkripsi\`)\n• **Status Enkripsi**: \`AES-256-GCM (Authenticated)\`\n• **Koneksi Discord**: \`${totalGuilds} Server\` • \`${totalChannels} Channel\``,
+        inline: false
+      });
+    } else {
+      statusEmbed.addFields({
+        name: '🌐 Jaringan Discord',
+        value: `• **Status Server**: Terhubung ke \`${totalGuilds} Server\` • \`${totalChannels} Channel\``,
+        inline: false
+      });
+    }
+
+    statusEmbed
       .setFooter({ text: 'AZURA Real-Time Telemetry Engine • Live Verified' })
       .setTimestamp();
 
-    await interaction.reply({
-      embeds: [statusEmbed],
-      flags: 64
+    await interaction.editReply({
+      embeds: [statusEmbed]
     });
 
   } else if (commandName === 'remindme') {
@@ -818,20 +814,6 @@ async function handleHelpSelectMenu(interaction) {
         { name: '💡 /report kategori:Advice pesan:<...>', value: 'Kirim saran dan masukan pengembangan AZURA secara privat ke DM Creator (Attila).' },
         { name: '🐛 /report kategori:Report pesan:<...>', value: 'Laporkan bug, error, atau kendala teknis secara rahasia (bisa melampirkan screenshot).' },
         { name: '🔒 Jaminan Kerahasiaan Penuh', value: 'Semua masukan/laporan bersifat rahasia, terenkripsi, dan balasan AZURA hanya bisa dilihat oleh kamu (*Ephemeral*).' }
-      );
-  } else if (value === 'cat_owner') {
-    if (!isOwner) {
-      return interaction.reply({ content: '🔒 Akses ditolak. Kategori ini khusus untuk Owner utama.', flags: 64 });
-    }
-    embed
-      .setTitle('👑 Fitur Khusus Owner (Attila)')
-      .setDescription('Fitur kontrol eksklusif yang hanya bisa diakses oleh Owner utama:')
-      .addFields(
-        { name: '🔒 /vault <stats/view/export>', value: 'Kelola Database Pengguna Terenkripsi AES-256-GCM. Lihat statistik, data profil privat, atau ekspor database ke DM.' },
-        { name: '📩 /senddm', value: 'Kirim DM ke member server berdasarkan nama/username dengan 3 opsi: Kirim Sekarang, Jadwalkan untuk Nanti, Batal.' },
-        { name: '⏰ /scheduled', value: 'Lihat daftar antrean DM yang sedang dijadwalkan & hapus/batalkan antrean kapan saja.' },
-        { name: '👑 /setowner', value: 'Daftarkan atau alihkan status Owner utama AZURA.' },
-        { name: '⏳ Standby Assistant 2-Menit', value: 'Jika Attila di-tag di server dan tidak membalas dalam 2 menit, AZURA otomatis membalas atau me-forward pesan ke DM Attila.' }
       );
   } else if (value === 'cat_search') {
     embed

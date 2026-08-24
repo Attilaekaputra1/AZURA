@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const config = require('./config');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -52,6 +53,112 @@ function saveQuotaData(data) {
   } catch (err) {
     console.error('[VoiceQuota Error]: Failed to save voice_quota.json:', err.message);
   }
+}
+
+/**
+ * Fetch live subscription & quota data directly from ElevenLabs API
+ * @returns {Promise<{ character_count: number, character_limit: number, percent: string, status: string, tier: string, next_reset: string }>}
+ */
+function fetchLiveElevenLabsQuota() {
+  return new Promise((resolve) => {
+    const apiKey = config.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      const fallback = getQuotaStatus();
+      return resolve({
+        character_count: fallback.usedChars,
+        character_limit: fallback.maxMonthlyChars,
+        percent: fallback.percentage,
+        status: 'local_tracking',
+        tier: 'free',
+        next_reset: '-'
+      });
+    }
+
+    const req = https.request({
+      hostname: 'api.elevenlabs.io',
+      path: '/v1/user/subscription',
+      method: 'GET',
+      headers: {
+        'xi-api-key': apiKey,
+        'User-Agent': 'AZURA-Bot/3.0'
+      },
+      timeout: 6000
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.character_count !== undefined && json.character_limit !== undefined) {
+            const count = json.character_count;
+            const limit = json.character_limit;
+            const percent = limit > 0 ? ((count / limit) * 100).toFixed(1) : '0.0';
+            let resetDateStr = '-';
+            if (json.next_character_count_reset_unix) {
+              resetDateStr = new Date(json.next_character_count_reset_unix * 1000).toLocaleDateString('id-ID', {
+                year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta'
+              });
+            }
+
+            // Sync with local tracking file
+            const local = loadQuotaData();
+            local.usedChars = count;
+            local.maxMonthlyChars = limit;
+            saveQuotaData(local);
+
+            return resolve({
+              character_count: count,
+              character_limit: limit,
+              percent: percent,
+              status: json.status || 'active',
+              tier: json.tier || 'starter',
+              next_reset: resetDateStr
+            });
+          }
+        } catch (e) {
+          console.error('[VoiceQuota Live API Parse Error]:', e.message);
+        }
+        // Fallback to local
+        const fallback = getQuotaStatus();
+        resolve({
+          character_count: fallback.usedChars,
+          character_limit: fallback.maxMonthlyChars,
+          percent: fallback.percentage,
+          status: 'cached',
+          tier: 'starter',
+          next_reset: '-'
+        });
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error('[VoiceQuota Live API Error]:', err.message);
+      const fallback = getQuotaStatus();
+      resolve({
+        character_count: fallback.usedChars,
+        character_limit: fallback.maxMonthlyChars,
+        percent: fallback.percentage,
+        status: 'cached',
+        tier: 'starter',
+        next_reset: '-'
+      });
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      const fallback = getQuotaStatus();
+      resolve({
+        character_count: fallback.usedChars,
+        character_limit: fallback.maxMonthlyChars,
+        percent: fallback.percentage,
+        status: 'timeout_cached',
+        tier: 'starter',
+        next_reset: '-'
+      });
+    });
+
+    req.end();
+  });
 }
 
 /**
@@ -142,5 +249,6 @@ function getQuotaStatus() {
 module.exports = {
   canUseElevenLabs,
   recordVoiceUsage,
-  getQuotaStatus
+  getQuotaStatus,
+  fetchLiveElevenLabsQuota
 };

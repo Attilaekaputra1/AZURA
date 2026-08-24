@@ -318,6 +318,144 @@ async function closeBrowserSession(guildId) {
 }
 
 /**
+ * Type text into an active input field / search bar on the webpage
+ * @param {string} guildId 
+ * @param {string} textToType 
+ */
+async function typeIntoWebpage(guildId, textToType) {
+  const session = activeBrowserSessions.get(guildId);
+  if (!session || session.page.isClosed()) {
+    return { success: false, error: 'Tidak ada browser yang aktif. Buka halaman dulu yaa!' };
+  }
+
+  try {
+    const { page } = session;
+    const inputSelector = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"]';
+    const input = await page.$(inputSelector);
+    if (input) {
+      await input.click();
+      await input.fill(textToType);
+      await page.keyboard.press('Enter').catch(() => {});
+    } else {
+      await page.keyboard.type(textToType);
+      await page.keyboard.press('Enter').catch(() => {});
+    }
+
+    await page.waitForTimeout(1000);
+    const title = await page.title().catch(() => session.currentTitle);
+    const url = page.url();
+    session.currentUrl = url;
+    session.currentTitle = title;
+    updateStreamMeta({ title, url });
+
+    const screenshot = await page.screenshot({ type: 'png' });
+    resetSessionTimer(guildId);
+
+    return {
+      success: true,
+      title,
+      url,
+      screenshot,
+      typedText: textToType
+    };
+  } catch (err) {
+    console.error('[Headless Browser Type Error]:', err.message);
+    return { success: false, error: `Gagal mengetik: ${err.message}` };
+  }
+}
+
+/**
+ * Click on an element by text or selector (buttons, links, options, simple captcha buttons)
+ * @param {string} guildId 
+ * @param {string} targetTextOrSelector 
+ */
+async function clickOnWebpage(guildId, targetTextOrSelector) {
+  const session = activeBrowserSessions.get(guildId);
+  if (!session || session.page.isClosed()) {
+    return { success: false, error: 'Tidak ada browser yang aktif. Buka halaman dulu yaa!' };
+  }
+
+  try {
+    const { page } = session;
+    const target = targetTextOrSelector.trim();
+
+    const clicked = await page.evaluate((text) => {
+      const lower = text.toLowerCase();
+      const elements = Array.from(document.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"], span, div, li, select, option'));
+      for (const el of elements) {
+        const content = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+        if (content && (content === lower || content.includes(lower))) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.click();
+          return true;
+        }
+      }
+      return false;
+    }, target);
+
+    if (!clicked) {
+      await page.click(target, { timeout: 3000 }).catch(() => {});
+    }
+
+    await page.waitForTimeout(1200);
+    const title = await page.title().catch(() => session.currentTitle);
+    const url = page.url();
+    session.currentUrl = url;
+    session.currentTitle = title;
+    updateStreamMeta({ title, url });
+
+    const screenshot = await page.screenshot({ type: 'png' });
+    resetSessionTimer(guildId);
+
+    return {
+      success: true,
+      title,
+      url,
+      screenshot,
+      target
+    };
+  } catch (err) {
+    console.error('[Headless Browser Click Error]:', err.message);
+    return { success: false, error: `Gagal mengklik/memilih "${targetTextOrSelector}": ${err.message}` };
+  }
+}
+
+/**
+ * Get readable textual content and visual description of current active webpage
+ * @param {string} guildId 
+ */
+async function getWebpageSummary(guildId) {
+  const session = activeBrowserSessions.get(guildId);
+  if (!session || session.page.isClosed()) {
+    return { success: false, error: 'Tidak ada browser yang aktif.' };
+  }
+
+  try {
+    const { page } = session;
+    const pageData = await page.evaluate(() => {
+      const title = document.title;
+      const h1s = Array.from(document.querySelectorAll('h1, h2')).map(h => h.innerText.trim()).filter(Boolean).slice(0, 5);
+      const paragraphs = Array.from(document.querySelectorAll('p, article, [role="main"]')).map(p => p.innerText.trim()).filter(p => p.length > 20).slice(0, 5);
+      return {
+        title,
+        headings: h1s.join('; '),
+        bodySummary: paragraphs.join('\n')
+      };
+    });
+
+    return {
+      success: true,
+      title: session.currentTitle || pageData.title,
+      url: session.currentUrl,
+      headings: pageData.headings,
+      bodyText: pageData.bodySummary.slice(0, 1500)
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Send interactive Visual Snapshot card with 60fps Live Stream Button to Discord channel
  * @param {import('discord.js').TextChannel} textChannel 
  * @param {string} title 
@@ -362,6 +500,9 @@ module.exports = {
   openWebpage,
   browseYouTube,
   scrollWebpage,
+  typeIntoWebpage,
+  clickOnWebpage,
+  getWebpageSummary,
   closeBrowserSession,
   sendVisualSnapshotCard
 };

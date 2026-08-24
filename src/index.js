@@ -151,6 +151,27 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  // Handle Natural Voice Activities & YouTube Watch Together Trigger (Evaluated first for VC queries)
+  const { isActivityRequest, parseActivityType, launchVoiceActivity } = require('./activities');
+  if (isActivityRequest(message.content)) {
+    let voiceChannel = message.member?.voice?.channel;
+    if (!voiceChannel && message.guild) {
+      const freshMember = await message.guild.members.fetch(message.author.id).catch(() => null);
+      voiceChannel = freshMember?.voice?.channel;
+    }
+    if (voiceChannel) {
+      const actType = parseActivityType(message.content);
+      const actResult = await launchVoiceActivity(voiceChannel, actType, userName);
+      if (actResult.success) {
+        return message.reply({ embeds: actResult.embeds, components: actResult.components });
+      } else {
+        return message.reply(actResult.message);
+      }
+    } else {
+      return message.reply('⚠️ Kamu harus masuk ke Voice Channel terlebih dahulu yaa untuk nobar YouTube / main game bersama! ✨');
+    }
+  }
+
   // Intercept Active Wordle Mini-Game Guesses in Channel
   const { hasActiveWordle, processWordleGuess, isWordleRequest, startWordle } = require('./wordle');
   if (hasActiveWordle(message.channel.id) && !message.author.bot) {
@@ -166,7 +187,7 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Handle Natural Wordle Game Start Request
+  // Handle Natural Wordle Text Game Start Request (For text chat)
   if (isWordleRequest(message.content)) {
     const lang = /\b(?:english|inggris|bule|en)\b/i.test(message.content) ? 'en' : 'id';
     const game = startWordle(message.channel.id, message.author.id, userName, lang);
@@ -174,23 +195,6 @@ client.on('messageCreate', async (message) => {
       return message.reply({ embeds: [game.embed] });
     } else {
       return message.reply(game.message);
-    }
-  }
-
-  // Handle Natural Voice Activities & YouTube Watch Together Trigger
-  const { isActivityRequest, parseActivityType, launchVoiceActivity } = require('./activities');
-  if (isActivityRequest(message.content)) {
-    const voiceChannel = message.member?.voice?.channel;
-    if (voiceChannel) {
-      const actType = parseActivityType(message.content);
-      const actResult = await launchVoiceActivity(voiceChannel, actType, userName);
-      if (actResult.success) {
-        return message.reply({ embeds: actResult.embeds, components: actResult.components });
-      } else {
-        return message.reply(actResult.message);
-      }
-    } else {
-      return message.reply('⚠️ Kamu harus masuk ke Voice Channel terlebih dahulu yaa untuk nobar YouTube / main game bersama! ✨');
     }
   }
 

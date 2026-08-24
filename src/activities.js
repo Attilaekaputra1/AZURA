@@ -5,52 +5,52 @@
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-// Official Discord Embedded Application Activity IDs
+// Verified Official Discord Embedded Application Activity IDs
 const DISCORD_ACTIVITIES = {
   youtube: {
-    id: '880218394199222340',
+    id: '880218394199220334', // Official Discord Watch Together
     name: 'YouTube Watch Together',
     emoji: '📺',
     color: 0xFF0000,
     description: 'Nonton bareng video YouTube tersinkronisasi dalam resolusi Full HD dengan kontrol playlist bersama!'
   },
   wordle: {
-    id: '879863686511382570', // Discord Letter League / Wordle-style Word Game Activity
+    id: '879863686565621790', // Official Discord Letter League (Wordle / Scrabble Style)
     name: 'Wordle / Letter League Activity',
     emoji: '🟩',
     color: 0x57F287,
     description: 'Main game susun kata & tebak kata Wordle resmi Discord langsung di Voice Channel bersama teman!'
   },
   spellcast: {
-    id: '852509694341283871',
+    id: '852509694341283871', // Official SpellCast
     name: 'SpellCast Word Game',
     emoji: '🔮',
     color: 0x9B59B6,
     description: 'Game susun kata sihir kompetitif 4-player resmi Discord di Voice Channel.'
   },
   chess: {
-    id: '832012774040141894',
+    id: '832012774040141894', // Official Chess in the Park
     name: 'Chess in the Park',
     emoji: '♟️',
     color: 0x2B2D31,
     description: 'Main catur klasik langsung di Voice Channel bareng teman-teman server.'
   },
   sketch: {
-    id: '902271654783242291',
+    id: '902271654783242291', // Official Sketch Heads
     name: 'Sketch Heads',
     emoji: '🎨',
     color: 0x5865F2,
     description: 'Tebak gambar seru ala Gartic / Pictionary bersama member Voice Channel!'
   },
   poker: {
-    id: '755827207812677713',
+    id: '755827207812677713', // Official Poker Night
     name: 'Poker Night',
     emoji: '🃏',
     color: 0x57F287,
     description: 'Permainan kartu Texas Hold’em poker multiplayer santai di VC.'
   },
   puttparty: {
-    id: '945737671538946068',
+    id: '945737671538946068', // Official Putt Party
     name: 'Putt Party (Mini Golf)',
     emoji: '⛳',
     color: 0x2ECC71,
@@ -92,7 +92,7 @@ async function launchVoiceActivity(voiceChannel, activityKey = 'youtube', reques
       .setDescription(
         `**${requesterName}** telah meluncurkan sesi **${activity.name}** di **#${voiceChannel.name}**!\n\n` +
         `📝 ${activity.description}\n\n` +
-        `*Klik tombol di bawah ini untuk langsung bergabung ke aktivitas di Voice Channel.*`
+        `*Klik tombol di bawah ini untuk langsung bergabung ke player/game di Voice Channel.*`
       )
       .setFooter({ text: 'Official Discord Embedded Voice Activity • Zero Latency Full HD' })
       .setTimestamp();
@@ -125,7 +125,18 @@ async function launchVoiceActivity(voiceChannel, activityKey = 'youtube', reques
  */
 function isActivityRequest(prompt) {
   if (!prompt) return false;
-  return /\b(?:youtube\s+together|watch\s+together|nobar\s+youtube|buka\s+youtube|setel\s+youtube|main\s+wordle\s+di\s+vc|wordle\s+activity|buka\s+wordle\s+di\s+vc|main\s+catur\s+di\s+vc|main\s+chess|main\s+sketch|main\s+golf|main\s+game\s+di\s+vc|buka\s+game\s+vc)\b/i.test(prompt);
+  const lower = prompt.toLowerCase();
+  
+  // Explicit VC Activity queries
+  const isVcWordle = /\b(?:wordle|letter\s*league|spellcast|tebak\s*kata)\b.*\b(?:vc|voice|channel)\b/i.test(lower) ||
+                     /\b(?:buka|main|start|setel)\s+(?:wordle|letter\s*league|spellcast)\s+(?:di\s+)?(?:vc|voice)/i.test(lower);
+  
+  const isVcYoutube = /\b(?:youtube|watch\s*together|nobar|yt)\b.*\b(?:together|vc|voice|channel)\b/i.test(lower) ||
+                      /\b(?:setel|buka|puter|play|mulai)\s+(?:youtube|watch\s*together|nobar)\s*(?:di\s+)?(?:vc|voice)?/i.test(lower);
+
+  const isGeneralVcGame = /\b(?:main|buka|launch|start)\s+(?:catur|chess|sketch|gartic|poker|golf|game|activity|aktivitas)\s+(?:di\s+)?(?:vc|voice)/i.test(lower);
+
+  return isVcWordle || isVcYoutube || isGeneralVcGame;
 }
 
 /**
@@ -135,7 +146,7 @@ function isActivityRequest(prompt) {
  */
 function parseActivityType(prompt) {
   const lower = (prompt || '').toLowerCase();
-  if (lower.includes('wordle') || lower.includes('spellcast') || lower.includes('kata')) return 'wordle';
+  if (lower.includes('wordle') || lower.includes('letter') || lower.includes('spellcast') || lower.includes('tebak kata')) return 'wordle';
   if (lower.includes('chess') || lower.includes('catur')) return 'chess';
   if (lower.includes('sketch') || lower.includes('gambar') || lower.includes('gartic')) return 'sketch';
   if (lower.includes('poker')) return 'poker';

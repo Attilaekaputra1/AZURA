@@ -138,7 +138,10 @@ function formatDuration(ms) {
  * @param {string} prompt 
  * @returns {Promise<string|null>}
  */
-async function processSmartReminder(userId, channelId, prompt) {
+async function processSmartReminder(userId, arg2, arg3) {
+  let channelId = typeof arg2 === 'string' && /^\d{17,20}$/.test(arg2) ? arg2 : (typeof arg3 === 'string' && /^\d{17,20}$/.test(arg3) ? arg3 : null);
+  let prompt = typeof arg2 === 'string' && !/^\d{17,20}$/.test(arg2) ? arg2 : (typeof arg3 === 'string' ? arg3 : '');
+  if (!prompt || typeof prompt !== 'string') return null;
   const lower = prompt.toLowerCase().trim();
 
   // Guard: Must contain reminder intent keyword

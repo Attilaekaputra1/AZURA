@@ -9,6 +9,7 @@ const { getCryptoPrice, getExchangeRate } = require('./finance');
 const { getTopAnime, searchAnime, getAnimeRecommendations } = require('./media');
 const { handleSendDmCommand, handleListScheduledCommand } = require('./ownerDm');
 const { handleSendChannelCommand } = require('./sendChannel');
+const { generateAiImage, buildImageEmbed, checkImageQuota, recordImageGeneration } = require('./imageGen');
 
 // Definition of slash commands
 const commands = [
@@ -65,6 +66,22 @@ const commands = [
         .setRequired(false)),
 
   new SlashCommandBuilder()
+    .setName('search')
+    .setDescription('Lakukan pencarian berita & web live dengan Tavily AI Engine')
+    .addStringOption(option =>
+      option.setName('query')
+        .setDescription('Apa yang ingin kamu cari di internet?')
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('agent')
+    .setDescription('Jalankan tugas otonom, riset teknis, atau automasi dengan Hermes Agent (Khusus Owner)')
+    .addStringOption(option =>
+      option.setName('tugas')
+        .setDescription('Instruksi atau tugas yang ingin dijalankan oleh Hermes Agent')
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('crypto')
     .setDescription('Cek harga kripto / kurs USD real-time (CoinGecko & ExchangeRate-API)')
     .addStringOption(option =>
@@ -110,7 +127,40 @@ const commands = [
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan yang ingin dikirim ke channel server')
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('image')
+    .setDescription('Generate gambar AI dengan OpenAI (Portrait, Landscape, Square)')
+    .addStringOption(option =>
+      option.setName('prompt')
+        .setDescription('Deskripsi gambar yang ingin dibuat (Contoh: cyber city night, anime girl)')
         .setRequired(true))
+    .addStringOption(option =>
+      option.setName('orientasi')
+        .setDescription('Pilih format/orientasi gambar (Default: Square)')
+        .setRequired(false)
+        .addChoices(
+          { name: '📱 Portrait (9:16 Vertikal - Wallpaper HP / Story)', value: 'portrait' },
+          { name: '🖥️ Landscape (16:9 Horizontal - Wallpaper PC / Banner)', value: 'landscape' },
+          { name: '⏹️ Square (1:1 Kotak - Standar)', value: 'square' }
+        ))
+    .addStringOption(option =>
+      option.setName('kualitas')
+        .setDescription('Pilih kualitas gambar (Default: Standard)')
+        .setRequired(false)
+        .addChoices(
+          { name: '⚡ Standard (Cepat & Hemat)', value: 'standard' },
+          { name: '✨ HD (High Definition - Lebih Detail)', value: 'hd' }
+        ))
+    .addStringOption(option =>
+      option.setName('gaya')
+        .setDescription('Pilih gaya visual (Default: Vivid)')
+        .setRequired(false)
+        .addChoices(
+          { name: '🌟 Vivid (Warna Tajam & Dramatis)', value: 'vivid' },
+          { name: '🌿 Natural (Realistis & Natural)', value: 'natural' }
+        ))
 ];
 
 const fs = require('fs');
@@ -162,24 +212,24 @@ async function registerSlashCommands(client) {
   const commandBody = commands.map(c => c.toJSON());
 
   try {
-    console.log('[AZURA]: Memperbarui slash commands (/help, /scheduled, /reset, /status, /remindme, /vn, /memory, /crypto, /anime, /senddm, /sendch)...');
+    // Register global slash commands
     await rest.put(
       Routes.applicationCommands(config.DISCORD_CLIENT_ID),
       { body: commandBody }
     );
 
-    // Instant update for connected guilds
+    // Clear guild-level duplicate commands so commands don't show up twice/thrice in Discord UI
     if (client && client.guilds && client.guilds.cache.size > 0) {
       for (const guildId of client.guilds.cache.keys()) {
         await rest.put(
           Routes.applicationGuildCommands(config.DISCORD_CLIENT_ID, guildId),
-          { body: commandBody }
+          { body: [] }
         ).catch(() => {});
       }
-      console.log('[AZURA]: Instant Guild Slash Commands berhasil terdaftar di server!');
+      console.log('[AZURA]: Duplicate guild commands successfully cleaned up!');
     }
 
-    console.log('[AZURA]: Slash commands berhasil terdaftar!');
+    console.log('[AZURA]: Global Slash commands berhasil terdaftar!');
   } catch (error) {
     console.error('[AZURA Error]: Gagal mendaftarkan slash commands:', error.message || error);
   }
@@ -203,18 +253,18 @@ async function handleSlashCommand(interaction, startTime) {
       .setTimestamp();
 
     helpEmbed.addFields(
-      { name: '💬 Obrolan & AI', value: 'Chat biasa • Vision (Foto) • Voice Note (Whisper STT)' }
+      { name: '💬 Obrolan, AI & Kreatif', value: 'Chat biasa • Vision (Foto) • Voice Note • `/image` (Portrait & Landscape)' }
     );
 
     if (isOwner) {
       helpEmbed.addFields({
         name: '👑 Fitur Khusus Owner (Attila)',
-        value: '`/senddm` • `/sendch` • `/scheduled` • `/setowner` • Standby 5-Min Assistant'
+        value: '`/agent` • `/senddm` • `/scheduled` • `/setowner` • Standby 2-Min Assistant'
       });
     }
 
     helpEmbed.addFields(
-      { name: '🌐 Pencarian Live & Data', value: 'Pencarian Otomatis di Chat • `/crypto` • `/anime` • Tavily Engine' },
+      { name: '🌐 Pencarian Live & Data', value: '`/search` • `/crypto` • `/anime` • Tavily Engine' },
       { name: '⏰ Memori & Produktivitas', value: '`/memory` • `/remindme` • `/vn` • `/reset` • `/status`' }
     );
 
@@ -223,7 +273,7 @@ async function handleSlashCommand(interaction, startTime) {
     ];
 
     if (isOwner) {
-      options.push({ label: '👑 Fitur Khusus Owner', value: 'cat_owner', description: '/senddm, /scheduled, /setowner, & Auto-Reply' });
+      options.push({ label: '👑 Fitur Khusus Owner', value: 'cat_owner', description: '/agent, /senddm, /scheduled, & Auto-Reply' });
     }
 
     options.push(
@@ -262,21 +312,16 @@ async function handleSlashCommand(interaction, startTime) {
     const secs = uptimeSec % 60;
     const uptimeStr = `${hours}j ${mins}m ${secs}s`;
 
-    const { getQuotaStatus } = require('./voiceQuota');
-    const vq = getQuotaStatus();
-
     const statusMessage = `
 ⚡ **AZURA Status System**
 
 • **Status Bot**: 🟢 Online & Siap
-• **AI Engine**: \`OpenAI (${config.OPENAI_MODEL})\`
-• **Voice Engine**: \`ElevenLabs v3 (Kak Ceria)\` ➔ Fallback: \`OpenAI Nova\`
-• **ElevenLabs Voice Quota**: \`${vq.usedChars.toLocaleString('id-ID')} / ${vq.maxMonthlyChars.toLocaleString('id-ID')} karakter (${vq.percentage}%)\` (Sisa ~${vq.estConversationsRemaining} percakapan)
+• **AI Engine**: \`OpenAI (${config.OPENAI_MODEL})\` & \`Hermes Agent (VPS)\`
 • **Latency**: \`${latency} ms\`
 • **Uptime**: \`${uptimeStr}\`
 • **Target Budget**: \`$${config.MONTHLY_BUDGET_TARGET} / bulan\`
 • **Max Context Limit**: \`${config.MAX_CONTEXT_MESSAGES} pesan\`
-• **Features**: Voice Channel Companion 🎙️ | Vision 📸 | VoiceNote 📻 | Whisper STT 🎧 | Tavily AI Search 🌐 | Long-Term Memory 🧠 | Crypto & Kurs 🪙 | Anime Engine 🎬 | DM Scheduler ⏰
+• **Features**: Vision 📸 | VoiceNote 🎙️ | Whisper STT 🎧 | Tavily AI Search 🌐 | Hermes Agent ⚡ | Img2Img 🎨 | Autonomous Catalyst 🔥 | Long-Term Memory 🧠 | Crypto & Kurs 🪙 | Anime Engine 🎬 | DM Scheduler ⏰ | Daily Digest 📊
     `.trim();
 
     await interaction.reply({
@@ -361,6 +406,34 @@ async function handleSlashCommand(interaction, startTime) {
       });
     }
 
+  } else if (commandName === 'search') {
+    const query = interaction.options.getString('query');
+    await interaction.deferReply();
+
+    try {
+      const { searchTavilyCard } = require('./tavily');
+      const cardResult = await searchTavilyCard(query, 'news', user.username);
+      if (typeof cardResult === 'object' && cardResult.embeds) {
+        await interaction.editReply(cardResult);
+      } else {
+        await interaction.editReply(cardResult);
+      }
+    } catch (error) {
+      await interaction.editReply('gagal melakukan pencarian web. coba lagi nanti ya!');
+    }
+
+  } else if (commandName === 'agent') {
+    const task = interaction.options.getString('tugas');
+    await interaction.deferReply();
+
+    try {
+      const { executeHermesTask } = require('./hermes');
+      const result = await executeHermesTask(task, user.id, user.username);
+      await interaction.editReply(result.payload);
+    } catch (error) {
+      await interaction.editReply('gagal menjalankan tugas agent. coba lagi nanti ya!');
+    }
+
   } else if (commandName === 'crypto') {
     const coin = interaction.options.getString('koin');
     await interaction.deferReply();
@@ -378,11 +451,13 @@ async function handleSlashCommand(interaction, startTime) {
     }
 
   } else if (commandName === 'anime') {
-    const judul = interaction.options.getString('judul');
-    const rekomendasi = interaction.options.getString('rekomendasi');
+    // Immediately defer reply to satisfy Discord's 3-second response window
     if (!interaction.deferred && !interaction.replied) {
       await interaction.deferReply().catch(() => {});
     }
+
+    const judul = interaction.options.getString('judul');
+    const rekomendasi = interaction.options.getString('rekomendasi');
 
     try {
       let result;
@@ -394,19 +469,13 @@ async function handleSlashCommand(interaction, startTime) {
         result = await getAnimeRecommendations('trending');
       }
 
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(result);
-      } else {
-        await interaction.reply({ content: result });
-      }
+      await interaction.editReply(result).catch(async () => {
+        await interaction.followUp({ content: result }).catch(() => {});
+      });
     } catch (error) {
       console.error('[Anime Command Error]:', error.message || error);
       const errMsg = 'gagal mengambil data rekomendasi anime. coba lagi nanti ya!';
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(errMsg).catch(() => {});
-      } else {
-        await interaction.reply({ content: errMsg, flags: 64 }).catch(() => {});
-      }
+      await interaction.editReply(errMsg).catch(() => {});
     }
 
   } else if (commandName === 'setowner') {
@@ -437,6 +506,39 @@ async function handleSlashCommand(interaction, startTime) {
 
   } else if (commandName === 'sendch') {
     await handleSendChannelCommand(interaction);
+
+  } else if (commandName === 'image') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    const quota = checkImageQuota(interaction.guildId, user.id, isOwner);
+
+    if (!quota.allowed) {
+      return interaction.reply({
+        content: quota.reason,
+        flags: 64
+      });
+    }
+
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply().catch(() => {});
+    }
+
+    const promptText = interaction.options.getString('prompt');
+    const orientasi = interaction.options.getString('orientasi') || 'square';
+    const kualitas = interaction.options.getString('kualitas') || 'standard';
+    const gaya = interaction.options.getString('gaya') || 'vivid';
+    const userName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
+
+    try {
+      const result = await generateAiImage(promptText, orientasi, kualitas, gaya);
+      const quotaInfo = recordImageGeneration(interaction.guildId, user.id, isOwner);
+      const payload = buildImageEmbed(promptText, userName, result, quotaInfo);
+      await interaction.editReply(payload);
+    } catch (error) {
+      console.error('[Image Command Error]:', error.message || error);
+      await interaction.editReply({
+        content: `❌ Gagal menghasilkan gambar AI: ${error.message || 'Terjadi kendala teknis'}`
+      }).catch(() => {});
+    }
   }
 }
 
@@ -453,9 +555,10 @@ async function handleHelpSelectMenu(interaction) {
 
   if (value === 'cat_ai') {
     embed
-      .setTitle('💬 Fitur Obrolan & AI Engine')
+      .setTitle('💬 Fitur Obrolan, AI & Image Generation')
       .setDescription('AZURA dilengkapi dengan kemampuan AI generatif canggih:')
       .addFields(
+        { name: '🎨 /image prompt:<...> [orientasi]', value: 'Generate gambar AI resolusi tinggi dalam format **Portrait (9:16)**, **Landscape (16:9)**, atau **Square (1:1)** dengan OpenAI Engine.' },
         { name: '📸 Multimodal Vision', value: 'Kirimkan gambar/foto di chat/DM, AZURA akan menganalisis dan menanggapi isi gambar tersebut.' },
         { name: '🎙️ Voice Message STT (Whisper)', value: 'Kirimkan pesan suara/voice note di Discord, AZURA akan mendengarkan & membalas pesan kamu!' }
       );
@@ -470,14 +573,14 @@ async function handleHelpSelectMenu(interaction) {
         { name: '📩 /senddm', value: 'Kirim DM ke member server berdasarkan nama/username dengan 3 opsi: Kirim Sekarang, Jadwalkan untuk Nanti, Batal.' },
         { name: '⏰ /scheduled', value: 'Lihat daftar antrean DM yang sedang dijadwalkan & hapus/batalkan antrean kapan saja.' },
         { name: '👑 /setowner', value: 'Daftarkan atau alihkan status Owner utama AZURA.' },
-        { name: '⏳ Standby Assistant 5-Menit', value: 'Jika Attila di-tag/di-reply di server dan tidak membalas dalam 5 menit, AZURA otomatis membalas atau me-forward pesan ke DM Attila.' }
+        { name: '⏳ Standby Assistant 2-Menit', value: 'Jika Attila di-tag di server dan tidak membalas dalam 2 menit, AZURA otomatis membalas atau me-forward pesan ke DM Attila.' }
       );
   } else if (value === 'cat_search') {
     embed
       .setTitle('🌐 Fitur Pencarian Live & Utility')
       .setDescription('Akses data real-time dari internet & media:')
       .addFields(
-        { name: '🌐 Pencarian Web Real-Time (Tavily AI Engine)', value: 'Ketik langsung di chat/DM (contoh: *"tolong cari berita hari ini"*, *"cek cuaca Jakarta"*, *"cari info tentang..."*), AZURA akan mencari data terbaru di internet secara otomatis.' },
+        { name: '🔍 /search <query>', value: 'Cari berita, cuaca, atau info terkini dari internet menggunakan Tavily AI Engine.' },
         { name: '🪙 /crypto <koin/usd>', value: 'Cek harga kripto (BTC, ETH, SOL) atau kurs USD ke IDR real-time.' },
         { name: '🎬 /anime <judul/rekomendasi>', value: 'Cari detail anime atau rekomendasi anime terpopuler di MyAnimeList.' }
       );

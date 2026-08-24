@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
 const config = require('./config');
 const budgetGuard = require('./budget');
 const { askAzura } = require('./azura');
@@ -7,6 +7,7 @@ const { registerSlashCommands, handleSlashCommand } = require('./commands');
 const { initReminderChecker } = require('./reminder');
 const { handleOwnerMentionTracking } = require('./autoReply');
 const { handleVoiceStateUpdate } = require('./voiceCompanion');
+const { initAutonomousCatalyst, recordChannelActivity } = require('./autonomous');
 
 // Validate configuration before start
 const missingKeys = config.validate();
@@ -35,13 +36,13 @@ const client = new Client({
 
 
 // Event: Client Ready
-client.once('clientReady', async () => {
+client.once(Events.ClientReady, async () => {
   console.log('\n==================================================');
   console.log(`🤖 AZURA Online!`);
   console.log(`• Username : ${client.user.tag}`);
   console.log(`• AI Model : ${config.OPENAI_MODEL}`);
   console.log(`• Budget   : $${config.MONTHLY_BUDGET_TARGET}/bulan`);
-  console.log(`• Features : Vision 📸 | VoiceNote 🎙️ | Search 🌐 | Reminder ⏰`);
+  console.log(`• Features : Vision 📸 | VoiceNote 🎙️ | Search 🌐 | Img2Img 🎨 | Autonomous 🔥`);
   console.log('==================================================\n');
 
   // Register slash commands
@@ -58,10 +59,18 @@ client.once('clientReady', async () => {
     checkScheduledDms(client);
     checkDailyDigest(client);
   }, 15000);
+
+  // Initialize Autonomous Conversation Catalyst Engine
+  await initAutonomousCatalyst(client);
 });
 
 // Event: Message Created (@AZURA mention listener & DM listener)
 client.on('messageCreate', async (message) => {
+  // Track channel activity for Autonomous Dead-Chat Catalyst
+  if (message.guild && message.channel && !message.author.bot) {
+    recordChannelActivity(message.channel.id, message);
+  }
+
   // Track owner mentions and start 5-minute countdown auto-reply
   handleOwnerMentionTracking(message);
 
@@ -70,28 +79,31 @@ client.on('messageCreate', async (message) => {
 
   const isDM = !message.guild;
   const isMentioned = message.mentions.has(client.user.id);
-  const userName = message.member?.displayName || message.author.displayName || message.author.username;
+  const startsWithName = /^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)\b/i.test(message.content.trim());
 
-  // Check if message calls AZURA by name (Azura / Ara / Zura) — triggers response without needing @mention
-  const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
-
-  // Record ambient server channel messages into sliding window memory for multi-user context
-  if (!isDM && message.channel.id && message.content && !isMentioned && !calledByName) {
-    const rawText = message.content.replace(/<@!?\d+>/g, '').trim();
-    if (rawText) {
-      budgetGuard.addMessageToContext(`channel_${message.channel.id}`, 'user', `[${userName}]: ${rawText}`);
+  // Check if user is directly replying to a previous message from AZURA
+  let isReplyToBot = false;
+  if (message.reference && message.reference.messageId) {
+    const repliedMsg = message.channel.messages.cache.get(message.reference.messageId);
+    if (repliedMsg && repliedMsg.author.id === client.user.id) {
+      isReplyToBot = true;
     }
   }
 
-  // If it's not a DM and not mentioned and not called by name (Azura / Ara / Zura), ignore
-  if (!isDM && !isMentioned && !calledByName) return;
+  // Check if AZURA is in Voice Companion mode in this guild or called by nickname
+  const { isInCompanionMode } = require('./voiceCompanion');
+  const inVCMode = !isDM && message.guild && isInCompanionMode(message.guild.id);
+  const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
 
-  // Clean prompt by removing bot mention tag
-  const rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();
+  const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
+  const isVoiceCommand = isOwner && (
+    /\b(?:keluar|leave|cabut|disconnect|dc|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini)/i.test(message.content) ||
+    /\b(?:keluar\s+vc|leave\s+vc|cabut\s+vc|join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
+    /\b(?:keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(message.content)
+  );
 
-  // Extract Visual Media for Vision (Attachments, Discord Stickers, Tenor/Giphy GIFs, Embeds)
-  const { extractVisualMedia } = require('./visionHelper');
-  const { imageUrls, visualContextPrompt } = await extractVisualMedia(message);
+  // If it's not a DM and not mentioned, not replied to bot, not called by name, and not owner voice command, ignore
+  if (!isDM && !isMentioned && !isReplyToBot && !startsWithName && !calledByName && !isVoiceCommand) return;
 
   // Extract Discord Reply / Reference Context (Message Threading & Continuity)
   let replyContextPrompt = '';
@@ -110,11 +122,21 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Extract audio attachments for Whisper STT
+  // Clean prompt by removing bot mention tag and leading 'azura' / 'ara' / 'zura' prefix
+  let rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();
+  if (startsWithName) {
+    rawPrompt = rawPrompt.replace(/^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)[,:\s]+/i, '').trim();
+  }
+
+  // Extract image attachments for Vision & audio attachments for Whisper STT
+  const imageUrls = [];
   let voicePrompt = '';
+
   if (message.attachments.size > 0) {
     for (const att of message.attachments.values()) {
-      if (att.contentType && (att.contentType.startsWith('audio/') || att.name.endsWith('.ogg') || att.name.endsWith('.mp3') || att.name.endsWith('.wav'))) {
+      if (att.contentType && att.contentType.startsWith('image/')) {
+        imageUrls.push(att.url);
+      } else if (att.contentType && (att.contentType.startsWith('audio/') || att.name.endsWith('.ogg') || att.name.endsWith('.mp3') || att.name.endsWith('.wav'))) {
         const { transcribeAudioAttachment } = require('./stt');
         await message.channel.sendTyping().catch(() => {});
         const transcribedText = await transcribeAudioAttachment(att.url);
@@ -126,15 +148,24 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  // If no direct image attachment, check if user replied to a message containing an image
+  if (imageUrls.length === 0 && message.reference && message.reference.messageId) {
+    const referencedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+    if (referencedMsg && referencedMsg.attachments && referencedMsg.attachments.size > 0) {
+      for (const att of referencedMsg.attachments.values()) {
+        if (att.contentType && att.contentType.startsWith('image/')) {
+          imageUrls.push(att.url);
+        }
+      }
+    }
+  }
+
   let finalPrompt = rawPrompt;
   if (replyContextPrompt) {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;
   }
   if (voicePrompt) {
-    finalPrompt = finalPrompt ? `${finalPrompt}\n${voicePrompt}` : voicePrompt;
-  }
-  if (visualContextPrompt) {
-    finalPrompt = finalPrompt ? `${finalPrompt}\n${visualContextPrompt}` : visualContextPrompt;
+    finalPrompt = rawPrompt ? `${rawPrompt}\n${voicePrompt}` : voicePrompt;
   }
 
   // Handle empty mention (no text AND no images AND no voice)
@@ -143,7 +174,12 @@ client.on('messageCreate', async (message) => {
     return message.reply(emptyGreeting);
   }
 
-
+  // Rate limit / cooldown guard
+  const rateLimit = budgetGuard.checkRateLimit(message.author.id);
+  if (rateLimit.isLimited) {
+    const sec = (rateLimit.remainingMs / 1000).toFixed(1);
+    return message.reply(`sabar bentar ya, tunggu ${sec} detik lagi.`);
+  }
 
   // Developer console logging
   const startTime = Date.now();
@@ -154,82 +190,68 @@ client.on('messageCreate', async (message) => {
     // Show typing status in Discord channel
     await message.channel.sendTyping();
 
-    // Automatic Channel Chat Recap for Same-Day Conversations
-    const { isRecapRequest, processChannelRecap } = require('./recap');
-    if (!isDM && isRecapRequest(rawPrompt) && imageUrls.length === 0) {
-      console.log(`[AZURA Channel Recap]: Generating same-day chat recap for #${message.channel.name}...`);
-      const recapResult = await processChannelRecap(message.channel, userName, message.author.id);
-      if (recapResult) {
-        return message.reply(recapResult);
-      }
-    }
+    // Get user's display name from Discord profile
+    const userName = message.member?.displayName || message.author.displayName || message.author.username;
+    const guildId = message.guild?.id || null;
+    const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
 
-    // Automatic Image Handling in Natural Chat (Image-to-Image OR Text-to-Image)
-    const { isImageEditRequest, isImageGenRequest, editReferenceImage, generateImage } = require('./imageGen');
-    const isEditMode = imageUrls.length > 0 && isImageEditRequest(rawPrompt);
-    const isGenMode = imageUrls.length === 0 && isImageGenRequest(rawPrompt);
+    // Direct Voice Channel Join & Leave trigger for Attila (supports Azura / Ara / Zura / @mention)
+    if (isOwner) {
+      const fullText = (message.content + ' ' + finalPrompt).toLowerCase().trim();
+      const isJoinTrigger =
+        /\b(?:join\s+vc\s+lagi|masuk\s+vc\s+lagi|masuk\s+vc\s+lagi\s+dong|join\s+vc\s+lagi\s+dong)\b/i.test(fullText) ||
+        /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(fullText);
 
-    if (isEditMode || isGenMode) {
-      // Safety & Ethics Guard for Image Generation
-      const { validateImageSafety } = require('./imageGen');
-      const safety = validateImageSafety(rawPrompt);
-      if (!safety.safe) {
-        return message.reply(safety.message);
-      }
+      const isLeaveTrigger =
+        /\b(?:keluar\s+sekarang|keluar\s+skrg|keluar\s+skrng|leave\s+sekarang|cabut\s+sekarang)\b/i.test(fullText) ||
+        /\b(?:keluar\s+vc|leave\s+vc|keluar\s+voice|leave\s+voice|keluar\s+dari\s+vc|cabut\s+dari\s+vc|keluar\s+dulu\s+dari\s+vc|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(fullText);
 
-      // Check Daily Server Quota (10 Generates / Day per Server)
-      const { checkServerQuota, incrementServerQuota } = require('./imageQuota');
-      const quota = checkServerQuota(message.guild?.id, message.author.id);
-
-      if (!quota.allowed) {
-        return message.reply(`⚠️ **[KUOTA GAMBAR SERVER HABIS]** Kuota harian pembuatan gambar untuk server ini hari ini sudah terpakai **${quota.count}/${quota.limit}**! Kuota akan di-reset kembali besok pukul 00:00 WIB. *(Khusus Owner tidak terbatas ✨)*`);
+      if (isJoinTrigger) {
+        console.log(`[VC Controller]: Attila triggered Join VC from text chat (${message.channel.name || 'DM'}).`);
+        const { joinAttilaVoiceChannel } = require('./voiceCompanion');
+        const joinRes = await joinAttilaVoiceChannel(client);
+        return message.reply(joinRes.message);
       }
 
-      console.log(`[AZURA Natural Chat Image]: ${isEditMode ? 'Edit' : 'Generation'} triggered for ${message.author.tag}`);
-      
-      let imgResult;
-      if (isEditMode) {
-        imgResult = await editReferenceImage(imageUrls[0], rawPrompt);
-      } else {
-        imgResult = await generateImage(rawPrompt);
+      if (isLeaveTrigger) {
+        console.log(`[VC Controller]: Attila triggered Leave VC from text chat (${message.channel.name || 'DM'}).`);
+        const { leaveVoiceChannel } = require('./voiceCompanion');
+        const leaveRes = await leaveVoiceChannel(client, message.guild?.id || null);
+        return message.reply(leaveRes.message);
       }
 
-      incrementServerQuota(message.guild?.id, message.author.id);
-      const remainingText = quota.isOwner ? 'Unlimited (Owner)' : `${quota.limit - (quota.count + 1)}/10 sisa hari ini`;
-      
-      const { EmbedBuilder } = require('discord.js');
-      const embed = new EmbedBuilder()
-        .setColor(0xFF69B4)
-        .setTitle(isEditMode ? '✨ Hasil Edit Gambar Referensi' : '🎨 Hasil Karya Gambar AZURA')
-        .setDescription(`**Prompt / Instruksi**: "${rawPrompt}"\n• **Ukuran Rasio**: \`${imgResult.dimensions || '1024x1024'}\`\n• **Model**: \`${imgResult.model || 'gpt-image-2'}\`\n• **Kuota Server**: \`${remainingText}\``)
-        .setFooter({ text: 'Powered by gpt-image-2 & gpt-5.6-luna Vision' })
-        .setTimestamp();
-
-      if (imgResult.imageSource) {
-        embed.setImage(imgResult.imageSource);
+      // Direct Play Music trigger from chat (Direct Voice Music Streaming)
+      const musicMatch = fullText.match(/(?:setel|puterin|putar|mainkan|setelin)\s+(?:lagu|musik|lagunya)?\s*(.+)/i);
+      if (musicMatch) {
+        let songTitle = musicMatch[1]
+          .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot)\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (songTitle.length > 1) {
+          console.log(`[Music Streamer]: Attila triggered music from text: "${songTitle}"`);
+          const { streamMusicDirect } = require('./musicStreamer');
+          const { audioPlayers, companionTextChannels } = require('./voiceCompanion');
+          const player = audioPlayers.get(guildId);
+          if (player) {
+            const res = await streamMusicDirect(guildId, songTitle, player, message.channel, userName);
+            return message.reply(res.message);
+          } else {
+            return message.reply(`Masuk ke Voice Channel dulu ya ${userName}, biar aku bisa puterin lagunya langsung! 🎶✨`);
+          }
+        }
       }
-
-      const replyPayload = {
-        content: isEditMode ? 'Ini hasil edit gambar kamu yaa! ✨' : 'Selesai! Ini dia gambar yang kamu minta ✨',
-        embeds: [embed]
-      };
-
-      // If image is from gpt-image-2 (b64_json), attach the file
-      if (imgResult.attachment) {
-        replyPayload.files = [imgResult.attachment];
-      }
-
-      return message.reply(replyPayload);
     }
 
     // Call OpenAI API via AZURA module (with optional images for Vision)
-    const response = await askAzura(message.author.id, finalPrompt, userName, imageUrls, isDM, message.channel.id);
+    const response = await askAzura(message.author.id, finalPrompt, userName, imageUrls, isDM, message.channel.id, guildId, isOwner);
 
     const elapsed = Date.now() - startTime;
     console.log(`[Response] User: ${message.author.tag} | Time: ${elapsed}ms`);
 
-    // Discord message splitter (max 2000 chars)
-    if (response.length <= 2000) {
+    // Discord message splitter (max 2000 chars) or Rich Embed Payload
+    if (typeof response === 'object') {
+      await message.reply(response);
+    } else if (response.length <= 2000) {
       await message.reply(response);
     } else {
       // Split into chunks of max 1900 chars
@@ -239,8 +261,8 @@ client.on('messageCreate', async (message) => {
       }
     }
   } catch (error) {
-    console.error('[AZURA Message Error]:', error.stack || error.message || error);
-    await message.reply(`⚠️ **[SISTEM ERROR]**: \`${error.message || 'Gagal memproses pesan'}\`. Coba lagi sebentar lagi ya!`);
+    console.error('[AZURA Message Error]:', error.message || error);
+    await message.reply('bentar, otak gw lagi error dikit. coba bentar lagi ya!');
   }
 });
 
@@ -254,13 +276,24 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     const { handleSendDmButton } = require('./ownerDm');
     const { handleSendChannelButton } = require('./sendChannel');
-    const { handleMusicButton } = require('./voiceCompanion');
+
+    // Handle Direct Music Streaming control buttons
+    if (interaction.customId.startsWith('music_pause_')) {
+      const gid = interaction.customId.replace('music_pause_', '');
+      const { pauseOrResumeMusic } = require('./musicStreamer');
+      const res = pauseOrResumeMusic(gid);
+      return interaction.reply({ content: res.message, flags: 64 });
+    }
+    if (interaction.customId.startsWith('music_stop_')) {
+      const gid = interaction.customId.replace('music_stop_', '');
+      const { stopMusic } = require('./musicStreamer');
+      const res = stopMusic(gid);
+      return interaction.reply({ content: res.message, flags: 64 });
+    }
+
     // Route to correct button handler based on customId prefix
     if (interaction.customId.startsWith('confirmch_') || interaction.customId.startsWith('cancelch_')) {
       return handleSendChannelButton(interaction);
-    }
-    if (interaction.customId.startsWith('confirm_playmusic_') || interaction.customId.startsWith('cancel_playmusic_')) {
-      return handleMusicButton(interaction);
     }
     return handleSendDmButton(interaction);
   }

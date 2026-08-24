@@ -175,7 +175,27 @@ const commands = [
           { name: '🎨 Sketch Heads (Tebak Gambar ala Gartic)', value: 'sketch' },
           { name: '🃏 Poker Night', value: 'poker' },
           { name: '🔤 Letter League (Scrabble)', value: 'letterleague' }
+        )),
+
+  new SlashCommandBuilder()
+    .setName('report')
+    .setDescription('Kirim Saran (Advice) atau Laporan Bug (Report) langsung ke Creator AZURA')
+    .addStringOption(option =>
+      option.setName('kategori')
+        .setDescription('Pilih kategori (Saran / Laporan Bug)')
+        .setRequired(true)
+        .addChoices(
+          { name: '💡 Advice (Saran & Masukan Pengembangan)', value: 'advice' },
+          { name: '🐛 Report (Laporan Bug & Kendala Teknis)', value: 'report' }
         ))
+    .addStringOption(option =>
+      option.setName('pesan')
+        .setDescription('Isi saran atau deskripsi kendala yang ingin kamu laporkan')
+        .setRequired(true))
+    .addAttachmentOption(option =>
+      option.setName('lampiran')
+        .setDescription('Tangkapan layar / screenshot kendala (Opsional)')
+        .setRequired(false))
 ];
 
 const fs = require('fs');
@@ -574,6 +594,10 @@ async function handleSlashCommand(interaction, startTime) {
     } else {
       await interaction.reply({ content: res.message, flags: 64 });
     }
+
+  } else if (commandName === 'report' || commandName === 'feedback') {
+    const { handleFeedbackSlash } = require('./feedback');
+    await handleFeedbackSlash(interaction);
   }
 }
 

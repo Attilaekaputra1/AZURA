@@ -172,6 +172,24 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  // Handle Natural Advice & Report Feedback Trigger (Server or DM)
+  const { parseNaturalFeedback, submitFeedback } = require('./feedback');
+  const naturalFeedback = parseNaturalFeedback(rawPrompt || message.content);
+  if (naturalFeedback.isFeedback && naturalFeedback.content) {
+    const attachUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+    const fbRes = await submitFeedback(client, {
+      userId: message.author.id,
+      userName,
+      userTag: message.author.tag,
+      type: naturalFeedback.type,
+      content: naturalFeedback.content,
+      guildName: message.guild?.name || null,
+      channelName: message.channel?.name || null,
+      imageUrl: attachUrl
+    });
+    return message.reply(fbRes.message);
+  }
+
   let finalPrompt = rawPrompt;
   if (replyContextPrompt) {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;

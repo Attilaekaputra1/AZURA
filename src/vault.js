@@ -336,6 +336,7 @@ module.exports = {
   loadVault,
   saveVault,
   recordUserInteraction,
+  extractRealName,
   getVaultStats,
   getUserRecord,
   exportVaultData,

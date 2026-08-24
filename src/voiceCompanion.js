@@ -20,6 +20,7 @@ const audioPlayers = new Map();           // guildId -> AudioPlayer
 const activeRecordings = new Set();       // userIds currently being recorded
 const voiceCooldowns = new Map();         // userId -> last response timestamp
 const isBotSpeaking = new Set();          // guildIds where bot is speaking
+const isGuildProcessingVoice = new Set(); // guildIds where voice turn is actively processing (Whisper/GPT/TTS)
 const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
 const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, channelId, requesterId }
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
@@ -457,8 +458,8 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
   const receiver = connection.receiver;
 
   receiver.speaking.on('start', (userId) => {
-    // === Gate 1: Check if bot is speaking (prevent feedback loop) ===
-    if (isBotSpeaking.has(guildId)) return;
+    // === Gate 1: Check if bot is speaking or actively processing previous voice turn (prevent overlaps & double responses) ===
+    if (isBotSpeaking.has(guildId) || isGuildProcessingVoice.has(guildId)) return;
 
     // === Gate 2: Not already recording this user ===
     if (activeRecordings.has(userId)) return;
@@ -565,94 +566,101 @@ const pendingAttilaVoiceCalls = new Map(); // guildId -> { timer, callerId, call
  * Detects if the member is calling Attila ("Att", "Attila", "Til") and starts 10-second absence timer.
  */
 async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel) {
-  const pcmBuffer = Buffer.concat(pcmChunks);
-  if (pcmBuffer.length < MIN_AUDIO_BYTES) return;
+  if (isGuildProcessingVoice.has(guildId)) return;
+  isGuildProcessingVoice.add(guildId);
 
-  // Energy Gate: reject quiet noise
-  const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
-  let sumSquares = 0;
-  for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
-  const rms = Math.sqrt(sumSquares / samples.length);
-  if (rms < 300) return;
+  try {
+    const pcmBuffer = Buffer.concat(pcmChunks);
+    if (pcmBuffer.length < MIN_AUDIO_BYTES) return;
 
-  voiceCooldowns.set(userId, Date.now());
+    // Energy Gate: reject quiet noise
+    const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+    const rms = Math.sqrt(sumSquares / samples.length);
+    if (rms < 300) return;
 
-  const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
-  const transcript = await transcribeVoice(wavBuffer);
-  if (!transcript || transcript.length < 2) return;
+    voiceCooldowns.set(userId, Date.now());
 
-  // Hallucination filter
-  const normalized = transcript.toLowerCase().replace(/[.,!?]+/g, '').trim();
-  if (WHISPER_HALLUCINATIONS.has(normalized) || normalized.length < 4) return;
+    const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
+    const transcript = await transcribeVoice(wavBuffer);
+    if (!transcript || transcript.length < 2) return;
 
-  const member = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
-  const callerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
+    // Hallucination filter
+    const normalized = transcript.toLowerCase().replace(/[.,!?]+/g, '').trim();
+    if (WHISPER_HALLUCINATIONS.has(normalized) || normalized.length < 4) return;
 
-  console.log(`[Voice Pipeline]: Member "${callerName}" (${userId}) said in VC: "${transcript}"`);
+    const member = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
+    const callerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
 
-  // Record to session transcript
-  recordSessionEntry(guildId, callerName, transcript);
+    console.log(`[Voice Pipeline]: Member "${callerName}" (${userId}) said in VC: "${transcript}"`);
 
-  // Check if member is calling Attila ("Att", "Attila", "Til", "Atila")
-  // NOTE: Members have NO access to call Azura or issue commands (music, leave, etc.)
-  // Only the 10-second Attila-absent fallback is available for members.
-  const isCallingAttila = /\b(?:attila|att|til|atila|tatil)\b/i.test(transcript);
-  if (!isCallingAttila) return;
+    // Record to session transcript
+    recordSessionEntry(guildId, callerName, transcript);
 
-  console.log(`[Voice Pipeline]: Member "${callerName}" called Attila in VC! Starting 10-second absence countdown...`);
+    // Check if member is calling Attila ("Att", "Attila", "Til", "Atila")
+    // NOTE: Members have NO access to call Azura or issue commands (music, leave, etc.)
+    // Only the 10-second Attila-absent fallback is available for members.
+    const isCallingAttila = /\b(?:attila|att|til|atila|tatil)\b/i.test(transcript);
+    if (!isCallingAttila) return;
 
-  // Clear existing timer if any
-  if (pendingAttilaVoiceCalls.has(guildId)) {
-    clearTimeout(pendingAttilaVoiceCalls.get(guildId).timer);
-    pendingAttilaVoiceCalls.delete(guildId);
-  }
+    console.log(`[Voice Pipeline]: Member "${callerName}" called Attila in VC! Starting 10-second absence countdown...`);
 
-  const timer = setTimeout(async () => {
-    pendingAttilaVoiceCalls.delete(guildId);
-    console.log(`[Voice Pipeline]: 10 seconds elapsed without Attila speaking in VC. AZURA responding on Attila's behalf...`);
-
-    // Voice response text
-    const spokenReply = 'Hmmm... [sighs] kayaknya Attila lagi ada masalah jaringan atau di kamar mandi deh, bentar aku bantu panggilin dulu yaa~';
-    recordSessionEntry(guildId, 'AZURA', spokenReply);
-
-    const audioResource = await textToAudioResource(spokenReply);
-    if (audioResource) {
-      await playInVC(guildId, audioResource);
+    // Clear existing timer if any
+    if (pendingAttilaVoiceCalls.has(guildId)) {
+      clearTimeout(pendingAttilaVoiceCalls.get(guildId).timer);
+      pendingAttilaVoiceCalls.delete(guildId);
     }
 
-    // Ensure bot returns to mute after speaking
-    const conn = activeConnections.get(guildId);
-    if (conn) {
-      try {
-        conn.rejoin({ selfMute: true, selfDeaf: false });
-      } catch (_) {}
-    }
+    const timer = setTimeout(async () => {
+      pendingAttilaVoiceCalls.delete(guildId);
+      console.log(`[Voice Pipeline]: 10 seconds elapsed without Attila speaking in VC. AZURA responding on Attila's behalf...`);
 
-    // Send DM alert to Attila
-    try {
-      const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
-      if (owner) {
-        const chName = voiceChannel?.name ? `#${voiceChannel.name}` : 'Voice Channel';
-        const gName = voiceChannel?.guild?.name || 'Server';
-        await owner.send(
-          `📢 **[PANGGILAN DI VOICE CHANNEL - 10 DETIK TANPA RESPON]**\n\n` +
-          `Tadi kamu dipanggil di Voice Channel **${chName}** (${gName}) sama **${callerName}** (<@${userId}>):\n` +
-          `• **Ucapan di VC**: "${transcript}"\n\n` +
-          `*AZURA sudah bantu kasih tahu di VC bahwa kamu lagi ada masalah jaringan/away.*`
-        );
-        console.log(`[Voice Pipeline]: Sent 10s voice call notification to Attila's DM.`);
+      // Voice response text
+      const spokenReply = 'Hmmm... [sighs] kayaknya Attila lagi ada masalah jaringan atau di kamar mandi deh, bentar aku bantu panggilin dulu yaa~';
+      recordSessionEntry(guildId, 'AZURA', spokenReply);
+
+      const audioResource = await textToAudioResource(spokenReply);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
       }
-    } catch (dmErr) {
-      console.error('[Voice Pipeline DM Error]:', dmErr.message);
-    }
-  }, 10000); // 10 seconds
 
-  pendingAttilaVoiceCalls.set(guildId, {
-    timer,
-    callerId: userId,
-    callerName,
-    transcript
-  });
+      // Ensure bot returns to mute after speaking
+      const conn = activeConnections.get(guildId);
+      if (conn) {
+        try {
+          conn.rejoin({ selfMute: true, selfDeaf: false });
+        } catch (_) {}
+      }
+
+      // Send DM alert to Attila
+      try {
+        const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+        if (owner) {
+          const chName = voiceChannel?.name ? `#${voiceChannel.name}` : 'Voice Channel';
+          const gName = voiceChannel?.guild?.name || 'Server';
+          await owner.send(
+            `📢 **[PANGGILAN DI VOICE CHANNEL - 10 DETIK TANPA RESPON]**\n\n` +
+            `Tadi kamu dipanggil di Voice Channel **${chName}** (${gName}) sama **${callerName}** (<@${userId}>):\n` +
+            `• **Ucapan di VC**: "${transcript}"\n\n` +
+            `*AZURA sudah bantu kasih tahu di VC bahwa kamu lagi ada masalah jaringan/away.*`
+          );
+          console.log(`[Voice Pipeline]: Sent 10s voice call notification to Attila's DM.`);
+        }
+      } catch (dmErr) {
+        console.error('[Voice Pipeline DM Error]:', dmErr.message);
+      }
+    }, 10000); // 10 seconds
+
+    pendingAttilaVoiceCalls.set(guildId, {
+      timer,
+      callerId: userId,
+      callerName,
+      transcript
+    });
+  } finally {
+    isGuildProcessingVoice.delete(guildId);
+  }
 }
 
 /**
@@ -664,12 +672,16 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
  *   Auto-expires to PASSIVE after 15 seconds of silence.
  */
 async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel) {
-  const pcmBuffer = Buffer.concat(pcmChunks);
+  if (isGuildProcessingVoice.has(guildId)) return;
+  isGuildProcessingVoice.add(guildId);
 
-  if (pcmBuffer.length < MIN_AUDIO_BYTES) {
-    console.log(`[Voice Pipeline]: Audio too short (${pcmBuffer.length}B < ${MIN_AUDIO_BYTES}B), skipping.`);
-    return;
-  }
+  try {
+    const pcmBuffer = Buffer.concat(pcmChunks);
+
+    if (pcmBuffer.length < MIN_AUDIO_BYTES) {
+      console.log(`[Voice Pipeline]: Audio too short (${pcmBuffer.length}B < ${MIN_AUDIO_BYTES}B), skipping.`);
+      return;
+    }
 
   const isOwner = userId === config.OWNER_DISCORD_ID;
 
@@ -956,8 +968,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
 
   // ── Step 4: General AI Voice Chat (Context-Aware Duration Engine) ──
-  try {
-    const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId);
+  const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId);
 
     // Check if AI brain autonomously decided to leave VC
     if (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse)) {
@@ -1023,6 +1034,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     }
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
+  } finally {
+    isGuildProcessingVoice.delete(guildId);
   }
 }
 
@@ -1837,13 +1850,13 @@ async function joinAttilaVoiceChannel(client) {
  * @param {string} guildId 
  * @returns {Promise<{ success: boolean, message: string }>}
  */
-async function leaveVoiceChannel(client, guildId = null) {
+async function leaveVoiceChannel(client, guildId = null, sendFarewellText = true) {
   const textLeave = 'Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya, babay!';
 
   console.log('[Leave VC Controller]: Forcibly disconnecting AZURA from Voice Channels...');
 
-  // Send text farewell immediately (non-blocking)
-  if (guildId) {
+  // Send text farewell immediately (non-blocking) only if standalone message requested
+  if (guildId && sendFarewellText) {
     const textChannel = companionTextChannels.get(guildId);
     if (textChannel) {
       textChannel.send(textLeave).catch(() => {});

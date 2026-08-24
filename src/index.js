@@ -327,7 +327,7 @@ client.on('messageCreate', async (message) => {
       if (isLeaveTrigger) {
         console.log(`[VC Controller]: Attila triggered Leave VC from text chat (${message.channel.name || 'DM'}).`);
         const { leaveVoiceChannel } = require('./voiceCompanion');
-        const leaveRes = await leaveVoiceChannel(client, message.guild?.id || null);
+        const leaveRes = await leaveVoiceChannel(client, message.guild?.id || null, false);
         return message.reply(leaveRes.message);
       }
 

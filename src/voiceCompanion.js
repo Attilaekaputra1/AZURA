@@ -284,15 +284,17 @@ function playInVC(guildId, resource) {
 }
 
 // ============================================================
-// Inactivity Deafen Timer
+// Inactivity 10-Minute Icebreaker & Conversation Catalyst Engine
 // ============================================================
+const IDLE_SILENCE_ICEBREAKER_MS = 10 * 60 * 1000; // 10 minutes of silence in VC
 
-function resetIdleTimer(guildId) {
+function resetIdleTimer(guildId, client, voiceChannel) {
   if (idleTimers.has(guildId)) {
     clearTimeout(idleTimers.get(guildId));
+    idleTimers.delete(guildId);
   }
 
-  // If bot was previously auto-deafened, un-deafen to listen
+  // Ensure connection is un-deafened so bot is always listening
   const activeConn = activeConnections.get(guildId);
   if (activeConn) {
     try {
@@ -300,17 +302,121 @@ function resetIdleTimer(guildId) {
     } catch (_) {}
   }
 
+  if (!client || !activeConn) return;
+
   const timer = setTimeout(() => {
-    const conn = activeConnections.get(guildId);
-    if (conn) {
-      console.log(`[Voice Companion]: 5 menit tanpa interaksi di guild ${guildId}. Auto deafen aktif.`);
-      try {
-        conn.rejoin({ selfMute: true, selfDeaf: true });
-      } catch (_) {}
-    }
-  }, IDLE_DEAFEN_MS);
+    triggerAutonomousVcIcebreaker(guildId, client, voiceChannel).catch(err => {
+      console.error('[Autonomous VC Icebreaker Error]:', err.message);
+    });
+  }, IDLE_SILENCE_ICEBREAKER_MS);
 
   idleTimers.set(guildId, timer);
+  console.log(`[VC Icebreaker]: ⏳ 10-Minute silence timer armed for guild ${guildId}.`);
+}
+
+async function triggerAutonomousVcIcebreaker(guildId, client, voiceChannel) {
+  const conn = activeConnections.get(guildId);
+  if (!conn) return;
+
+  // Don't trigger if bot is speaking
+  if (isBotSpeaking.has(guildId)) {
+    resetIdleTimer(guildId, client, voiceChannel);
+    return;
+  }
+
+  // Don't trigger if music is actively streaming
+  try {
+    const { guildMusicSessions } = require('./musicStreamer');
+    if (guildMusicSessions.has(guildId)) {
+      resetIdleTimer(guildId, client, voiceChannel);
+      return;
+    }
+  } catch (_) {}
+
+  // Check if there are human members in the VC
+  const channel = voiceChannel || client.channels.cache.get(conn.joinConfig?.channelId);
+  if (!channel) return;
+
+  const humanCount = channel.members
+    ? channel.members.filter(m => !m.user.bot).size
+    : 0;
+  if (humanCount === 0) {
+    console.log(`[VC Icebreaker]: No humans present in #${channel.name}. Skipping icebreaker.`);
+    return;
+  }
+
+  console.log(`[VC Icebreaker]: 🔇 VC #${channel.name} silent for > 10 minutes (${humanCount} humans present). Generating spontaneous icebreaker / joke / discussion...`);
+
+  const openai = getOpenAI();
+  if (!openai) {
+    resetIdleTimer(guildId, client, voiceChannel);
+    return;
+  }
+
+  const session = voiceSessions.get(guildId);
+  const recentTranscript = session?.entries?.slice(-8).map(e => `• ${e.speaker}: "${e.text}"`).join('\n') || '(Belum ada obrolan sebelumnya)';
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang berada di Voice Channel #${channel.name} Discord bersama Attila (creator kamu) dan teman-teman server.
+Keadaan di Voice Channel baru saja hening / sepi tanpa obrolan sama sekali selama lebih dari 10 menit.
+
+TUGAS UTAMA:
+Nimbrung secara spontan, manis, cerdas, dan santai untuk memecah keheningan (icebreaker) agar suasana hidup kembali!
+Pilih secara acak salah satu gaya berikut:
+1. JOKES / TEBAK-TEBAKAN / HUMOR GEN Z: Lelucon lucu yang bikin tersenyum atau tertawa santai (contoh: "Gais... hening banget deh kayak lagi nunggu hasil ujian [giggle], btw kalian tau gak...", atau "[sighs] Suasananya tenang banget ya, ini pada ketiduran atau lagi semedi sih [laughs]?").
+2. LEMPAR DISKUSI SERU / DEBAT RANDOM: Lempar topik perdebatan santai atau pertanyaan random yang asyik (contoh: "Eh btw gais, menurut kalian mending...", "Tadi aku kepikiran hal random deh, kalau kalian disuruh milih...", atau senggol topik obrolan tadi).
+3. GODAAN MANJA & HANGAT: Tegur santai Attila atau teman-teman di VC agar suasana obrolan mengalir kembali.
+
+ATURAN WAJIB ELEVENLABS V3:
+- Sisipkan tag emosi suara [laughs], [giggles], [sighs], [whispers], atau [gasp] secara kontekstual agar suara terdengar sangat nyata & hidup.
+- Panjang bicara: Singkat & padat (2-3 kalimat santai, ~25-45 kata, durasi bicara 15-20 detik).
+- DILARANG menggunakan format list, bullet, atau markdown bintang (*, #, _, dll). Gunakan tanda baca rapi.`
+        },
+        {
+          role: 'user',
+          content: `Konteks obrolan sebelum hening:\n${recentTranscript}\n\nBuatkan 1 icebreaker/jokes/diskusi seru spontan sekarang:`
+        }
+      ],
+      max_completion_tokens: 150
+    });
+
+    const rawResponse = res.choices[0]?.message?.content?.trim();
+    if (!rawResponse) {
+      resetIdleTimer(guildId, client, voiceChannel);
+      return;
+    }
+
+    const spoken = rawResponse
+      .replace(/\[ACTION:[^\]]+\]/gi, '')
+      .replace(/\*\*/g, '')
+      .replace(/[*_~`#>]/g, '')
+      .replace(/\n+/g, ' ')
+      .trim();
+
+    console.log(`[VC Icebreaker]: 🎙️ Autonomous Icebreaker output: "${spoken}"`);
+
+    recordSessionEntry(guildId, 'AZURA', spoken, 'voice');
+
+    const textChannel = (channel.isTextBased?.()) ? channel : (companionTextChannels.get(guildId) || channel);
+    if (textChannel && textChannel.send) {
+      textChannel.send(`🎙️ **[AZURA Memecah Keheningan VC ✨]**\n${spoken.replace(/\[[^\]]+\]/g, '')}`).catch(() => {});
+    }
+
+    const audioResource = await textToAudioResource(spoken, client);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+  } catch (err) {
+    console.error('[VC Icebreaker Error]:', err.message);
+  } finally {
+    // Schedule next 10-minute check if silence continues
+    resetIdleTimer(guildId, client, channel);
+  }
 }
 
 // ============================================================
@@ -381,7 +487,7 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
     if (Date.now() - lastTime < (isOwner ? 0 : 3000)) return;
 
     activeRecordings.add(userId);
-    resetIdleTimer(guildId);
+    resetIdleTimer(guildId, client, voiceChannel);
 
     const speakerTag = isOwner ? 'Attila' : `Member (${userId})`;
     console.log(`[Voice Listener]: ${speakerTag} started speaking in VC. Recording...`);
@@ -580,7 +686,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
 
   voiceCooldowns.set(userId, Date.now());
-  resetIdleTimer(guildId);
+  resetIdleTimer(guildId, client, voiceChannel);
 
   const sizeKB = (pcmBuffer.length / 1024).toFixed(0);
   const durationSec = (pcmBuffer.length / (48000 * 2 * 2)).toFixed(1);
@@ -1351,8 +1457,8 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
       // Play smart contextual voice greeting based on member count
       playGreeting(guildId, newChannel).catch(() => {});
 
-      // Start idle deafen timer
-      resetIdleTimer(guildId);
+      // Start 10-minute silence icebreaker timer
+      resetIdleTimer(guildId, client, newChannel);
 
     } catch (error) {
       console.error(`[Voice Companion Error]: Failed to join "${newChannel.name}":`, error.message || error);
@@ -1709,7 +1815,7 @@ async function joinAttilaVoiceChannel(client) {
     // After greeting, go PASSIVE — wait for Attila to call by name
     setPassiveMode(guildId);
 
-    resetIdleTimer(guildId);
+    resetIdleTimer(guildId, client, targetVoiceChannel);
 
     return {
       success: true,

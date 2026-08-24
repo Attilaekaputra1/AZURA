@@ -64,6 +64,9 @@ client.once(Events.ClientReady, async () => {
   await initAutonomousCatalyst(client);
 });
 
+// Track passive 3rd-person mentions across channels (Requires 3 mentions within 5 mins before chiming in)
+const thirdPersonTracker = new Map(); // channelId -> { count: number, lastTime: number, messages: string[] }
+
 // Event: Message Created (@AZURA mention listener & DM listener)
 client.on('messageCreate', async (message) => {
   // Track channel activity for Autonomous Dead-Chat Catalyst
@@ -115,8 +118,38 @@ client.on('messageCreate', async (message) => {
     /\b(?:keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(message.content)
   );
 
-  // If it's not a DM and not mentioned, not replied to bot, not called by name, and not owner voice command, ignore
-  if (!isDM && !isMentioned && !isReplyToBot && !startsWithName && !calledByName && !isVoiceCommand) return;
+  const isDirectCall = isDM || isMentioned || isReplyToBot || startsWithName || isVoiceCommand;
+  const isPassiveMention = !isDirectCall && calledByName;
+
+  let isThirdPersonNimbrung = false;
+  if (isPassiveMention && !isDM) {
+    const trackerKey = message.channel.id;
+    const now = Date.now();
+    let track = thirdPersonTracker.get(trackerKey);
+
+    // Reset if expired (> 5 minutes window)
+    if (!track || (now - track.lastTime) > 300000) {
+      track = { count: 0, lastTime: now, messages: [] };
+    }
+
+    track.count += 1;
+    track.lastTime = now;
+    track.messages.push(`@${userName}: "${message.content}"`);
+    thirdPersonTracker.set(trackerKey, track);
+
+    if (track.count < 3) {
+      console.log(`[3rd-Person Tracker]: Azura mentioned passively in #${message.channel?.name || trackerKey} (${track.count}/3 by @${userName}). Staying silent.`);
+      return; // Stay silent on 1st and 2nd mentions!
+    }
+
+    // Hit 3rd mention! Trigger playful chiming in
+    console.log(`[3rd-Person Tracker]: 🎯 Azura mentioned 3 times in #${message.channel?.name || trackerKey}! Chiming in now.`);
+    thirdPersonTracker.delete(trackerKey);
+    isThirdPersonNimbrung = true;
+  }
+
+  // If not a direct call and not the 3rd passive mention, ignore
+  if (!isDirectCall && !isThirdPersonNimbrung) return;
 
   // Extract Visual Media for Vision (Attachments, Discord Stickers, Tenor/Giphy GIFs, Embeds)
   const { extractVisualMedia } = require('./visionHelper');
@@ -223,10 +256,9 @@ client.on('messageCreate', async (message) => {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;
   }
 
-  // 3rd-Person Reference Contextual Disambiguation
-  const isThirdPersonRef = /\b(?:si\s+(?:azura|ara|zura|asura)|tentang\s+(?:azura|ara|zura)|bot\s+(?:azura|ara|zura)|azura\s*nya|ara\s*nya|kalau\s+(?:si\s+)?(?:azura|ara)|mungkin\s+(?:si\s+)?(?:azura|ara))\b/i.test(message.content);
-  if (isThirdPersonRef && !isMentioned && !isReplyToBot) {
-    finalPrompt = `[Catatan Konteks: User (${userName}) sedang membicarakan dirimu sebagai orang ketiga / monolog ("${message.content}"), BUKAN memanggilmu secara langsung. Tanggapi dengan sangat cerdas, santai, dan anggun sebagai seseorang yang mendengar namanya disebut—misal nimbrung secara playful/charming/humble]:\n${finalPrompt}`;
+  // 3rd-Person Reference Contextual Disambiguation (Only triggers on 3rd passive mention)
+  if (isThirdPersonNimbrung) {
+    finalPrompt = `[Catatan Konteks Spesial: Dari tadi user di channel ini sudah membicarakan namamu sebanyak 3 kali tanpa memanggilmu langsung ("${message.content}"). Sekarang adalah saat yang tepat untuk kamu nimbrung obrolan dengan sangat cerdas, santai, dan playful—misal: "Ehem... dari tadi kayaknya ada yang nyebut-nyebut nama aku terus nih 👀 Ada apa nih kok rame ngomongin aku? [tertawa santai/nimbrung ke topik]"]:\n${finalPrompt}`;
   }
 
   if (voicePrompt) {

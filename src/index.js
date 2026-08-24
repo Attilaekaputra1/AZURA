@@ -172,32 +172,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Intercept Active Wordle Mini-Game Guesses in Channel
-  const { hasActiveWordle, processWordleGuess, isWordleRequest, startWordle } = require('./wordle');
-  if (hasActiveWordle(message.channel.id) && !message.author.bot) {
-    const wordleInput = message.content.trim();
-    if (/^[a-zA-Z]{5}$/.test(wordleInput) || /^(?:menyerah|giveup|surrender)$/i.test(wordleInput)) {
-      const result = processWordleGuess(message.channel.id, message.author.id, userName, wordleInput);
-      if (result.handled) {
-        return message.reply({
-          content: result.commentary || undefined,
-          embeds: result.embed ? [result.embed] : undefined
-        });
-      }
-    }
-  }
-
-  // Handle Natural Wordle Text Game Start Request (For text chat)
-  if (isWordleRequest(message.content)) {
-    const lang = /\b(?:english|inggris|bule|en)\b/i.test(message.content) ? 'en' : 'id';
-    const game = startWordle(message.channel.id, message.author.id, userName, lang);
-    if (game.success) {
-      return message.reply({ embeds: [game.embed] });
-    } else {
-      return message.reply(game.message);
-    }
-  }
-
   let finalPrompt = rawPrompt;
   if (replyContextPrompt) {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;

@@ -163,18 +163,6 @@ const commands = [
         )),
 
   new SlashCommandBuilder()
-    .setName('wordle')
-    .setDescription('Mulai permainan tebak kata Wordle 5 huruf interaktif (Indo / English)')
-    .addStringOption(option =>
-      option.setName('bahasa')
-        .setDescription('Pilih bahasa kata (Default: Bahasa Indonesia)')
-        .setRequired(false)
-        .addChoices(
-          { name: '🇮🇩 Bahasa Indonesia', value: 'id' },
-          { name: '🇬🇧 English', value: 'en' }
-        )),
-
-  new SlashCommandBuilder()
     .setName('activity')
     .setDescription('Luncurkan sesi YouTube Watch Together atau Game sinkron di Voice Channel')
     .addStringOption(option =>
@@ -565,17 +553,6 @@ async function handleSlashCommand(interaction, startTime) {
       await interaction.editReply({
         content: `❌ Gagal menghasilkan gambar AI: ${error.message || 'Terjadi kendala teknis'}`
       }).catch(() => {});
-    }
-
-  } else if (commandName === 'wordle') {
-    const { startWordle } = require('./wordle');
-    const lang = interaction.options.getString('bahasa') || 'id';
-    const userName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
-    const game = startWordle(interaction.channelId, interaction.user.id, userName, lang);
-    if (game.success) {
-      await interaction.reply({ embeds: [game.embed] });
-    } else {
-      await interaction.reply({ content: game.message, flags: 64 });
     }
 
   } else if (commandName === 'activity') {

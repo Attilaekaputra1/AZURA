@@ -195,7 +195,32 @@ const commands = [
     .addAttachmentOption(option =>
       option.setName('lampiran')
         .setDescription('Tangkapan layar / screenshot kendala (Opsional)')
-        .setRequired(false))
+        .setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('vault')
+    .setDescription('Kelola & lihat Database Pengguna Terenkripsi AES-256-GCM (Khusus Owner)')
+    .addSubcommand(sub =>
+      sub.setName('stats')
+        .setDescription('Lihat statistik & rekap pengguna aktif di database terenkripsi'))
+    .addSubcommand(sub =>
+      sub.setName('view')
+        .setDescription('Dekripsi dan lihat data profil lengkap pengguna tertentu')
+        .addStringOption(opt =>
+          opt.setName('target')
+            .setDescription('User ID atau username pengguna yang ingin dilihat')
+            .setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('export')
+        .setDescription('Ekspor seluruh database pengguna terenkripsi ke DM Owner')
+        .addStringOption(opt =>
+          opt.setName('format')
+            .setDescription('Pilih format dokumen (JSON / CSV)')
+            .setRequired(false)
+            .addChoices(
+              { name: '📄 JSON Format', value: 'json' },
+              { name: '📊 CSV Spreadsheet Format', value: 'csv' }
+            )))
 ];
 
 const fs = require('fs');
@@ -598,6 +623,87 @@ async function handleSlashCommand(interaction, startTime) {
   } else if (commandName === 'report' || commandName === 'feedback') {
     const { handleFeedbackSlash } = require('./feedback');
     await handleFeedbackSlash(interaction);
+
+  } else if (commandName === 'vault') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({
+        content: '🔒 **Akses Ditolak!** Fitur Encrypted Database Vault ini bersifat *Zero-Knowledge* dan hanya dapat didekripsi oleh Owner utama (Attila).',
+        flags: 64
+      });
+    }
+
+    const { getVaultStats, getUserRecord, exportVaultData } = require('./vault');
+    const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === 'stats') {
+      const stats = getVaultStats();
+      const topList = stats.topUsers.map((u, i) => `${i + 1}. **${u.displayName}** (\`${u.username}\`): \`${u.totalMessages} pesan\``).join('\n') || '(Belum ada pengguna aktif)';
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🔒 AZURA Zero-Knowledge Encrypted Vault')
+        .setDescription(
+          `🛡️ **Status Enkripsi:** \`AES-256-GCM (Authenticated)\`\n` +
+          `👥 **Total Pengguna Terdaftar:** \`${stats.totalUsers}\` user\n` +
+          `💬 **Total Interaksi Pesan:** \`${stats.totalMessages}\` pesan\n` +
+          `⚡ **Pengguna Aktif 24 Jam Terakhir:** \`${stats.activeToday}\` user\n\n` +
+          `🏆 **Top 5 Pengguna Paling Aktif:**\n${topList}`
+        )
+        .setFooter({ text: 'Data tersimpan dalam keadaan terenkripsi penuh di data/user_vault.enc' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
+
+    } else if (subcommand === 'view') {
+      const targetQuery = interaction.options.getString('target');
+      const record = getUserRecord(targetQuery);
+      if (!record) {
+        return interaction.reply({
+          content: `❌ Tidak ditemukan data profil terenkripsi untuk target: \`${targetQuery}\``,
+          flags: 64
+        });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x2ECC71)
+        .setTitle(`👤 Profil Pengguna Terenkripsi: ${record.displayName}`)
+        .setDescription(
+          `🆔 **User ID:** \`${record.userId}\`\n` +
+          `🏷️ **Username:** \`@${record.username}\`\n` +
+          `📛 **Nama Panggilan/Asli:** **${record.knownRealName || '*(Belum pernah menyebutkan)*'}**\n` +
+          `🍪 **Session Cookie:** \`${record.sessionCookie || '-'}\`\n` +
+          `💬 **Total Pesan:** \`${record.totalMessages}\`\n` +
+          `📅 **Pertama Kali Chat:** \`${record.firstSeen}\`\n` +
+          `⏰ **Terakhir Kali Aktif:** \`${record.lastSeen}\`\n` +
+          `🏛️ **Server Aktif:** ${record.activeServers?.length ? record.activeServers.join(', ') : 'DM Pribadi'}`
+        )
+        .setFooter({ text: 'Didekripsi secara aman dengan kunci master owner' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
+
+    } else if (subcommand === 'export') {
+      const format = interaction.options.getString('format') || 'json';
+      const exportedContent = exportVaultData(format);
+      const fileName = `azura_user_vault_${Date.now()}.${format}`;
+      const buffer = Buffer.from(exportedContent, 'utf-8');
+
+      try {
+        await user.send({
+          content: `🔒 **Ekspor Database Pengguna AZURA (${format.toUpperCase()})**\nBerikut adalah rekapitulasi data database pengguna yang telah didekripsi secara aman.`,
+          files: [{ attachment: buffer, name: fileName }]
+        });
+        return interaction.reply({
+          content: `✅ File ekspor database pengguna (\`${fileName}\`) berhasil dikirimkan langsung ke **DM kamu**! 📩`,
+          flags: 64
+        });
+      } catch (dmErr) {
+        return interaction.reply({
+          content: `❌ Gagal mengirim file ke DM: ${dmErr.message}. Pastikan kamu membuka izin DM untuk bot yaa!`,
+          flags: 64
+        });
+      }
+    }
   }
 }
 
@@ -629,6 +735,7 @@ async function handleHelpSelectMenu(interaction) {
       .setTitle('👑 Fitur Khusus Owner (Attila)')
       .setDescription('Fitur kontrol eksklusif yang hanya bisa diakses oleh Owner utama:')
       .addFields(
+        { name: '🔒 /vault <stats/view/export>', value: 'Kelola Database Pengguna Terenkripsi AES-256-GCM. Lihat statistik, data profil privat, atau ekspor database ke DM.' },
         { name: '📩 /senddm', value: 'Kirim DM ke member server berdasarkan nama/username dengan 3 opsi: Kirim Sekarang, Jadwalkan untuk Nanti, Batal.' },
         { name: '⏰ /scheduled', value: 'Lihat daftar antrean DM yang sedang dijadwalkan & hapus/batalkan antrean kapan saja.' },
         { name: '👑 /setowner', value: 'Daftarkan atau alihkan status Owner utama AZURA.' },

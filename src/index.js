@@ -82,6 +82,16 @@ client.on('messageCreate', async (message) => {
   const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
   const guildId = message.guild?.id || null;
 
+  // Record user interaction in encrypted vault (Zero-Knowledge AES-256-GCM Storage)
+  const { recordUserInteraction } = require('./vault');
+  recordUserInteraction(message.author.id, {
+    username: message.author.username,
+    displayName: userName,
+    guildName: message.guild?.name || null,
+    channelName: message.channel?.name || null,
+    textContent: message.content
+  });
+
   const isMentioned = message.mentions.has(client.user.id);
   const startsWithName = /^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)\b/i.test(message.content.trim());
 

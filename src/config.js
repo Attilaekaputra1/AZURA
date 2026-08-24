@@ -13,6 +13,7 @@ const config = {
   ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || 'sk_a4c26e321b7abf0f20320d5ddd09e51a06bca2369ca5e328').trim(),
   ELEVENLABS_VOICE_ID: (process.env.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T').trim(),
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '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').trim(),
+  DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_9874123650abcdef0123456789abcdef').trim(),
 
   // AI Model Configuration
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5.6-luna',

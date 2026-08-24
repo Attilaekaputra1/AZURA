@@ -38,7 +38,7 @@ const VOICE_COOLDOWN_MS = 500;        // 0.5s cooldown for regular members (0ms 
 const SILENCE_DURATION_MS = 850;      // 0.85s natural silence window (anti-truncation for human breathing & pauses)
 const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
-const MAX_NORMAL_CHARS = 1000;        // ~1 minute of normal TTS speech (max 1 min)
+const MAX_NORMAL_CHARS = 1200;        // ~1.5 minutes of normal TTS speech (max 1m 30s)
 const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
 
@@ -877,9 +877,14 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 }
 
 /**
- * Strict Wake-Word & Prefix Guard:
- * Checks if Attila explicitly addresses Azura in the beginning of his speech (first 3 words).
- * Rejects false alarms (e.g. "arah", "asuransi", or stories about Azura told to friends).
+const WAKE_WORDS = new Set([
+  'azura', 'zura', 'ara', 'asura', 'ajura', 'azuraa', 'zuraa', 'araa', 'zurah', 'arah', 'asurah', 'jura', 'jurah'
+]);
+
+/**
+ * Robust Wake-Word & Address Detection:
+ * Checks if Attila explicitly addresses Azura within the first 8 words of his speech or via direct address pattern.
+ * Supports full phonetic variations (Azura, Ara, Zura, Asura, Ajura, etc.).
  * @param {string} transcript
  * @returns {boolean}
  */
@@ -892,25 +897,61 @@ function isWakeWordInvoked(transcript) {
   const friendGreetings = ['bro', 'cuy', 'cuk', 'ges', 'gais', 'guys', 'man', 'kalian', 'cok', 'lu'];
   const firstWord = words[0];
 
-  // If starts with friend greeting, only trigger if Azura is explicitly addressed in first 2 words (e.g. "Bro Azura")
+  // If starts with friend greeting, check if Azura is addressed in first 3 words
   if (friendGreetings.includes(firstWord)) {
-    if (words.length > 1 && (words[1] === 'azura' || words[1] === 'zura' || words[1] === 'ara')) {
-      return true;
+    for (let i = 1; i < Math.min(words.length, 4); i++) {
+      if (WAKE_WORDS.has(words[i])) return true;
     }
     return false;
   }
 
-  // Otherwise, Azura must be invoked in the first 3 words of the sentence (Prefix Guard)
-  for (let i = 0; i < Math.min(words.length, 3); i++) {
-    if (words[i] === 'azura' || words[i] === 'zura' || words[i] === 'ara') {
+  // Check across the first 8 words (e.g. "coba tanya azura dong", "eh zura kamu bisa", "halo semuanya ara mau nanya")
+  const searchLimit = Math.min(words.length, 8);
+  for (let i = 0; i < searchLimit; i++) {
+    if (WAKE_WORDS.has(words[i])) {
       return true;
     }
-    if (words[i] === 'kak' && i + 1 < words.length && (words[i + 1] === 'azura' || words[i + 1] === 'ara')) {
+    if (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1])) {
       return true;
     }
   }
 
+  // Also check explicit direct address pattern anywhere in the phrase
+  if (/\b(?:hai|halo|hei|eh|coba|tolong|plis|please|woi|woy|sayang|say|sayangku)\s+(?:azura|ara|zura|asura)\b/i.test(clean)) {
+    return true;
+  }
+
   return false;
+}
+
+/**
+ * Speak a text response directly into the Voice Channel where Azura is currently connected
+ * @param {string} guildId 
+ * @param {string} text 
+ * @param {import('discord.js').Client} client 
+ * @param {string} [speakerName] 
+ * @param {number} [maxChars] 
+ * @returns {Promise<boolean>}
+ */
+async function speakTextInVC(guildId, text, client, speakerName = 'User', maxChars = MAX_NORMAL_CHARS) {
+  const conn = activeConnections.get(guildId);
+  const player = audioPlayers.get(guildId);
+  if (!conn || !player || !text) return false;
+
+  recordSessionEntry(guildId, 'AZURA', text);
+
+  try {
+    const audioResource = await textToAudioResource(text, client, maxChars);
+    if (!audioResource) {
+      console.error('[Voice Companion]: TTS audio generation failed for VC speech.');
+      return false;
+    }
+    await playInVC(guildId, audioResource);
+    return true;
+  } catch (err) {
+    console.error('[Voice Companion]: Failed to speak text in VC:', err.message);
+    return false;
+  }
 }
 
 // ============================================================
@@ -1686,6 +1727,7 @@ module.exports = {
   getActiveVoiceSession,
   getLiveVoiceTranscriptContext,
   generateLiveVoiceSummary,
+  speakTextInVC,
   audioPlayers,
   activeConnections
 };

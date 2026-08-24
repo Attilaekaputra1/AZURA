@@ -5,9 +5,11 @@ const config = require('./config');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const QUOTA_FILE = path.join(DATA_DIR, 'voice_quota.json');
+const MEMBER_VC_QUOTA_FILE = path.join(DATA_DIR, 'member_vc_quota.json');
 
 // Default monthly limit (40,000 characters as indicated by user dashboard)
 const DEFAULT_MONTHLY_LIMIT = 40000;
+const MAX_MEMBER_DAILY_VC = 3;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -18,6 +20,13 @@ function getCurrentMonthKey() {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+}
+
+function getTodayKey() {
+  const now = new Date();
+  const options = { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' };
+  const parts = new Intl.DateTimeFormat('en-CA', options).format(now); // YYYY-MM-DD
+  return parts;
 }
 
 function loadQuotaData() {
@@ -53,6 +62,70 @@ function saveQuotaData(data) {
   } catch (err) {
     console.error('[VoiceQuota Error]: Failed to save voice_quota.json:', err.message);
   }
+}
+
+function loadMemberVcQuota() {
+  const today = getTodayKey();
+  try {
+    if (fs.existsSync(MEMBER_VC_QUOTA_FILE)) {
+      const data = JSON.parse(fs.readFileSync(MEMBER_VC_QUOTA_FILE, 'utf8'));
+      if (data.dateKey === today) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.error('[VoiceQuota Error]: Failed to read member_vc_quota.json:', err.message);
+  }
+
+  const fresh = {
+    dateKey: today,
+    usage: {}
+  };
+  saveMemberVcQuota(fresh);
+  return fresh;
+}
+
+function saveMemberVcQuota(data) {
+  try {
+    fs.writeFileSync(MEMBER_VC_QUOTA_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[VoiceQuota Error]: Failed to save member_vc_quota.json:', err.message);
+  }
+}
+
+/**
+ * Check daily VC Voice quota for a member (3x/day)
+ * @param {string} userId 
+ * @returns {{ allowed: boolean, usedToday: number, remaining: number, maxDaily: number }}
+ */
+function getMemberDailyVcQuota(userId) {
+  if (!userId) return { allowed: false, usedToday: 0, remaining: 0, maxDaily: MAX_MEMBER_DAILY_VC };
+  const data = loadMemberVcQuota();
+  const used = data.usage[userId] || 0;
+  const remaining = Math.max(0, MAX_MEMBER_DAILY_VC - used);
+  return {
+    allowed: remaining > 0,
+    usedToday: used,
+    remaining,
+    maxDaily: MAX_MEMBER_DAILY_VC
+  };
+}
+
+/**
+ * Consume 1 daily VC Voice quota for a member
+ * @param {string} userId 
+ * @returns {{ usedToday: number, remaining: number }}
+ */
+function consumeMemberDailyVcQuota(userId) {
+  if (!userId) return { usedToday: 0, remaining: 0 };
+  const data = loadMemberVcQuota();
+  const current = data.usage[userId] || 0;
+  data.usage[userId] = current + 1;
+  saveMemberVcQuota(data);
+  return {
+    usedToday: data.usage[userId],
+    remaining: Math.max(0, MAX_MEMBER_DAILY_VC - data.usage[userId])
+  };
 }
 
 /**
@@ -250,5 +323,7 @@ module.exports = {
   canUseElevenLabs,
   recordVoiceUsage,
   getQuotaStatus,
-  fetchLiveElevenLabsQuota
+  fetchLiveElevenLabsQuota,
+  getMemberDailyVcQuota,
+  consumeMemberDailyVcQuota
 };

@@ -343,7 +343,53 @@ client.on('messageCreate', async (message) => {
     const elapsed = Date.now() - startTime;
     console.log(`[Response] User: ${message.author.tag} | Time: ${elapsed}ms`);
 
-    // Discord message splitter (max 2000 chars) or Rich Embed Payload
+    // ── VC Text-to-Speech Engine (Input Teks di Chat Voice Channel -> Direspon Suara di VC) ──
+    const { activeConnections, speakTextInVC } = require('./voiceCompanion');
+    const { getMemberDailyVcQuota, consumeMemberDailyVcQuota } = require('./voiceQuota');
+
+    const activeVcConn = guildId ? activeConnections.get(guildId) : null;
+    const activeVcChannelId = activeVcConn?.joinConfig?.channelId;
+    const isVcTextChat = !!(activeVcConn && (message.channel.id === activeVcChannelId || message.channel.isVoiceBased?.()));
+
+    if (isVcTextChat && typeof response === 'string') {
+      const prefersText = /\b(?:di\s+chat\s+aja|balas\s+chat|ketik\s+aja|jangan\s+ngomong|jangan\s+suara|text\s+aja|teks\s+aja)\b/i.test(message.content);
+      const vcChannel = client.channels.cache.get(activeVcChannelId);
+      const isAttilaInVC = vcChannel?.members?.has(config.OWNER_DISCORD_ID);
+
+      if (isOwner) {
+        if (!prefersText) {
+          console.log(`[VC Text-to-Speech]: Speaking response in VC for Attila...`);
+          const spoke = await speakTextInVC(guildId, response, client, userName);
+          if (spoke) {
+            return message.reply(`🎙️ **[Membalas Attila via Suara di Voice Channel]**\n\n${response}`);
+          }
+        }
+      } else {
+        // Non-owner member in VC Text Chat
+        if (!isAttilaInVC) {
+          return message.reply(`Halo **${userName}**! Aku cuma bisa bersuara di Voice Channel kalau ada Attila di VC yaa! ✨\n\n${response}`);
+        } else if (prefersText) {
+          // Member explicitly requested text reply (preserve voice quota)
+          return message.reply(`📝 **[Membalas ${userName} via Teks Chat (Permintaan User)]**\n\n${response}`);
+        } else {
+          // Check daily VC voice quota (3x per day)
+          const quota = getMemberDailyVcQuota(message.author.id);
+          if (!quota.allowed) {
+            return message.reply(`Hai **${userName}**! Kuota balas suara di VC kamu untuk hari ini (${quota.maxDaily}/${quota.maxDaily}) sudah habis yaa. Aku balas lewat chat dulu yaa! ✨\n\n${response}`);
+          } else {
+            consumeMemberDailyVcQuota(message.author.id);
+            const remainingAfter = quota.remaining - 1;
+            console.log(`[VC Text-to-Speech]: Speaking in VC for member ${userName} (Quota remaining today: ${remainingAfter}/3)`);
+            const spoke = await speakTextInVC(guildId, response, client, userName);
+            if (spoke) {
+              return message.reply(`🎙️ **[Membalas ${userName} via Suara di Voice Channel]** *(Sisa kuota suara kamu hari ini: ${remainingAfter}/3)*\n\n${response}`);
+            }
+          }
+        }
+      }
+    }
+
+    // Standard Discord message splitter (max 2000 chars) or Rich Embed Payload
     if (typeof response === 'object') {
       await message.reply(response);
     } else if (response.length <= 2000) {

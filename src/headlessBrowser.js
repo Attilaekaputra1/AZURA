@@ -1,12 +1,13 @@
 /**
  * AZURA Headless Browser & Live Visual Companion Engine
  * Powered by Playwright Chromium with ultra-lightweight memory management,
- * safety guardrails (Anti-Judol/NSFW), real-time visual snapshots,
- * and direct VC companion sync.
+ * Chrome DevTools Protocol (CDP) 60fps Real-Time Screencast,
+ * safety guardrails (Anti-Judol/NSFW), and direct VC companion sync.
  */
 
 const { chromium } = require('playwright-chromium');
 const { AttachmentBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
 const config = require('./config');
 
 // Anti-Judol & Unsafe Domain Blacklist
@@ -18,7 +19,7 @@ const BLOCKED_DOMAINS = [
 ];
 
 let globalBrowser = null;
-const activeBrowserSessions = new Map(); // guildId -> { context, page, lastActive, timer, currentUrl, currentTitle }
+const activeBrowserSessions = new Map(); // guildId -> { context, page, cdp, lastActive, timer, currentUrl, currentTitle }
 const IDLE_BROWSER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes auto close
 
 /**
@@ -67,7 +68,7 @@ function resetSessionTimer(guildId) {
 }
 
 /**
- * Get or create an active browser page session for a guild
+ * Get or create an active browser page session for a guild with live CDP Screencasting
  * @param {string} guildId 
  */
 async function getOrCreateSession(guildId) {
@@ -85,9 +86,38 @@ async function getOrCreateSession(guildId) {
   });
 
   const page = await context.newPage();
+
+  // Attach Chrome DevTools Protocol (CDP) for high-speed 60fps screencasting
+  let cdp = null;
+  try {
+    cdp = await context.newCDPSession(page);
+    await cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 80,
+      maxWidth: 1280,
+      maxHeight: 720,
+      everyNthFrame: 1
+    });
+
+    cdp.on('Page.screencastFrame', async ({ data, sessionId }) => {
+      try {
+        await cdp.send('Page.screencastFrameAck', { sessionId });
+        broadcastFrame(data, {
+          title: session?.currentTitle || 'AZURA Screen Companion',
+          url: session?.currentUrl || 'about:blank',
+          activeGuild: guildId
+        });
+      } catch (_) {}
+    });
+    console.log('[Headless Browser]: 📺 CDP Screencast 60fps stream initialized!');
+  } catch (cdpErr) {
+    console.warn('[Headless Browser Warning]: CDP Screencast setup error:', cdpErr.message);
+  }
+
   session = {
     context,
     page,
+    cdp,
     lastActive: Date.now(),
     currentUrl: 'about:blank',
     currentTitle: 'Browser Standby',
@@ -150,6 +180,8 @@ async function openWebpage(guildId, targetInput) {
     session.currentUrl = url;
     session.currentTitle = title;
 
+    updateStreamMeta({ title, url });
+
     const screenshot = await page.screenshot({ type: 'png' });
     resetSessionTimer(guildId);
 
@@ -191,6 +223,8 @@ async function browseYouTube(guildId, query, client, voiceChannel, textChannel) 
     const title = await page.title().catch(() => `YouTube - ${query}`);
     session.currentUrl = searchUrl;
     session.currentTitle = title;
+
+    updateStreamMeta({ title, url: searchUrl });
 
     const screenshot = await page.screenshot({ type: 'png' });
     resetSessionTimer(guildId);
@@ -269,6 +303,9 @@ async function closeBrowserSession(guildId) {
 
   try {
     if (session.timer) clearTimeout(session.timer);
+    if (session.cdp) {
+      await session.cdp.send('Page.stopScreencast').catch(() => {});
+    }
     await session.context.close().catch(() => {});
     activeBrowserSessions.delete(guildId);
     console.log(`[Headless Browser]: 🔒 Closed browser session for guild ${guildId}. RAM released.`);
@@ -281,7 +318,7 @@ async function closeBrowserSession(guildId) {
 }
 
 /**
- * Send interactive Visual Snapshot card to Discord channel
+ * Send interactive Visual Snapshot card with 60fps Live Stream Button to Discord channel
  * @param {import('discord.js').TextChannel} textChannel 
  * @param {string} title 
  * @param {string} url 
@@ -296,19 +333,26 @@ async function sendVisualSnapshotCard(textChannel, title, url, screenshotBuffer,
 
   const embed = new EmbedBuilder()
     .setColor(0x3498DB)
-    .setTitle(`🌐 [AZURA Visual Companion] ${title.slice(0, 80)}`)
+    .setTitle(`🌐 [AZURA Screen Companion] ${title.slice(0, 80)}`)
     .setURL(url && url.startsWith('http') ? url : 'https://www.google.com')
     .setDescription(
       `📺 **Layar Headless Browser Aktif di VC**\n` +
       `🔗 **URL:** \`${url ? url.slice(0, 100) : '-'}\`\n` +
-      `${extraNotes ? `✨ ${extraNotes}\n` : ''}` +
-      `*Gunakan perintah suara/teks: "scroll bawah", "scroll atas", atau "tutup browser".*`
+      `${extraNotes ? `✨ ${extraNotes}\n` : ''}\n` +
+      `*💡 Klik tombol di bawah untuk menonton live stream layar browser secara realtime (60fps)!*`
     )
     .setImage(`attachment://${fileName}`)
-    .setFooter({ text: 'Playwright Chromium Headless Engine (720p HD Snapshot)' })
+    .setFooter({ text: 'Playwright Chromium • Ultra Low Latency Live Stream' })
     .setTimestamp();
 
-  return await textChannel.send({ embeds: [embed], files: [attachment] }).catch((err) => {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setLabel('📺 Tonton Layar AZURA (Live 60fps)')
+      .setStyle(ButtonStyle.Link)
+      .setURL(STREAM_URL)
+  );
+
+  return await textChannel.send({ embeds: [embed], files: [attachment], components: [row] }).catch((err) => {
     console.error('[Send Visual Snapshot Error]:', err.message);
   });
 }

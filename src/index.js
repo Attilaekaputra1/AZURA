@@ -63,6 +63,10 @@ client.once(Events.ClientReady, async () => {
   // Initialize Autonomous Conversation Catalyst Engine
   await initAutonomousCatalyst(client);
 
+  // Initialize Live WebRTC/WebSocket Companion Stream Portal
+  const { initLivePortal } = require('./livePortal');
+  initLivePortal();
+
   // Auto-connect to VC if Attila is already in a voice channel on startup
   setTimeout(async () => {
     try {

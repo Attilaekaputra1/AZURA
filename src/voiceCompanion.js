@@ -1561,12 +1561,32 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
       connection.on(VoiceConnectionStatus.Disconnected, async () => {
         try {
           await Promise.race([
-            entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-            entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+            entersState(connection, VoiceConnectionStatus.Signalling, 8_000),
+            entersState(connection, VoiceConnectionStatus.Connecting, 8_000),
           ]);
+          await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+          console.log(`[Voice Companion]: Successfully reconnected to VC in "${guild.name}"!`);
         } catch {
-          await cleanupGuild(guildId, client);
-          console.log(`[Voice Companion]: Disconnected from VC in "${guild.name}".`);
+          let attilaStillInVc = false;
+          try {
+            const currentGuild = client.guilds.cache.get(guildId);
+            const attilaMember = await currentGuild?.members.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+            if (attilaMember && attilaMember.voice && attilaMember.voice.channel) {
+              attilaStillInVc = true;
+            }
+          } catch (_) {}
+
+          if (!attilaStillInVc) {
+            await cleanupGuild(guildId, client);
+            console.log(`[Voice Companion]: Disconnected from VC in "${guild.name}" (Attila left room).`);
+          } else {
+            console.log(`[Voice Companion]: 🔄 Transient disconnect detected while Attila is still in VC. Auto-reconnecting...`);
+            try {
+              connection.rejoin({ selfMute: true, selfDeaf: false });
+            } catch (_) {
+              await joinAttilaVoiceChannel(client).catch(() => {});
+            }
+          }
         }
       });
 
@@ -1915,11 +1935,27 @@ async function joinAttilaVoiceChannel(client) {
     connection.on(VoiceConnectionStatus.Disconnected, async () => {
       try {
         await Promise.race([
-          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+          entersState(connection, VoiceConnectionStatus.Signalling, 8_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 8_000),
         ]);
+        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
       } catch {
-        await cleanupGuild(guildId, client);
+        let attilaStillInVc = false;
+        try {
+          const currentGuild = client.guilds.cache.get(guildId);
+          const attilaMember = await currentGuild?.members.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+          if (attilaMember && attilaMember.voice && attilaMember.voice.channel) {
+            attilaStillInVc = true;
+          }
+        } catch (_) {}
+
+        if (!attilaStillInVc) {
+          await cleanupGuild(guildId, client);
+        } else {
+          try {
+            connection.rejoin({ selfMute: true, selfDeaf: false });
+          } catch (_) {}
+        }
       }
     });
 

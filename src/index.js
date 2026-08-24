@@ -62,6 +62,14 @@ client.once(Events.ClientReady, async () => {
 
   // Initialize Autonomous Conversation Catalyst Engine
   await initAutonomousCatalyst(client);
+
+  // Auto-connect to VC if Attila is already in a voice channel on startup
+  setTimeout(async () => {
+    try {
+      const { joinAttilaVoiceChannel } = require('./voiceCompanion');
+      await joinAttilaVoiceChannel(client);
+    } catch (_) {}
+  }, 3000);
 });
 
 // Track passive 3rd-person mentions across channels (Requires 3 mentions within 5 mins before chiming in)

@@ -219,9 +219,15 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       const { getLiveVoiceTranscriptContext, getActiveVoiceSession } = require('./voiceCompanion');
       const session = getActiveVoiceSession(guildId);
       if (session) {
-        const transcript = getLiveVoiceTranscriptContext(guildId, 15);
+        const transcript = getLiveVoiceTranscriptContext(guildId, 25);
         if (transcript) {
-          liveVcContext = `\n\n[Konteks Live Obrolan Voice Channel #${session.channelName} yang Sedang Berlangsung Saat Ini]:\n${transcript}\n(Informasi di atas adalah percakapan nyata yang sedang terjadi di Voice Channel saat ini. Gunakan untuk menjawab jika user menyinggung obrolan di VC).`;
+          liveVcContext = `\n\n[KONTEKS LIVE TERPADU: VOICE CHANNEL #${session.channelName} (SUARA & TEKS TERSINKRONISASI)]:\n` +
+            `Berikut rekaman kronologis percakapan live yang sedang berlangsung di Voice Channel #${session.channelName} (gabungan ucapan suara di VC dan pesan teks di chat VC):\n` +
+            `${transcript}\n\n` +
+            `ATURAN SINKRONISASI KONTEKS VC:\n` +
+            `1. Obrolan suara di VC dan ketikan teks di chat VC adalah SATU KESATUAN obrolan yang sama (saling terhubung & sinkron).\n` +
+            `2. Jika lawan bicara menanyakan sesuatu yang berkaitan dengan apa yang tadi diomongin di suara VC (atau di chat VC), sambungkan secara presisi, cerdas, dan natural tanpa merasa bahwa kamu tidak tahu apa yang dibahas.\n` +
+            `3. Kecuali jika user secara eksplisit menanyakan topik yang sama sekali baru di luar obrolan VC, jawablah topik baru tersebut secara mandiri.`;
         }
       }
     } catch (_) {}

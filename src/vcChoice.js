@@ -1,6 +1,6 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getMemberDailyVcQuota, consumeMemberDailyVcQuota } = require('./voiceQuota');
-const { speakTextInVC, activeConnections } = require('./voiceCompanion');
+const { speakTextInVC, activeConnections, recordSessionEntry } = require('./voiceCompanion');
 const config = require('./config');
 
 // In-memory cache for pending VC response choices
@@ -27,6 +27,10 @@ setInterval(() => {
 async function sendVcResponseChoice(message, response, userName, isOwner) {
   const requestId = `vc_opt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const guildId = message.guild?.id;
+
+  if (guildId) {
+    recordSessionEntry(guildId, userName, message.content, 'text');
+  }
 
   vcChoiceCache.set(requestId, {
     userId: message.author.id,
@@ -105,6 +109,9 @@ async function handleVcChoiceButton(interaction) {
   if (action === 'vc_opt_text') {
     // Member or Owner chose Chat/Text response
     console.log(`[VC Choice]: ${data.userName} chose Text Chat response.`);
+    if (data.guildId) {
+      recordSessionEntry(data.guildId, 'AZURA', data.response, 'text');
+    }
     return interaction.update({
       content: `💬 **[Respon Teks Chat AZURA untuk @${data.userName}]**\n\n${data.response}`,
       components: []

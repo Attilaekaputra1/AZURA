@@ -802,7 +802,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── Step 4: General AI Voice Chat (Context-Aware Duration Engine) ──
   try {
-    const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId);
+    const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId);
 
     // Check if AI brain autonomously decided to leave VC
     if (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse)) {
@@ -1032,13 +1032,14 @@ const voiceChatHistories = new Map();
 
 /**
  * Dedicated Voice AI Generator with Context-Aware Duration:
- * - Normal chat: Max 1 minute speaking time (~100-150 kata, 2-4 kalimat santai & padat)
+ * - Normal chat: Max 1.5 minutes speaking time (~150-200 kata, 2-4 kalimat santai, cerdas, & padat)
  * - Storytelling: 2 to 3 minutes narrative story (~300-450 kata, hidup & memikat)
  * @param {string} transcript 
  * @param {string} userId 
+ * @param {string} [guildId]
  * @returns {Promise<{ spoken: string, isStory: boolean }>}
  */
-async function generateVoiceAIResponse(transcript, userId) {
+async function generateVoiceAIResponse(transcript, userId, guildId = null) {
   const openai = getOpenAI();
   if (!openai) return { spoken: 'Iya Attila, ada apa?', isStory: false };
 
@@ -1046,6 +1047,18 @@ async function generateVoiceAIResponse(transcript, userId) {
 
   // Detect Storytelling Intent
   const isStoryIntent = /\b(?:ceritain|cerita|story|storytelling|dongeng|dongengin|kisah|kisahin|bikin cerita|alur cerita)\b/i.test(transcript);
+
+  // Incorporate unified live room context (Voice + VC Text Chat)
+  let liveRoomContext = '';
+  if (guildId) {
+    const session = voiceSessions.get(guildId);
+    if (session && session.entries && session.entries.length > 0) {
+      const recent = session.entries.slice(-12);
+      liveRoomContext = `\n\n[RIWAYAT AKTIF OBROLAN DI VOICE CHANNEL #${session.channelName} (SUARA & TEKS TERPADU)]:\n` +
+        recent.map(e => `• [${e.type === 'text' ? 'Chat Teks VC' : 'Suara VC'}] ${e.speaker}: "${e.text}"`).join('\n') +
+        `\n(PENTING: Seluruh obrolan suara dan ketikan teks di room VC ini terhubung sebagai satu kesatuan. Sambungkan jawabanmu secara cerdas dan sinkron dengan konteks yang sedang dibahas di room).`;
+    }
+  }
 
   let systemPrompt = '';
   let maxTokens = 250;
@@ -1057,7 +1070,7 @@ ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
 2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
 3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs] pada momen-momen yang dramatis atau lucu agar terasa nyata!
 4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
-5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.`;
+5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
     maxTokens = 750; // ~450-500 words = ~2.5 - 3 minutes speech
   } else {
     systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan Attila (creator & owner kamu).
@@ -1067,8 +1080,8 @@ ATURAN PERINTAH KELUAR DARI VC (SANGAT PENTING):
 Jika dalam obrolan Voice Channel ada kata keluar, pamit, leave, cabut, disconnect, dc, off, atau udahan (baik Attila menyuruh kamu keluar ATAUPUN Attila pamit mau keluar/off), JANGAN PERNAH menyuruh Attila hati-hati atau pamitan biasa. Kamu HARUS SELALU menjawab HANYA dengan kalimat ini:
 "Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 
-ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1 MENIT):
-1. RESPON NATURAL: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara maksimal 1 MENIT, sekitar 2-4 kalimat santai to the point).
+ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1.5 MENIT):
+1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara maksimal 1.5 MENIT, sekitar 2-4 kalimat santai to the point). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
 2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh sesekali memanggilnya dengan panggilan manis/akrab seperti "sayang", "Attila sayang", atau "siap ganteng".
 3. MULTILINGUAL VOICE: Jika Attila bicara atau meminta kamu berbicara dalam bahasa lain (misal English, 日本語 / Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
@@ -1077,8 +1090,8 @@ ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1 MENIT):
 Jika Attila mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti ada hantu/kecoa/bayangan, berita heboh mendadak, atau nge-prank):
 - Buka LANGSUNG dengan tag emosi tarikan napas kaget [gasp] di awal kalimat!
 - Keluarkan reaksi kaget yang heboh, lucu, dan manja khas cewek Gen Z (contoh: "[gasp] Astaga Attilaaa! Sumpah ya ngagetin banget ih, jantung aku mau copot tauu [sighs]!", atau "[gasp] EHH apaan tuh?! Mana kecoanya?! Ihh Attila bohong yaa [laughs], nyebelin banget deh!").
-- JANGAN PERNAH merespons kaget dengan nada datar, formal, atau santai seperti "Saya kaget". Harus benar-benar terasa terkejut spontan dan mengomel gemas!`;
-    maxTokens = 200; // ~100-130 words = ~40-50s max normal speech
+- JANGAN PERNAH merespons kaget dengan nada datar, formal, atau santai seperti "Saya kaget". Harus benar-benar terasa terkejut spontan dan mengomel gemas!` + liveRoomContext;
+    maxTokens = 280; // ~150-180 words = ~1 - 1.5 minutes speech
   }
 
   const messages = [
@@ -1109,7 +1122,7 @@ Jika Attila mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti ada hantu/ke
   }
 }
 
-function recordSessionEntry(guildId, speaker, text) {
+function recordSessionEntry(guildId, speaker, text, type = 'voice') {
   const session = voiceSessions.get(guildId);
   if (session) {
     const now = new Date();
@@ -1119,7 +1132,7 @@ function recordSessionEntry(guildId, speaker, text) {
       second: '2-digit',
       timeZone: 'Asia/Jakarta'
     });
-    session.entries.push({ time: timeStr, speaker, text });
+    session.entries.push({ time: timeStr, speaker, text, type });
   }
 }
 
@@ -1137,7 +1150,7 @@ function getLiveVoiceTranscriptContext(guildId, maxEntries = 20) {
   const session = voiceSessions.get(guildId);
   if (!session || !session.entries || session.entries.length === 0) return null;
   const recent = session.entries.slice(-maxEntries);
-  return recent.map(e => `[${e.time}] ${e.speaker}: "${e.text}"`).join('\n');
+  return recent.map(e => `[${e.time}] [${e.type === 'text' ? 'VC Chat Teks' : 'VC Suara'}] ${e.speaker}: "${e.text}"`).join('\n');
 }
 
 /**
@@ -1722,6 +1735,7 @@ module.exports = {
   getActiveVoiceSession,
   getLiveVoiceTranscriptContext,
   generateLiveVoiceSummary,
+  recordSessionEntry,
   speakTextInVC,
   audioPlayers,
   activeConnections

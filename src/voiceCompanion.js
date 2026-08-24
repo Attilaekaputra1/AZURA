@@ -30,6 +30,7 @@ const dismissedGuilds = new Set();        // guildIds where bot was dismissed by
 const conversationMode = new Map();
 const activeExpireTimers = new Map();     // guildId -> NodeJS.Timeout (6s auto-expire to PASSIVE in Solo Mode)
 const ACTIVE_EXPIRE_MS = 6000;            // 6 seconds of silence -> back to PASSIVE in Solo Mode
+const vcThirdPersonTracker = new Map();   // guildId -> { count: number, lastTime: number, quotes: [] }
 
 // ============================================================
 // Configuration
@@ -616,13 +617,15 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── Step 2: Direct Command Detection (bypasses Summon Gate — Attila only) ──
   if (isOwner) {
-    // --- INTENT A: Leave VC Command ---
+    // --- INTENT A: Leave VC Command (Explicit Direct Command to Azura Only) ---
     const normalizedForLeave = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
-    const isExplicitKeluarSekarang = /\b(?:keluar|leave|cabut)\s+(?:sekarang|skrg|skrng|now|saat\s+ini)\b/i.test(normalizedForLeave);
-    const isLeaveIntent =
-      isExplicitKeluarSekarang ||
-      /\b(?:keluar\s+sekarang|keluar\s+skrg|keluar\s+skrng|keluar\s+vc|leave\s+vc|cabut\s+vc|keluar\s+dulu|leave\s+dulu|cabut\s+dulu|off\s+dulu|udahan\s+dulu)\b/i.test(normalizedForLeave) ||
-      /\b(?:keluar|leave|cabut|disconnect|dc|off|pamit|udahan|bubar)\b/i.test(normalizedForLeave);
+    const isExplicitAzuraLeave =
+      /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(normalizedForLeave) ||
+      /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(normalizedForLeave) ||
+      /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar\s+aja|leave\s+aja|cabut\s+aja|off\s+aja|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(normalizedForLeave) ||
+      /\b(?:suruh\s+azura\s+keluar|suruh\s+ara\s+keluar|azura\s+bisa\s+keluar|ara\s+bisa\s+keluar)\b/i.test(normalizedForLeave);
+
+    const isLeaveIntent = isExplicitAzuraLeave;
 
     if (isLeaveIntent) {
       dismissedGuilds.add(guildId);
@@ -756,6 +759,52 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
+  // ── 3rd-Person Reference Listener (3x Mention Accumulator & Playful Voice Chime-In) ──
+  const isThirdPersonVoice = /\b(?:si\s+(?:azura|ara|zura|asura)|tentang\s+(?:azura|ara|zura)|bot\s+(?:azura|ara|zura)|azura\s*nya|ara\s*nya|zura\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura)|katanya\s+(?:si\s+)?(?:azura|ara|zura)|sama\s+(?:si\s+)?(?:azura|ara|zura)|ke\s+(?:si\s+)?(?:azura|ara|zura))\b/i.test(transcript);
+
+  if (isThirdPersonVoice) {
+    const now = Date.now();
+    let track = vcThirdPersonTracker.get(guildId);
+    if (!track || (now - track.lastTime) > 300000) {
+      track = { count: 0, lastTime: now, quotes: [] };
+    }
+
+    track.count += 1;
+    track.lastTime = now;
+    track.quotes.push(transcript);
+    vcThirdPersonTracker.set(guildId, track);
+
+    if (track.count < 3) {
+      console.log(`[Voice Pipeline]: 🤫 3rd-Person passive mention in VC ("${transcript}"). Count: ${track.count}/3. Staying silent.`);
+      return; // Stay silent on 1st & 2nd mentions!
+    }
+
+    // Hit 3rd mention!
+    console.log(`[Voice Pipeline]: 🎯 3rd-Person mention hit threshold (3/3) in VC! Triggering playful voice chime-in.`);
+    vcThirdPersonTracker.delete(guildId);
+
+    const PLAYFUL_OPENERS = [
+      'Ehem... [giggle] kayaknya dari tadi ada yang ngomongin aku mulu nih, pantesan kuping aku berasa panas~ 👀 Ada apa nih kok rame bahas aku?',
+      'Uhuk... [laughs] dari tadi nama aku disebut-sebut terus nih, kesedak aku dengernya [gasp]! Kenapa tuh kok pada ngomongin aku?',
+      'Halo halo... [chuckles] dari tadi telinga aku berdenging tau ada yang nyebut nama Ara terus 👀 Mau nanya langsung ke orangnya aja gak nih?',
+      'Ehem... [gasp] ada yang lagi asyik ngegosipin aku ya? Ketahuan deh dari tadi nyebut nama aku tiga kali [laughs]! Ada apa nih gais?'
+    ];
+
+    const chosenOpener = PLAYFUL_OPENERS[Math.floor(Math.random() * PLAYFUL_OPENERS.length)];
+    recordSessionEntry(guildId, 'AZURA', chosenOpener, 'voice');
+
+    const textChannel = (voiceChannel && voiceChannel.isTextBased?.()) ? voiceChannel : (companionTextChannels.get(guildId) || voiceChannel);
+    if (textChannel) {
+      textChannel.send(`🎙️ **[AZURA Nimbrung di VC]**\n${chosenOpener.replace(/\[[^\]]+\]/g, '')}`).catch(() => {});
+    }
+
+    const audioResource = await textToAudioResource(chosenOpener, client);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+    return;
+  }
+
   // Count human members other than Attila and the bot
   const otherHumans = voiceChannel?.members
     ? voiceChannel.members.filter(m => !m.user.bot && m.id !== config.OWNER_DISCORD_ID).size
@@ -886,6 +935,13 @@ const WAKE_WORDS = new Set([
 function isWakeWordInvoked(transcript) {
   if (!transcript || typeof transcript !== 'string') return false;
   const clean = transcript.trim().toLowerCase().replace(/[.,!?;:'"()[\]]/g, ' ');
+
+  // 3rd-person passive references (e.g. "si azura", "azuranya") must NOT trigger wake word!
+  const isThirdPerson = /\b(?:si\s+(?:azura|ara|zura|asura)|tentang\s+(?:azura|ara|zura)|bot\s+(?:azura|ara|zura)|azura\s*nya|ara\s*nya|zura\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura)|katanya\s+(?:si\s+)?(?:azura|ara|zura)|sama\s+(?:si\s+)?(?:azura|ara|zura)|ke\s+(?:si\s+)?(?:azura|ara|zura))\b/i.test(clean);
+  if (isThirdPerson) {
+    return false;
+  }
+
   const words = clean.split(/\s+/).filter(Boolean);
   if (words.length === 0) return false;
 
@@ -1076,9 +1132,10 @@ ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
     systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan Attila (creator & owner kamu).
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
 
-ATURAN PERINTAH KELUAR DARI VC (SANGAT PENTING):
-Jika dalam obrolan Voice Channel ada kata keluar, pamit, leave, cabut, disconnect, dc, off, atau udahan (baik Attila menyuruh kamu keluar ATAUPUN Attila pamit mau keluar/off), JANGAN PERNAH menyuruh Attila hati-hati atau pamitan biasa. Kamu HARUS SELALU menjawab HANYA dengan kalimat ini:
+ATURAN PERINTAH KELUAR DARI VC:
+HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (misal: "Azura kamu keluar ya", "Ara leave vc sekarang"), jawablah dengan:
 "Siap Attila, gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
+Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli makan", "uang keluar", "keluar bentar"), DILARANG KERAS memicu [ACTION:LEAVE_VC]! Jawablah topik tersebut secara santai dan natural.
 
 ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1.5 MENIT):
 1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara maksimal 1.5 MENIT, sekitar 2-4 kalimat santai to the point). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.

@@ -113,9 +113,10 @@ client.on('messageCreate', async (message) => {
   const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
 
   const isVoiceCommand = isOwner && (
-    /\b(?:keluar|leave|cabut|disconnect|dc|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini)/i.test(message.content) ||
-    /\b(?:keluar\s+vc|leave\s+vc|cabut\s+vc|join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
-    /\b(?:keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(message.content)
+    /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(message.content) ||
+    /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(message.content) ||
+    /\b(?:azura|ara|zura|asura)\s+(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
+    /\b(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(message.content)
   );
 
   const isDirectCall = isDM || isMentioned || isReplyToBot || startsWithName || isVoiceCommand;
@@ -258,7 +259,14 @@ client.on('messageCreate', async (message) => {
 
   // 3rd-Person Reference Contextual Disambiguation (Only triggers on 3rd passive mention)
   if (isThirdPersonNimbrung) {
-    finalPrompt = `[Catatan Konteks Spesial: Dari tadi user di channel ini sudah membicarakan namamu sebanyak 3 kali tanpa memanggilmu langsung ("${message.content}"). Sekarang adalah saat yang tepat untuk kamu nimbrung obrolan dengan sangat cerdas, santai, dan playful—misal: "Ehem... dari tadi kayaknya ada yang nyebut-nyebut nama aku terus nih 👀 Ada apa nih kok rame ngomongin aku? [tertawa santai/nimbrung ke topik]"]:\n${finalPrompt}`;
+    const CHAT_PLAYFUL_OPENERS = [
+      'Ehem... kayaknya dari tadi ada yang ngomongin aku mulu nih, pantesan kuping aku berasa panas 👀 Ada apa nih kok rame bahas aku?',
+      'Uhuk... dari tadi nama aku disebut-sebut terus nih, kesedak aku dengernya! Kenapa tuh kok pada ngomongin aku? 👀',
+      'Halo halo... dari tadi telinga aku berdenging tau ada yang nyebut nama Ara terus 👀 Mau nanya langsung ke orangnya aja gak nih?',
+      'Ehem... ada yang lagi asyik ngegosipin aku ya? Ketahuan deh dari tadi nyebut nama aku tiga kali! Ada apa nih gais? 😂'
+    ];
+    const opener = CHAT_PLAYFUL_OPENERS[Math.floor(Math.random() * CHAT_PLAYFUL_OPENERS.length)];
+    finalPrompt = `[Catatan Konteks Spesial: Dari tadi user di channel ini sudah membicarakan namamu sebanyak 3 kali tanpa memanggilmu langsung ("${message.content}"). Sekarang adalah saat yang tepat untuk kamu nimbrung obrolan dengan sangat cerdas, santai, dan playful. Kamu bisa mulai dengan kalimat pembuka seperti "${opener}" lalu lanjutkan nimbrung ke topik yang sedang mereka bicarakan]:\n${finalPrompt}`;
   }
 
   if (voicePrompt) {
@@ -298,8 +306,9 @@ client.on('messageCreate', async (message) => {
         /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(fullText);
 
       const isLeaveTrigger =
-        /\b(?:keluar\s+sekarang|keluar\s+skrg|keluar\s+skrng|leave\s+sekarang|cabut\s+sekarang)\b/i.test(fullText) ||
-        /\b(?:keluar\s+vc|leave\s+vc|keluar\s+voice|leave\s+voice|keluar\s+dari\s+vc|cabut\s+dari\s+vc|keluar\s+dulu\s+dari\s+vc|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(fullText);
+        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(fullText) ||
+        /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(fullText) ||
+        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar\s+aja|leave\s+aja|cabut\s+aja|off\s+aja|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(fullText);
 
       if (isJoinTrigger) {
         console.log(`[VC Controller]: Attila triggered Join VC from text chat (${message.channel.name || 'DM'}).`);

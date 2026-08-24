@@ -95,13 +95,19 @@ client.on('messageCreate', async (message) => {
     textContent: message.content
   });
 
+  // 1. Check for 3rd-Person Reference Pattern ("si azura", "si ara", "tentang azura", "azuranya", "kayaknya si ara", etc.)
+  const isThirdPersonReference = !isDM && /\b(?:si\s+(?:azura|ara|zura|asura)|tentang\s+(?:azura|ara|zura)|bot\s+(?:azura|ara|zura)|azura\s*nya|ara\s*nya|zura\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura)|katanya\s+(?:si\s+)?(?:azura|ara|zura)|sama\s+(?:si\s+)?(?:azura|ara|zura)|ke\s+(?:si\s+)?(?:azura|ara|zura)|kayaknya\s+(?:si\s+)?(?:azura|ara|zura))\b/i.test(message.content);
+
   const isMentioned = message.mentions.has(client.user.id);
   const startsWithName = /^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)\b/i.test(message.content.trim());
 
   // Check if user is directly replying to a previous message from AZURA
   let isReplyToBot = false;
   if (message.reference && message.reference.messageId) {
-    const repliedMsg = message.channel.messages.cache.get(message.reference.messageId);
+    let repliedMsg = message.channel.messages.cache.get(message.reference.messageId);
+    if (!repliedMsg) {
+      repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+    }
     if (repliedMsg && repliedMsg.author.id === client.user.id) {
       isReplyToBot = true;
     }
@@ -119,8 +125,9 @@ client.on('messageCreate', async (message) => {
     /\b(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(message.content)
   );
 
-  const isDirectCall = isDM || isMentioned || isReplyToBot || startsWithName || isVoiceCommand;
-  const isPassiveMention = !isDirectCall && calledByName;
+  // If user used 3rd-person phrasing (e.g. "Si Azura", "Si Ara"), it is NEVER a direct call, even if replying or mentioning!
+  const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || isVoiceCommand);
+  const isPassiveMention = isThirdPersonReference || (!isDirectCall && calledByName);
 
   let isThirdPersonNimbrung = false;
   if (isPassiveMention && !isDM) {
@@ -139,7 +146,7 @@ client.on('messageCreate', async (message) => {
     thirdPersonTracker.set(trackerKey, track);
 
     if (track.count < 3) {
-      console.log(`[3rd-Person Tracker]: Azura mentioned passively in #${message.channel?.name || trackerKey} (${track.count}/3 by @${userName}). Staying silent.`);
+      console.log(`[3rd-Person Tracker]: Azura mentioned passively/reply in #${message.channel?.name || trackerKey} (${track.count}/3 by @${userName}). Staying silent.`);
       return; // Stay silent on 1st and 2nd mentions!
     }
 

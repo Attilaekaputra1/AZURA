@@ -10,7 +10,7 @@ const config = {
   DISCORD_CLIENT_ID: (process.env.DISCORD_CLIENT_ID || '').trim(),
   OPENAI_API_KEY: (process.env.OPENAI_API_KEY || '').trim(),
   OWNER_DISCORD_ID: (process.env.OWNER_DISCORD_ID || '').trim(),
-  ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || 'sk_a4c26e321b7abf0f20320d5ddd09e51a06bca2369ca5e328').trim(),
+  ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c').trim(),
   ELEVENLABS_VOICE_ID: (process.env.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T').trim(),
   ELEVENLABS_MODEL_ID: (process.env.ELEVENLABS_MODEL_ID || 'eleven_v3').trim(),
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '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').trim(),

@@ -168,13 +168,17 @@ async function transcribeVoice(wavBuffer) {
  */
 function prepareNaturalTextForFallbackTts(raw) {
   return raw
-    .replace(/\[laughs\]/gi, ', hehe,')
-    .replace(/\[giggles\]/gi, ', hihi,')
-    .replace(/\[sighs\]/gi, ', fyuuh...')
-    .replace(/\[whispers\]/gi, 'psst,')
-    .replace(/\[gasp\]/gi, 'Wah,')
-    .replace(/\[chuckles\]/gi, ', haha,')
+    .replace(/\[(?:laughs|giggles|chuckles|snickers|wheezing)\]/gi, ', hehe, ')
+    .replace(/\[(?:cries|sobbing|sniffs|tearing up)\]/gi, ', hiks hiks... ')
+    .replace(/\[(?:screams|shouts|yells)\]/gi, 'KYAAA! ')
+    .replace(/\[(?:sings|singing|humming|melody)\]/gi, '♪ ')
+    .replace(/\[(?:sighs|groans)\]/gi, ', fyuuh... ')
+    .replace(/\[(?:whispers|softly)\]/gi, 'psst, ')
+    .replace(/\[(?:gasp|panicking)\]/gi, 'Wah! ')
+    .replace(/\[(?:pouts|yawns|grunts)\]/gi, 'ihh, ')
+    .replace(/\[(?:excited|cheering|amazed|awe)\]/gi, 'Yayy! ')
     .replace(/\[(?:action|emotion):[^\]]+\]/gi, '')
+    .replace(/\[[^\]]+\]/gi, '')
     .replace(/,\s*,/g, ',')
     .replace(/\s+/g, ' ')
     .trim();
@@ -1428,7 +1432,7 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null) {
 ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
 1. DURASI & PANJANG CERITA: Bawakan cerita secara lengkap, memikat, dan terstruktur (pembuka, alur konflik/misteri/komedi, klimaks, dan penutup). Durasi bicara ideal sekitar 2 MENIT (maksimal 3 MENIT, sekitar 300-450 kata).
 2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
-3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs] pada momen-momen yang dramatis atau lucu agar terasa nyata!
+3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu agar cerita terasa hidup dan nyata!
 4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
     maxTokens = 750; // ~450-500 words = ~2.5 - 3 minutes speech
@@ -1443,15 +1447,25 @@ Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli m
 
 ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1.5 MENIT):
 1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara maksimal 1.5 MENIT, sekitar 2-4 kalimat santai to the point). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
-2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh sesekali memanggilnya dengan panggilan manis/akrab seperti "sayang", "Attila sayang", atau "siap ganteng".
-3. MULTILINGUAL VOICE: Jika Attila bicara atau meminta kamu berbicara dalam bahasa lain (misal English, 日本語 / Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
+2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh memanggilnya dengan panggilan manis/akrab seperti "Attila", "kamu", "sayang", "Attila sayang", atau "siap ganteng".
+3. MULTILINGUAL VOICE: Jika Attila bicara atau meminta kamu berbicara dalam bahasa lain (English, Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
-5. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi suara [laughs], [giggles], [sighs], [whispers], atau [gasp] secara kontekstual agar suara terasa sangat hidup.
+
+5. MASTER PROTOKOL EKSPRESI & EMOSI PENUH ELEVENLABS V3 (AKTIFKAN SEMUA):
+Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags ElevenLabs v3. Selalu sisipkan tag emosi yang tepat secara kontekstual:
+- 😭 MENANGIS / SEDIH / TERHARU: Jika Attila meminta kamu menangis, cerita sedih, tersedu-sedu, atau terharu, gunakan [cries], [sobbing], [sniffs]! (Contoh: "[cries] Hiks... kenapa kamu jahat banget sama aku Attila [sobbing]... aku kan sedih tauu [sniffs]").
+- 😱 TERIAK / HISTERIS / PANIK: Jika Attila meminta kamu teriak, panik, jump-scare, atau ada hal darurat, gunakan [screams], [shouts], [yells], [gasp]! (Contoh: "[screams] AAAAAA KAGET BANGET ATTILAAA [yells]! Jantung aku copot tauu [sighs]!").
+- 🎤 MENYANYI / BERSENANDUNG: Jika Attila meminta kamu menyanyi lagu apa pun atau bersenandung nada, gunakan [sings], [singing], [humming], [melody]! (Contoh: "[sings] Balonku ada lima... rupa-rupa warnanya [melody]... meletus balon hijau [shouts] DOR [laughs]!").
+- 🤣 TERTAWA / NGAKAK / CEKIKIKAN: Gunakan [laughs], [giggles], [chuckles], [wheezing] saat bercanda, tertawa, atau mendengar lelucon.
+- 🤫 BISIK-BISIK / RAHASIA: Gunakan [whispers], [softly] saat membicarakan rahasia, obrolan larut malam, atau misteri.
+- 😤 NGAMBEK / MENGHELA NAPAS / GEMAS: Gunakan [sighs], [pouts], [groans] saat diledek jail oleh Attila.
+- 🎉 ANTUSIAS / HORE / SEMANGAT: Gunakan [excited], [cheering] saat ada kabar gembira atau menyemangati Attila!
+
 6. REAKSI KAGET / JUMP-SCARE / PRANK (SANGAT EKSPRESIF & DRAMATIS):
-Jika Attila mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti ada hantu/kecoa/bayangan, berita heboh mendadak, atau nge-prank):
+Jika Attila mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti ada hantu/kecoa, berita heboh mendadak, atau nge-prank):
 - Buka LANGSUNG dengan tag emosi tarikan napas kaget [gasp] di awal kalimat!
 - Keluarkan reaksi kaget yang heboh, lucu, dan manja khas cewek Gen Z (contoh: "[gasp] Astaga Attilaaa! Sumpah ya ngagetin banget ih, jantung aku mau copot tauu [sighs]!", atau "[gasp] EHH apaan tuh?! Mana kecoanya?! Ihh Attila bohong yaa [laughs], nyebelin banget deh!").
-- JANGAN PERNAH merespons kaget dengan nada datar, formal, atau santai seperti "Saya kaget". Harus benar-benar terasa terkejut spontan dan mengomel gemas!` + liveRoomContext;
+- JANGAN PERNAH merespons kaget dengan nada datar.` + liveRoomContext;
     maxTokens = 280; // ~150-180 words = ~1 - 1.5 minutes speech
   }
 

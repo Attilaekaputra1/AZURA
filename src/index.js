@@ -107,11 +107,11 @@ client.on('messageCreate', async (message) => {
     textContent: message.content
   });
 
-  // 1. Check for 3rd-Person Reference Pattern ("si azura", "si ara", "tentang azura", "azuranya", "kayaknya si ara", etc.)
-  const isThirdPersonReference = !isDM && /\b(?:si\s+(?:azura|ara|zura|asura)|tentang\s+(?:azura|ara|zura)|bot\s+(?:azura|ara|zura)|azura\s*nya|ara\s*nya|zura\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura)|katanya\s+(?:si\s+)?(?:azura|ara|zura)|sama\s+(?:si\s+)?(?:azura|ara|zura)|ke\s+(?:si\s+)?(?:azura|ara|zura)|kayaknya\s+(?:si\s+)?(?:azura|ara|zura))\b/i.test(message.content);
+  // 1. Check for 3rd-Person Reference Pattern ("si azura", "si ara", "si ajur", "tentang azura", "azuranya", "kayaknya si ara", etc.)
+  const isThirdPersonReference = !isDM && /\b(?:si\s+(?:azura|ara|zura|ajur|ajura|asura)|tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|kayaknya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(message.content);
 
   const isMentioned = message.mentions.has(client.user.id);
-  const startsWithName = /^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)\b/i.test(message.content.trim());
+  const startsWithName = /^(?:azura|ara|zura|ajur|ajura|asura|hei azura|hei ara|hei ajur|halo azura|halo ara|halo ajur|hai azura|hai ara|hai ajur)\b/i.test(message.content.trim());
 
   // Check if user is directly replying to a previous message from AZURA
   let isReplyToBot = false;
@@ -128,13 +128,13 @@ client.on('messageCreate', async (message) => {
   // Check if AZURA is in Voice Companion mode in this guild or called by nickname
   const { isInCompanionMode } = require('./voiceCompanion');
   const inVCMode = !isDM && message.guild && isInCompanionMode(message.guild.id);
-  const calledByName = /\b(?:azura|ara|zura|asura)\b/i.test(message.content);
+  const calledByName = /\b(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(message.content);
 
   const isVoiceCommand = isOwner && (
-    /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(message.content) ||
-    /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(message.content) ||
-    /\b(?:azura|ara|zura|asura)\s+(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
-    /\b(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(message.content)
+    /\b(?:azura|ara|zura|ajur|ajura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(message.content) ||
+    /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(message.content) ||
+    /\b(?:azura|ara|zura|ajur|ajura|asura)\s+(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
+    /\b(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\s+(?:ya\s+)?(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(message.content)
   );
 
   // If user used 3rd-person phrasing (e.g. "Si Azura", "Si Ara"), it is NEVER a direct call, even if replying or mentioning!
@@ -195,7 +195,7 @@ client.on('messageCreate', async (message) => {
   // Clean prompt by removing bot mention tag and leading 'azura' / 'ara' / 'zura' prefix
   let rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();
   if (startsWithName) {
-    rawPrompt = rawPrompt.replace(/^(?:azura|ara|zura|asura|hei azura|hei ara|halo azura|halo ara|hai azura|hai ara)[,:\s]+/i, '').trim();
+    rawPrompt = rawPrompt.replace(/^(?:azura|ara|zura|ajur|ajura|asura|hei azura|hei ara|hei ajur|halo azura|halo ara|halo ajur|hai azura|hai ara|hai ajur)[,:\s]+/i, '').trim();
   }
 
   // Extract audio attachments for Whisper STT
@@ -325,9 +325,9 @@ client.on('messageCreate', async (message) => {
         /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(userText);
 
       const isLeaveTrigger =
-        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(userText) ||
-        /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|asura)\b/i.test(userText) ||
-        /\b(?:azura|ara|zura|asura)\s+(?:kamu\s+)?(?:keluar\s+aja|leave\s+aja|cabut\s+aja|off\s+aja|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(userText);
+        /\b(?:azura|ara|zura|ajur|ajura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(userText) ||
+        /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(userText) ||
+        /\b(?:azura|ara|zura|ajur|ajura|asura)\s+(?:kamu\s+)?(?:keluar\s+aja|leave\s+aja|cabut\s+aja|off\s+aja|keluar\s+dulu|leave\s+dulu|cabut\s+dulu)\b/i.test(userText);
 
       if (isJoinTrigger) {
         console.log(`[VC Controller]: Attila triggered Join VC from text chat (${message.channel.name || 'DM'}).`);
@@ -365,10 +365,10 @@ client.on('messageCreate', async (message) => {
         return message.reply(res.message);
       }
 
-      const musicMatch = userText.match(/^(?:azura|ara|zura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|puterin|putar|mainkan|setelin|nyalain|pasang)\s+(?:ke|dengan)?\s*(?:lagu|musik|lagunya)?\s*(.+)/i);
+      const musicMatch = userText.match(/^(?:azura|ara|zura|ajur|ajura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|puterin|putar|mainkan|setelin|nyalain|pasang)\s+(?:ke|dengan)?\s*(?:lagu|musik|lagunya)?\s*(.+)/i);
       if (musicMatch) {
         let songTitle = musicMatch[1]
-          .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|plis|please|bot)\b/gi, '')
+          .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|ajur|ajura|plis|please|bot)\b/gi, '')
           .replace(/\s+/g, ' ')
           .trim();
         if (songTitle.length > 1) {

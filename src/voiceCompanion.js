@@ -813,7 +813,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   } catch (_) {}
 
   // Clean transcript for intent matching
-  const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|asura|ajura|asurah|zurah|arah|jura|juraa|zuraa|kak azura|kak ara)\b/gi, '').trim();
+  const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|ajur|ajura|asura|asurah|zurah|arah|jura|juraa|zuraa|kak azura|kak ara|kak ajur)\b/gi, '').trim();
 
   // ── Step 2: Direct Command Detection (bypasses Summon Gate — Attila only) ──
   // ── Step 2: STRICT DIRECT COMMAND INTENTS (Attila Only + Wake-Word Enforced) ──
@@ -824,8 +824,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
     // ── 1. LEAVE VC COMMAND (Strict Explicit Input) ──
     const isLeavePattern =
-      /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:kamu\s+)?(?:keluar\s+dulu\s+yaa?|keluar\s+dari\s+vc\s+dulu\s+dong|keluar\s+vc\s+dulu\s+ya|keluar\s+dulu|leave\s+vc\s+dulu|leave\s+dulu|cabut\s+dulu|off\s+dulu)\b/i.test(normalizedForLeave) ||
-      /\b(?:keluar\s+dulu\s+yaa?|keluar\s+dari\s+vc\s+dulu\s+dong|keluar\s+vc\s+dulu\s+ya|leave\s+vc\s+dulu)\s+(?:azura|ara|zura|kak\s+azura|kak\s+ara)\b/i.test(normalizedForLeave);
+      /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:kamu\s+)?(?:keluar\s+dulu\s+yaa?|keluar\s+dari\s+vc\s+dulu\s+dong|keluar\s+vc\s+dulu\s+ya|keluar\s+dulu|leave\s+vc\s+dulu|leave\s+dulu|cabut\s+dulu|off\s+dulu)\b/i.test(normalizedForLeave) ||
+      /\b(?:keluar\s+dulu\s+yaa?|keluar\s+dari\s+vc\s+dulu\s+dong|keluar\s+vc\s+dulu\s+ya|leave\s+vc\s+dulu)\s+(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\b/i.test(normalizedForLeave);
 
     if (isLeavePattern) {
       dismissedGuilds.add(guildId);
@@ -882,7 +882,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     // ── 3. MUSIC COMMANDS (Strict Wake-Word Locked) ──
     if (hasWake) {
       // Stop Music
-      const stopPattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:stop|matikan|matiin|hentikan)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
+      const stopPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:stop|matikan|matiin|hentikan)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
       if (stopPattern.test(transcript) || stopPattern.test(cleanTranscript)) {
         console.log('[Voice Pipeline]: ⏹️ Strict Stop Music command detected.');
         const { stopMusic } = require('./musicStreamer');
@@ -898,7 +898,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // Pause Music
-      const pausePattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
+      const pausePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
       if (pausePattern.test(transcript) || pausePattern.test(cleanTranscript)) {
         console.log('[Voice Pipeline]: ⏸️ Strict Pause Music command detected.');
         const { pauseMusic } = require('./musicStreamer');
@@ -908,7 +908,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // Resume Music
-      const resumePattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:resume|unpause|lanjut|lanjutkan|puter\s+lagi|play\s+lagi|mainkan\s+lagi)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
+      const resumePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:resume|unpause|lanjut|lanjutkan|puter\s+lagi|play\s+lagi|mainkan\s+lagi)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
       if (resumePattern.test(transcript) || resumePattern.test(cleanTranscript)) {
         console.log('[Voice Pipeline]: ▶️ Strict Resume Music command detected.');
         const { resumeMusic } = require('./musicStreamer');
@@ -918,12 +918,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // Setel / Putar / Ganti Lagu
-      const musicPattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:setel|putar|mainkan|ganti|ubah)\s+lagu\s+(?:ke\s+|dengan\s+)?(.+)/i;
+      const musicPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:setel|putar|mainkan|ganti|ubah)\s+lagu\s+(?:ke\s+|dengan\s+)?(.+)/i;
       const musicMatch = transcript.match(musicPattern) || cleanTranscript.match(musicPattern);
 
       if (musicMatch && musicMatch[1]) {
         let songTitle = musicMatch[1]
-          .replace(/\b(?:musik|lagu|gu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
+          .replace(/\b(?:musik|lagu|gu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|ajur|ajura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
           .replace(/[.,!?;:'"()\[\]]+/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
@@ -943,7 +943,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     // ── 4. HEADLESS BROWSING COMMANDS (Strict Wake-Word Locked) ──
     if (hasWake) {
       // A. Buka Chrome / Browser Standby
-      const openChromePattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:buka|bukain|buka\s+aplikasi|jalankan)\s+(?:chrome|browser|google\s+chrome)\b/i;
+      const openChromePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:buka|bukain|buka\s+aplikasi|jalankan)\s+(?:chrome|browser|google\s+chrome)\b/i;
       if (openChromePattern.test(transcript) || openChromePattern.test(cleanTranscript)) {
         console.log('[Voice Pipeline]: 🌐 Headless Browser Open Chrome triggered.');
         const spoken = 'Siap Attila, Chrome sudah aku buka di latar belakang yaa!';
@@ -960,7 +960,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // B. Buka YouTube
-      const ytBrowsePattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:buka|putar|tonton)\s+youtube\s*(?:cari|tentang|video)?\s*(.+)/i;
+      const ytBrowsePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:buka|putar|tonton)\s+youtube\s*(?:cari|tentang|video)?\s*(.+)/i;
       const ytMatch = transcript.match(ytBrowsePattern) || cleanTranscript.match(ytBrowsePattern);
       if (ytMatch && ytMatch[1]) {
         const query = ytMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
@@ -980,7 +980,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // C. Cari / Buka Situs
-      const webBrowsePattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:cari|buka|kunjungi|browsing)\s+situs\s+(.+)/i;
+      const webBrowsePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:cari|buka|kunjungi|browsing)\s+situs\s+(.+)/i;
       const webMatch = transcript.match(webBrowsePattern) || cleanTranscript.match(webBrowsePattern);
       if (webMatch && webMatch[1]) {
         const targetUrl = webMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
@@ -1002,7 +1002,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // D. Ketik Teks di Web
-      const typePattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?ketik\s+(.+)/i;
+      const typePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?ketik\s+(.+)/i;
       const typeMatch = transcript.match(typePattern) || cleanTranscript.match(typePattern);
       if (typeMatch && typeMatch[1]) {
         const textToType = typeMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
@@ -1022,7 +1022,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // E. Pilih / Klik Elemen di Web
-      const clickPattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:pilih|klik|tekan|jawab\s+captcha)\s+(.+)/i;
+      const clickPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:pilih|klik|tekan|jawab\s+captcha)\s+(.+)/i;
       const clickMatch = transcript.match(clickPattern) || cleanTranscript.match(clickPattern);
       if (clickMatch && clickMatch[1]) {
         const targetOption = clickMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
@@ -1042,7 +1042,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // F. Scroll Halaman Web
-      const scrollPattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i;
+      const scrollPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i;
       if (scrollPattern.test(transcript) || scrollPattern.test(cleanTranscript)) {
         const isUp = /\b(?:atas|up)\b/i.test(transcript);
         const direction = isUp ? 'up' : 'down';
@@ -1057,7 +1057,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // G. Jelaskan / Baca Tampilan Web
-      const readWebPattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:jelaskan|baca|bacakan|ringkas|lihat)\s+(?:tampilan|isi|halaman|layar)\s*(?:web|browser|ini)?\b/i;
+      const readWebPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:jelaskan|baca|bacakan|ringkas|lihat)\s+(?:tampilan|isi|halaman|layar)\s*(?:web|browser|ini)?\b/i;
       if (readWebPattern.test(transcript) || readWebPattern.test(cleanTranscript)) {
         console.log('[Voice Pipeline]: 👁️ Headless Browser Read & Summarize Page');
         const { getWebpageSummary } = require('./headlessBrowser');
@@ -1074,7 +1074,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // H. Tutup Browser
-      const closeBrowserPattern = /\b(?:azura|ara|zura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+)?(?:tutup|close|stop|matikan)\s+(?:chrome|browser|web|tab)\b/i;
+      const closeBrowserPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:tutup|close|stop|matikan)\s+(?:chrome|browser|web|tab)\b/i;
       if (closeBrowserPattern.test(cleanTranscript) || closeBrowserPattern.test(transcript)) {
         console.log('[Voice Pipeline]: 🔒 Headless Browser Close');
         const { closeBrowserSession } = require('./headlessBrowser');
@@ -1101,10 +1101,10 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // 1. STRICT SILENCE if preceded by conjunction "si" (e.g. "si Azura", "si Ara", "si Zura")
-  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura))\b/i.test(transcript);
+  // 1. STRICT SILENCE if preceded by conjunction "si" (e.g. "si Azura", "si Ara", "si Zura", "si Ajur")
+  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(transcript);
   if (isThirdPersonWithSi) {
-    console.log(`[Voice Pipeline]: 🤫 3rd-person "si Azura" detected in "${transcript}". Staying 100% silent.`);
+    console.log(`[Voice Pipeline]: 🤫 3rd-person "si Azura/Ajur" detected in "${transcript}". Staying 100% silent.`);
     return;
   }
 
@@ -1225,14 +1225,14 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 }
 
 const WAKE_WORDS = new Set([
-  'azura', 'zura', 'ara', 'asura', 'ajura', 'azuraa', 'zuraa', 'araa', 'zurah', 'arah', 'asurah', 'jura', 'jurah'
+  'azura', 'zura', 'ara', 'asura', 'ajura', 'ajur', 'ajurr', 'jur', 'azuraa', 'zuraa', 'araa', 'zurah', 'arah', 'asurah', 'jura', 'jurah', 'ajurah'
 ]);
 
 /**
  * Check if Azura wake-word was explicitly called by Attila:
  * - At the BEGINNING of the sentence (first 4 words)
  * - Or at the END of the sentence (last 4 words)
- * - STRICT SILENCE if preceded by conjunction "si" (e.g. "si azura", "si ara", "si zura")
+ * - STRICT SILENCE if preceded by conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
  * @param {string} transcript
  * @returns {boolean}
  */
@@ -1240,14 +1240,14 @@ function isWakeWordInvoked(transcript) {
   if (!transcript || typeof transcript !== 'string') return false;
   const clean = transcript.trim().toLowerCase().replace(/[.,!?;:'"()[\]]/g, ' ');
 
-  // 1. STRICT SILENCE on 3rd-person conjunction "si" (e.g. "si azura", "si ara", "si zura")
-  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura))\b/i.test(clean);
+  // 1. STRICT SILENCE on 3rd-person conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
+  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(clean);
   if (isThirdPersonWithSi) {
     return false;
   }
 
   // General passive 3rd-person reference (talking about Azura in passing)
-  const isPassiveThirdPerson = /\b(?:tentang\s+(?:azura|ara|zura)|bot\s+(?:azura|ara|zura)|azura\s*nya|ara\s*nya|zura\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura)|katanya\s+(?:si\s+)?(?:azura|ara|zura)|sama\s+(?:si\s+)?(?:azura|ara|zura)|ke\s+(?:si\s+)?(?:azura|ara|zura))\b/i.test(clean);
+  const isPassiveThirdPerson = /\b(?:tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(clean);
   if (isPassiveThirdPerson) {
     return false;
   }

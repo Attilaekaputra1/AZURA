@@ -166,7 +166,7 @@ function extractRealName(text) {
     const match = text.match(pat);
     if (match && match[1]) {
       let clean = match[1]
-        .replace(/\b(?:ya|yah|dong|plis|please|bang|kak|om|bro|sis|nih|deh|aja|sih|azura|ara|zura)\b/gi, '')
+        .replace(/\b(?:ya|yah|dong|plis|please|bang|kak|om|bro|sis|nih|deh|aja|sih|azura|ara|zura|ajur|ajura)\b/gi, '')
         .replace(/[.,!?;:'"()[\]]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();

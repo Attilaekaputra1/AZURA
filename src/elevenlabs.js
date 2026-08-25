@@ -13,14 +13,9 @@ const DEFAULT_VOICE_ID = 'd15jrIAARvF899pDoC6T'; // Kak Ceria (Indonesian cheerf
  */
 function generateElevenLabsTTS(text, voiceId = null, client = null) {
   return new Promise((resolve, reject) => {
-    const apiKey = config.ELEVENLABS_API_KEY || 'sk_a4c26e321b7abf0f20320d5ddd09e51a06bca2369ca5e328';
+    const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
     if (!apiKey) {
       return reject(new Error('ELEVENLABS_API_KEY not configured'));
-    }
-
-    // Quota Guard: check if monthly limit (40k chars) is exceeded
-    if (!canUseElevenLabs(text.length)) {
-      return reject(new Error('Batas kuota bulanan ElevenLabs (40.000 karakter) telah tercapai. Mengaktifkan fallback otomatis ke OpenAI TTS Nova.'));
     }
 
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;

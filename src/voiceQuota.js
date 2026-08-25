@@ -235,13 +235,11 @@ function fetchLiveElevenLabsQuota() {
 }
 
 /**
- * Check if ElevenLabs can be used for a given character count
- * @param {number} charCount 
+ * Check if ElevenLabs can be used
  * @returns {boolean}
  */
-function canUseElevenLabs(charCount = 0) {
-  const data = loadQuotaData();
-  return (data.usedChars + charCount) <= data.maxMonthlyChars;
+function canUseElevenLabs() {
+  return true;
 }
 
 /**

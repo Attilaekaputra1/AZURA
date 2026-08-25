@@ -214,17 +214,19 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
 
   // Convert audio tags into natural conversational Indonesian interjections for Fallback TTS
   const naturalFallbackText = prepareNaturalTextForFallbackTts(clean);
+  const vtuberMode = config.VTUBER_VOICE_MODE || 'openai_shimmer';
 
-  // 2. Fallback 1: OpenAI TTS-1-HD (nova - lively Gen Z tone with speed 1.06 & 220% Volume Boost)
+  // 2. Fallback 1: OpenAI TTS-1-HD (Shimmer = Soft Kawaii VTuber, Nova = Energetic Gen Z)
   try {
     const openai = getOpenAI();
-    if (openai) {
-      console.log('[Voice TTS]: Generating audio via OpenAI TTS-1-HD (nova with 220% Volume Booster & Natural Intonation)...');
+    if (openai && vtuberMode.startsWith('openai')) {
+      const selectedOpenAiVoice = vtuberMode === 'openai_nova' ? 'nova' : 'shimmer';
+      console.log(`[Voice TTS]: 🎀 Generating cute VTuber audio via OpenAI TTS-1-HD (${selectedOpenAiVoice} kawaii voice with 220% Volume Boost)...`);
       const mp3 = await openai.audio.speech.create({
         model: 'tts-1-hd',
-        voice: 'nova',
+        voice: selectedOpenAiVoice,
         input: naturalFallbackText,
-        speed: 1.06 // Brisker, lively, non-robotic intonation
+        speed: selectedOpenAiVoice === 'shimmer' ? 1.08 : 1.10 // Cute brisk intonation
       });
       const buf = Buffer.from(await mp3.arrayBuffer());
       const resource = createAudioResource(Readable.from(buf), {
@@ -240,13 +242,16 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
     console.warn('[Voice TTS Warning]: OpenAI TTS failed, falling back to Edge TTS:', err.message);
   }
 
-  // 3. Fallback 2: Microsoft Edge Neural TTS (Gadis Neural with 200% Volume Boost)
+  // 3. Fallback 2: Microsoft Edge Neural TTS (Gadis Neural with +22Hz pitch modulation for Cute VTuber Voice)
   const tempPath = path.join(TEMP_DIR, `vc_tts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp3`);
   try {
     const { EdgeTTS } = require('node-edge-tts');
+    console.log('[Voice TTS]: 🎀 Generating cute VTuber audio via EdgeTTS (Gadis Neural +22Hz Pitch Modulation)...');
     const tts = new EdgeTTS({
       voice: 'id-ID-GadisNeural',
       lang: 'id-ID',
+      pitch: '+22Hz', // Sweet, high-pitch anime girl tone
+      rate: '+12%',   // Natural energetic pacing
       outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
     });
     await tts.ttsPromise(naturalFallbackText, tempPath);

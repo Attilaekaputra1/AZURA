@@ -13,6 +13,7 @@ const config = {
   ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c').trim(),
   ELEVENLABS_VOICE_ID: (process.env.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T').trim(),
   ELEVENLABS_MODEL_ID: (process.env.ELEVENLABS_MODEL_ID || 'eleven_v3').trim(),
+  VTUBER_VOICE_MODE: (process.env.VTUBER_VOICE_MODE || 'openai_shimmer').trim(),
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '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').trim(),
   DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_9874123650abcdef0123456789abcdef').trim(),
 

@@ -24,13 +24,14 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
     }
 
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
+    const selectedModel = config.ELEVENLABS_MODEL_ID || 'eleven_v3';
     const postData = JSON.stringify({
       text: text,
-      model_id: 'eleven_multilingual_v2',
+      model_id: selectedModel,
       voice_settings: {
-        stability: 0.45,
-        similarity_boost: 0.85,
-        style: 0.25,
+        stability: 0.38,
+        similarity_boost: 0.80,
+        style: 0.35,
         use_speaker_boost: true
       }
     });

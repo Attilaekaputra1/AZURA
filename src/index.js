@@ -194,7 +194,10 @@ client.on('messageCreate', async (message) => {
   // Check if message is directed at AZURA
   const isThirdPersonReference = !isDM && /\b(?:si\s+(?:azura|ara|zura|ajur|ajura|asura)|tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|kayaknya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(message.content);
   const isMentioned = message.mentions.has(client.user.id);
-  const startsWithName = /^(?:azura|ara|zura|ajur|ajura|asura|hei azura|hei ara|hei ajur|halo azura|halo ara|halo ajur|hai azura|hai ara|hai ajur)\b/i.test(message.content.trim());
+  const cleanTrimmed = message.content.trim();
+  const startsWithName = /^(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur|hei\s+azura|hei\s+ara|halo\s+azura|halo\s+ara|hai\s+azura|hai\s+ara|woi\s+azura|woi\s+ara)\b/i.test(cleanTrimmed);
+  const endsWithName = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)[?.!\s]*$/i.test(cleanTrimmed);
+  const vocativeName = /\b(?:gimana|apa|kenapa|tolong|coba|siapa|kapan|apakah|bisa\s+gak|boleh\s+gak|menurutmu|menurut\s+kamu|lagi\s+ngapain|sehat\s+kan)\b.*?\b(?:azura|ara|zura|ajur|ajura)\b/i.test(cleanTrimmed);
 
   // Check if user is directly replying to a previous message from AZURA
   let isReplyToBot = false;
@@ -213,7 +216,7 @@ client.on('messageCreate', async (message) => {
   const hasRegisteredName = isOwner || (userRecord && userRecord.knownRealName);
 
   if (!hasRegisteredName) {
-    const isDirectedAtAzura = isDM || isMentioned || startsWithName || isReplyToBot;
+    const isDirectedAtAzura = isDM || isMentioned || startsWithName || endsWithName || vocativeName || isReplyToBot;
     if (isDirectedAtAzura) {
       const regPrompt =
         `⚠️ **[Registrasi Nama Panggilan Diperlukan]**\n\n` +
@@ -250,7 +253,7 @@ client.on('messageCreate', async (message) => {
   );
 
   // If user used 3rd-person phrasing (e.g. "Si Azura", "Si Ara"), it is NEVER a direct call, even if replying or mentioning!
-  const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || isVoiceCommand);
+  const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || endsWithName || vocativeName || isVoiceCommand);
   const isPassiveMention = isThirdPersonReference || (!isDirectCall && calledByName);
 
   if (isDirectCall && !isDM) {

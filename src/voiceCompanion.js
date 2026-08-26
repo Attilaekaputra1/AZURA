@@ -1350,6 +1350,12 @@ function isWakeWordInvoked(transcript) {
     if (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1])) return true;
   }
 
+  // 4. Check Middle Vocative / Direct Question directed at Azura
+  const isDirectQuestionToAzura = /\b(?:gimana|apa|kenapa|tolong|coba|siapa|kapan|apakah|bisa\s+gak|boleh\s+gak|menurutmu|menurut\s+kamu|lagi\s+ngapain|sehat\s+kan)\b.*?\b(?:azura|ara|zura|ajur|ajura)\b/i.test(clean);
+  if (isDirectQuestionToAzura) {
+    return true;
+  }
+
   return false;
 }
 

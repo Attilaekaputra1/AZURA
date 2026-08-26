@@ -211,6 +211,31 @@ const commands = [
       sub.setName('stats')
         .setDescription('Lihat statistik & rekap pengguna aktif di database terenkripsi'))
     .addSubcommand(sub =>
+      sub.setName('list')
+        .setDescription('Lihat daftar lengkap seluruh pengguna terdaftar beserta UID dan status kunci nama'))
+    .addSubcommand(sub =>
+      sub.setName('setname')
+        .setDescription('Tetapkan atau ubah nama panggilan pengguna secara resmi & terkunci')
+        .addStringOption(opt =>
+          opt.setName('target')
+            .setDescription('User ID, @User, atau username pengguna')
+            .setRequired(true))
+        .addStringOption(opt =>
+          opt.setName('nama')
+            .setDescription('Nama panggilan/nama asli resmi yang ingin ditetapkan')
+            .setRequired(true))
+        .addBooleanOption(opt =>
+          opt.setName('kunci')
+            .setDescription('Kunci nama agar tidak bisa diubah oleh pengguna (Default: True)')
+            .setRequired(false)))
+    .addSubcommand(sub =>
+      sub.setName('unlock')
+        .setDescription('Buka kunci nama panggilan pengguna agar bisa mendaftar ulang')
+        .addStringOption(opt =>
+          opt.setName('target')
+            .setDescription('User ID atau username pengguna')
+            .setRequired(true)))
+    .addSubcommand(sub =>
       sub.setName('view')
         .setDescription('Dekripsi dan lihat data profil lengkap pengguna tertentu')
         .addStringOption(opt =>
@@ -726,7 +751,73 @@ async function handleSlashCommand(interaction, startTime) {
         .setFooter({ text: 'Data diakumulasikan secara aman & terenkripsi di data/user_vault.enc' })
         .setTimestamp();
 
+    } else if (subcommand === 'list') {
+      const { getAllUsersList } = require('./vault');
+      const list = getAllUsersList();
+      if (!list.length) {
+        return interaction.reply({ content: 'Belum ada pengguna terdaftar di vault.', flags: 64 });
+      }
+
+      const formatted = list.map((u, i) => {
+        const lockIcon = u.isNameLocked ? '🔒' : '🔓';
+        const nameStr = u.knownRealName ? `**${u.knownRealName}**` : '*(Belum diset)*';
+        const pendingStr = u.pendingNameChange ? ` ⏳ (Minta: "${u.pendingNameChange.requestedName}")` : '';
+        return `${i + 1}. **${u.displayName}** (\`@${u.username}\`)\n   🔢 **UID:** \`${u.userId}\`\n   🏷️ **Nama Panggilan:** ${nameStr} ${lockIcon}${pendingStr}\n   📊 **Total Interaksi:** \`${u.totalInteractions}\` (${u.totalMessages} teks, ${u.totalVoiceTurns} voice)\n   🎖️ **Tier:** ${u.relationshipTier}`;
+      }).join('\n\n');
+
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`🔒 Direktori Identitas Pengguna AZURA (${list.length} Pengguna)`)
+        .setDescription(formatted.length > 4000 ? formatted.slice(0, 4000) + '...' : formatted)
+        .setFooter({ text: 'Gunakan /vault setname target:<uid> nama:<nama> untuk menetapkan nama resmi' })
+        .setTimestamp();
+
       return interaction.reply({ embeds: [embed], flags: 64 });
+
+    } else if (subcommand === 'setname') {
+      const targetQuery = interaction.options.getString('target');
+      const newName = interaction.options.getString('nama');
+      const isLock = interaction.options.getBoolean('kunci') ?? true;
+      const { setUserNameByOwner } = require('./vault');
+
+      const res = setUserNameByOwner(targetQuery, newName, isLock);
+      if (!res) {
+        return interaction.reply({
+          content: `❌ Tidak ditemukan pengguna di vault untuk target: \`${targetQuery}\`. Pastikan target sudah pernah berinteraksi dengan AZURA minimal 1x.`,
+          flags: 64
+        });
+      }
+
+      // Try notifying target user via DM
+      try {
+        const targetUser = await interaction.client.users.fetch(res.userId);
+        if (targetUser) {
+          await targetUser.send(`✨ **[Pembaruan Identitas AZURA]**\nNama panggilanmu telah resmi ditetapkan oleh Attila sebagai **${res.newName}** ${res.isLocked ? '🔒 (Terkunci)' : '🔓'}.`).catch(() => {});
+        }
+      } catch (_) {}
+
+      return interaction.reply({
+        content: `✅ Berhasil menetapkan nama panggilan untuk <@${res.userId}> (\`@${res.username}\`):\n` +
+                 `📛 **Nama Resmi:** **${res.newName}**\n` +
+                 `🔒 **Status Kunci:** ${res.isLocked ? '\`TERKUNCI 🔒\`' : '\`TERBUKA 🔓\`'}\n` +
+                 `🔢 **UID:** \`${res.userId}\``,
+        flags: 64
+      });
+
+    } else if (subcommand === 'unlock') {
+      const targetQuery = interaction.options.getString('target');
+      const { unlockUserNameByOwner } = require('./vault');
+      const res = unlockUserNameByOwner(targetQuery);
+      if (!res) {
+        return interaction.reply({
+          content: `❌ Tidak ditemukan pengguna untuk target: \`${targetQuery}\``,
+          flags: 64
+        });
+      }
+      return interaction.reply({
+        content: `🔓 Kunci nama panggilan untuk <@${res.userId}> (\`@${res.username}\`) telah **DIBUKA**. Pengguna kini bisa mendaftarkan nama baru lewat chat.`,
+        flags: 64
+      });
 
     } else if (subcommand === 'view') {
       const targetQuery = interaction.options.getString('target');

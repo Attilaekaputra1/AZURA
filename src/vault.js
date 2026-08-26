@@ -244,8 +244,15 @@ function getRelationshipTier(userId, totalInteractions = 0) {
   };
 }
 
+// Protected Name Blacklist (Anti-Impersonation Defense)
+const PROTECTED_OWNER_NAMES = new Set([
+  'putra', 'attila', 'attilaekaputra', 'owner', 'creator', 'pemilik',
+  'admin', 'administrator', 'azura', 'ara', 'zura', 'ajur', 'ajura',
+  'developer', 'dev', 'bot'
+]);
+
 /**
- * Record a user interaction into the encrypted database (Accumulates Lifetime Metrics)
+ * Record a user interaction into the encrypted database (Accumulates Lifetime Metrics & Strict Lock-In)
  * @param {string} userId 
  * @param {object} meta 
  * @param {string} meta.username
@@ -254,9 +261,10 @@ function getRelationshipTier(userId, totalInteractions = 0) {
  * @param {string} [meta.channelName]
  * @param {string} [meta.textContent]
  * @param {boolean} [meta.isVoice]
+ * @returns {object|null} nameActionResult
  */
 function recordUserInteraction(userId, meta = {}) {
-  if (!userId) return;
+  if (!userId) return null;
   loadVault();
 
   const nowIso = new Date().toISOString();
@@ -268,6 +276,8 @@ function recordUserInteraction(userId, meta = {}) {
       username: meta.username || 'unknown',
       displayName: meta.displayName || meta.username || 'User',
       knownRealName: null,
+      isNameLocked: false,
+      pendingNameChange: null,
       firstSeen: nowIso,
       lastSeen: nowIso,
       totalMessages: 0,
@@ -299,17 +309,161 @@ function recordUserInteraction(userId, meta = {}) {
     user.activeChannels.push(meta.channelName);
   }
 
-  // Real-time auto extract real name/nickname whenever mentioned
+  // Strict Real Name Extraction & Lock-in Protocol
+  let nameActionResult = null;
   if (meta.textContent) {
     const extracted = extractRealName(meta.textContent);
     if (extracted) {
-      user.knownRealName = extracted;
-      console.log(`[User Vault]: 💡 Real-time updated real name for ${userId} (@${user.username}): "${extracted}"`);
+      const isOwner = (userId === config.OWNER_DISCORD_ID);
+      const isProtected = PROTECTED_OWNER_NAMES.has(extracted.toLowerCase());
+
+      if (!isOwner && isProtected) {
+        console.warn(`[User Vault Security]: 🚫 User ${userId} attempted to impersonate protected identity: "${extracted}"`);
+        nameActionResult = {
+          status: 'IMPERSONATION_BLOCKED',
+          userId,
+          username: user.username,
+          displayName: user.displayName,
+          requestedName: extracted
+        };
+      } else if (isOwner) {
+        user.knownRealName = extracted;
+        user.isNameLocked = true;
+        user.pendingNameChange = null;
+        nameActionResult = {
+          status: 'OWNER_UPDATED',
+          userId,
+          name: extracted
+        };
+      } else if (!user.knownRealName) {
+        // First-time registration -> Lock in immediately
+        user.knownRealName = extracted;
+        user.isNameLocked = true;
+        user.pendingNameChange = null;
+        console.log(`[User Vault]: 🔒 First-time locked real name for ${userId} (@${user.username}): "${extracted}"`);
+        nameActionResult = {
+          status: 'FIRST_REGISTRATION',
+          userId,
+          username: user.username,
+          displayName: user.displayName,
+          name: extracted
+        };
+      } else if (user.knownRealName.toLowerCase() !== extracted.toLowerCase()) {
+        // Already locked -> Trigger Owner Confirmation Protocol
+        user.pendingNameChange = {
+          requestedName: extracted,
+          requestedAt: nowIso
+        };
+        console.log(`[User Vault]: ⏳ Nickname change request queued for ${userId} (@${user.username}): "${user.knownRealName}" -> "${extracted}" (Pending Attila's Approval)`);
+        nameActionResult = {
+          status: 'PENDING_APPROVAL',
+          userId,
+          username: user.username,
+          displayName: user.displayName,
+          currentName: user.knownRealName,
+          requestedName: extracted
+        };
+      }
     }
   }
 
   userVaultCache.set(userId, user);
   saveVault();
+  return nameActionResult;
+}
+
+/**
+ * Approve a pending nickname change for a user (Owner Only)
+ * @param {string} userId 
+ */
+function approvePendingNameChange(userId) {
+  loadVault();
+  const user = userVaultCache.get(userId);
+  if (!user || !user.pendingNameChange) return null;
+  const newName = user.pendingNameChange.requestedName;
+  const oldName = user.knownRealName;
+  user.knownRealName = newName;
+  user.isNameLocked = true;
+  user.pendingNameChange = null;
+  saveVault();
+  return { success: true, userId, username: user.username, oldName, newName };
+}
+
+/**
+ * Reject a pending nickname change for a user (Owner Only)
+ * @param {string} userId 
+ */
+function rejectPendingNameChange(userId) {
+  loadVault();
+  const user = userVaultCache.get(userId);
+  if (!user || !user.pendingNameChange) return null;
+  const rejectedName = user.pendingNameChange.requestedName;
+  user.pendingNameChange = null;
+  saveVault();
+  return { success: true, userId, username: user.username, rejectedName, currentName: user.knownRealName };
+}
+
+/**
+ * Explicitly set or override a user's nickname by Owner
+ * @param {string} targetQuery 
+ * @param {string} newName 
+ * @param {boolean} [lock=true] 
+ */
+function setUserNameByOwner(targetQuery, newName, lock = true) {
+  loadVault();
+  const user = getUserRecord(targetQuery);
+  if (!user) return null;
+  const actualUser = userVaultCache.get(user.userId);
+  const oldName = actualUser.knownRealName;
+  actualUser.knownRealName = newName;
+  actualUser.isNameLocked = lock;
+  actualUser.pendingNameChange = null;
+  saveVault();
+  return {
+    success: true,
+    userId: actualUser.userId,
+    username: actualUser.username,
+    displayName: actualUser.displayName,
+    oldName,
+    newName,
+    isLocked: lock
+  };
+}
+
+/**
+ * Unlock a user's nickname allowing them to register a new one
+ * @param {string} targetQuery 
+ */
+function unlockUserNameByOwner(targetQuery) {
+  loadVault();
+  const user = getUserRecord(targetQuery);
+  if (!user) return null;
+  const actualUser = userVaultCache.get(user.userId);
+  actualUser.isNameLocked = false;
+  saveVault();
+  return { success: true, userId: actualUser.userId, username: actualUser.username, currentName: actualUser.knownRealName };
+}
+
+/**
+ * Get formatted list of all registered users in vault
+ */
+function getAllUsersList() {
+  loadVault();
+  return Array.from(userVaultCache.values()).map(u => ({
+    userId: u.userId,
+    username: u.username,
+    displayName: u.displayName,
+    knownRealName: u.knownRealName || null,
+    isNameLocked: !!u.isNameLocked,
+    pendingNameChange: u.pendingNameChange || null,
+    totalMessages: u.totalMessages || 0,
+    totalVoiceTurns: u.totalVoiceTurns || 0,
+    totalInteractions: (u.totalMessages || 0) + (u.totalVoiceTurns || 0),
+    relationshipTier: getRelationshipTier(u.userId, (u.totalMessages || 0) + (u.totalVoiceTurns || 0)).badge,
+    activeServers: u.activeServers || [],
+    firstSeen: u.firstSeen,
+    lastSeen: u.lastSeen
+  }));
 }
 
 /**
@@ -443,5 +597,10 @@ module.exports = {
   getUserRecord,
   exportVaultData,
   encryptPayload,
-  decryptPayload
+  decryptPayload,
+  approvePendingNameChange,
+  rejectPendingNameChange,
+  setUserNameByOwner,
+  unlockUserNameByOwner,
+  getAllUsersList
 };

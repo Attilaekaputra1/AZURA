@@ -97,15 +97,51 @@ client.on('messageCreate', async (message) => {
   const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
   const guildId = message.guild?.id || null;
 
-  // Record user interaction in encrypted vault (Zero-Knowledge AES-256-GCM Storage)
+  // Record user interaction in encrypted vault (Zero-Knowledge AES-256-GCM Storage & Strict Lock-In)
   const { recordUserInteraction } = require('./vault');
-  recordUserInteraction(message.author.id, {
+  const nameActionResult = recordUserInteraction(message.author.id, {
     username: message.author.username,
     displayName: userName,
     guildName: message.guild?.name || null,
     channelName: message.channel?.name || null,
     textContent: message.content
   });
+
+  if (nameActionResult) {
+    if (nameActionResult.status === 'PENDING_APPROVAL') {
+      if (config.OWNER_DISCORD_ID) {
+        const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+        if (owner) {
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`vault_appr_name:${message.author.id}`)
+              .setLabel('✅ Setujui Perubahan')
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`vault_rejc_name:${message.author.id}`)
+              .setLabel('❌ Tolak')
+              .setStyle(ButtonStyle.Danger)
+          );
+          const embed = new EmbedBuilder()
+            .setColor(0xF39C12)
+            .setTitle('🆔 Pengajuan Perubahan Nama Panggilan')
+            .setDescription(
+              `Pengguna <@${message.author.id}> (\`@${message.author.username}\`) mengajukan perubahan nama panggilan:\n\n` +
+              `🔒 **Nama Terkunci Saat Ini:** **${nameActionResult.currentName}**\n` +
+              `📝 **Nama Baru Diajukan:** **${nameActionResult.requestedName}**\n` +
+              `🔢 **UID:** \`${message.author.id}\`\n` +
+              `🏛️ **Lokasi:** #${message.channel?.name || 'DM'} (${message.guild?.name || 'DM'})`
+            )
+            .setFooter({ text: 'Klik tombol di bawah atau gunakan /vault setname' })
+            .setTimestamp();
+          await owner.send({ embeds: [embed], components: [row] }).catch(() => {});
+        }
+      }
+      return message.reply(`Nama panggilan kamu saat ini sudah tersimpan & terkunci sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`);
+    } else if (nameActionResult.status === 'IMPERSONATION_BLOCKED') {
+      return message.reply(`⚠️ Nama panggilan **${nameActionResult.requestedName}** dilindungi oleh sistem keamanan identitas AZURA dan tidak dapat digunakan.`);
+    }
+  }
 
   // 1. Check for 3rd-Person Reference Pattern ("si azura", "si ara", "si ajur", "tentang azura", "azuranya", "kayaknya si ara", etc.)
   const isThirdPersonReference = !isDM && /\b(?:si\s+(?:azura|ara|zura|ajur|ajura|asura)|tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|kayaknya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(message.content);
@@ -498,6 +534,63 @@ client.on('interactionCreate', async (interaction) => {
       const { stopMusic } = require('./musicStreamer');
       const res = stopMusic(gid);
       return interaction.reply({ content: res.message, flags: 64 });
+    }
+
+    // Handle Vault Nickname Change Approval/Rejection buttons (Owner DM)
+    if (interaction.customId.startsWith('vault_appr_name:') || interaction.customId.startsWith('vault_rejc_name:')) {
+      const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+      if (!isOwner) {
+        return interaction.reply({ content: '❌ Tombol ini khusus untuk Attila (Owner).', flags: 64 });
+      }
+      const isApprove = interaction.customId.startsWith('vault_appr_name:');
+      const targetUid = interaction.customId.split(':')[1];
+      const { approvePendingNameChange, rejectPendingNameChange } = require('./vault');
+
+      if (isApprove) {
+        const res = approvePendingNameChange(targetUid);
+        if (res && res.success) {
+          try {
+            const targetUser = await client.users.fetch(targetUid);
+            if (targetUser) {
+              await targetUser.send(`✨ **[Konfirmasi AZURA]**\nPermintaan perubahan nama panggilanmu menjadi **${res.newName}** telah **disetujui** oleh Attila! Sekarang namamu sudah resmi terkunci di database yaa. 🔒`).catch(() => {});
+            }
+          } catch (_) {}
+
+          return interaction.update({
+            content: `✅ **[DISETUJUI]** Nama panggilan <@${targetUid}> (@${res.username}) telah resmi diubah menjadi **${res.newName}** dan terkunci di database! 🔒`,
+            embeds: [],
+            components: []
+          });
+        } else {
+          return interaction.update({
+            content: `⚠️ Tidak ada pengajuan nama yang tertunda untuk <@${targetUid}>.`,
+            embeds: [],
+            components: []
+          });
+        }
+      } else {
+        const res = rejectPendingNameChange(targetUid);
+        if (res && res.success) {
+          try {
+            const targetUser = await client.users.fetch(targetUid);
+            if (targetUser) {
+              await targetUser.send(`ℹ️ **[Konfirmasi AZURA]**\nPermintaan perubahan nama panggilanmu menjadi **${res.rejectedName}** tidak disetujui. Nama panggilanmu tetap **${res.currentName || 'User'}**.`).catch(() => {});
+            }
+          } catch (_) {}
+
+          return interaction.update({
+            content: `❌ **[DITOLAK]** Pengajuan nama panggilan **${res.rejectedName}** untuk <@${targetUid}> (@${res.username}) telah ditolak. Nama tetap: **${res.currentName || '-'}**.`,
+            embeds: [],
+            components: []
+          });
+        } else {
+          return interaction.update({
+            content: `⚠️ Tidak ada pengajuan nama yang tertunda untuk <@${targetUid}>.`,
+            embeds: [],
+            components: []
+          });
+        }
+      }
     }
 
     // Route to correct button handler based on customId prefix

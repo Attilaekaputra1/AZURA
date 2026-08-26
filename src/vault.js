@@ -644,7 +644,8 @@ function setUserNameByOwner(targetQuery, newName, lock = true) {
   loadVault();
   const user = getUserRecord(targetQuery);
   if (!user) return null;
-  const actualUser = userVaultCache.get(user.userId);
+  const actualUser = userVaultCache.get(user.userId) || Array.from(userVaultCache.values()).find(u => u.userId === user.userId);
+  if (!actualUser) return null;
   const oldName = actualUser.knownRealName;
   actualUser.knownRealName = newName;
   actualUser.isNameLocked = lock;

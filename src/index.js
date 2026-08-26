@@ -154,11 +154,11 @@ client.on('messageCreate', async (message) => {
       }
 
       return message.reply(
-        `✨ Halo **${nameActionResult.name}**! Senang kenalan sama kamu. Nama panggilanmu telah resmi didaftarkan & dikunci secara permanen di database AZURA 🔒.\n\n` +
-        `⚠️ **Peringatan Keamanan & Ketentuan Penggunaan:**\n` +
-        `1. Dilarang keras memalsukan identitas, menggunakan nama panggilan orang lain, atau mengklaim identitas staf/creator.\n` +
-        `2. Jika terdeteksi melakukan pelanggaran, penipuan identitas, atau penyalahgunaan sistem, AZURA berhak untuk **menghentikan seluruh akses interaksi (Blokir Total)** baik di Server maupun di DM.\n` +
-        `3. Perubahan nama hanya dapat dilakukan melalui persetujuan langsung dari Attila (Creator).`
+        `✨ Halo **${nameActionResult.name}**! Senang kenalan sama kamu. Alias / nama panggilanmu sudah tersimpan yaa! 🔒\n\n` +
+        `🔒 **Privasi & Kenyamananmu:**\n` +
+        `• AZURA akan menyapamu dengan panggilan **${nameActionResult.name}** di setiap percakapan.\n` +
+        `• Privasi dan data aslimu tetap aman terjaga.\n` +
+        `• Mau ngobrol atau butuh bantuan apa hari ini? Yuk mulai! 💖`
       );
     } else if (nameActionResult.status === 'PENDING_APPROVAL') {
       if (config.OWNER_DISCORD_ID) {
@@ -189,7 +189,7 @@ client.on('messageCreate', async (message) => {
           await owner.send({ embeds: [embed], components: [row] }).catch(() => {});
         }
       }
-      return message.reply(`Nama panggilan kamu saat ini sudah tersimpan & terkunci sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`);
+      return message.reply(`Nama panggilan kamu saat ini sudah tersimpan sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`);
     } else if (nameActionResult.status === 'IMPERSONATION_BLOCKED') {
       return message.reply(`⚠️ Nama panggilan **${nameActionResult.requestedName}** dilindungi oleh sistem keamanan identitas AZURA dan tidak dapat digunakan.`);
     }
@@ -223,14 +223,13 @@ client.on('messageCreate', async (message) => {
     const isDirectedAtAzura = isDM || isMentioned || startsWithName || endsWithName || vocativeName || isReplyToBot;
     if (isDirectedAtAzura) {
       const regPrompt =
-        `⚠️ **[Registrasi Nama Panggilan Diperlukan]**\n\n` +
-        `Halo <@${message.author.id}>! 👋 Sebelum kamu dapat mulai mengobrol atau menggunakan seluruh fitur AZURA, kamu wajib mendaftarkan nama panggilan resmi kamu terlebih dahulu yaa 🔒.\n\n` +
-        `👉 **Cara Mendaftar:** Cukup balas pesan ini dengan menyebutkan nama panggilanmu, contoh:\n` +
-        `\`panggil aku [Nama Panggilanmu]\` atau \`namaku [Nama Panggilanmu]\`\n\n` +
-        `⚠️ **Ketentuan Keamanan:**\n` +
-        `1. Dilarang keras memalsukan identitas, menggunakan nama orang lain, atau mengklaim identitas staf/creator.\n` +
-        `2. Nama panggilan ini akan dikunci permanen di database AZURA sebagai identitas resmimu.\n` +
-        `3. Pelanggaran ketentuan identitas dapat mengakibatkan pemblokiran akses total.`;
+        `✨ **[Kenalan Dulu Yuk!]**\n\n` +
+        `Halo <@${message.author.id}>! 👋 Biar obrolan kita lebih akrab dan personal, mau dipanggil apa nih sama AZURA? ✨\n\n` +
+        `👉 **Cara Mudah:** Cukup balas pesan ini dengan menyebutkan nama panggilan, alias, atau inisial santai yang kamu sukai, contoh:\n` +
+        `\`panggil aku [Nama/Alias/Inisial]\` atau \`namaku [Nama Panggilanmu]\`\n\n` +
+        `🔒 **Jaminan Privasi:**\n` +
+        `• Bebas gunakan nama panggilan, alias, atau inisial yang nyaman buat kamu.\n` +
+        `• AZURA sangat menghormati privasi dan menjaga keamanan datamu! 💖`;
 
       await message.reply(regPrompt);
 

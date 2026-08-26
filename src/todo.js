@@ -30,34 +30,7 @@ function loadTodos() {
       todoCache = JSON.parse(data || '[]');
       console.log(`[Todo Engine]: 📋 Loaded ${todoCache.length} tasks from disk.`);
     } else {
-      todoCache = [
-        {
-          id: 'TASK-101',
-          title: 'Deploy AZURA Ecosystem ke VPS Production',
-          category: 'Dev',
-          priority: 'High',
-          status: 'completed',
-          dueDate: '2026-08-26',
-          notes: 'Konfigurasi PM2, port 7860, dan database vault.',
-          creatorId: config.OWNER_DISCORD_ID || '759050138353664020',
-          creatorName: 'Attila',
-          createdAt: new Date().toISOString(),
-          completedAt: new Date().toISOString()
-        },
-        {
-          id: 'TASK-102',
-          title: 'Integrasi Voice Companion & Jokes Tongkrongan Gen Z',
-          category: 'Dev',
-          priority: 'High',
-          status: 'completed',
-          dueDate: '2026-08-26',
-          notes: 'Dukungan humor nama unik & apresiasi filosofi.',
-          creatorId: config.OWNER_DISCORD_ID || '759050138353664020',
-          creatorName: 'Attila',
-          createdAt: new Date().toISOString(),
-          completedAt: new Date().toISOString()
-        }
-      ];
+      todoCache = [];
       saveTodos();
     }
     isLoaded = true;
@@ -66,6 +39,16 @@ function loadTodos() {
     todoCache = [];
     isLoaded = true;
   }
+}
+
+/**
+ * Clear all tasks completely
+ */
+function clearAllTodos() {
+  todoCache = [];
+  saveTodos();
+  console.log('[Todo Engine]: 🧹 To-Do list completely reset and emptied.');
+  return true;
 }
 
 function saveTodos() {
@@ -967,6 +950,7 @@ module.exports = {
   toggleTodoStatus,
   updateTodoStatus,
   deleteTodo,
+  clearAllTodos,
   getTodos,
   generateTodoRecapText,
   getTodoDashboardHtml,

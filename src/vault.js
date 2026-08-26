@@ -715,6 +715,20 @@ function unlockUserNameByOwner(targetQuery) {
 }
 
 /**
+ * Permanently delete a user profile from the encrypted vault
+ * @param {string} targetQuery 
+ * @returns {boolean}
+ */
+function deleteUserRecord(targetQuery) {
+  loadVault();
+  const user = getUserRecord(targetQuery);
+  if (!user) return false;
+  const deleted = userVaultCache.delete(user.userId);
+  if (deleted) saveVault();
+  return deleted;
+}
+
+/**
  * Get formatted list of all registered users in vault
  */
 function getAllUsersList() {
@@ -910,6 +924,7 @@ module.exports = {
   rejectPendingNameChange,
   setUserNameByOwner,
   unlockUserNameByOwner,
+  deleteUserRecord,
   getAllUsersList,
   isUserBanned,
   isAliasTaken,

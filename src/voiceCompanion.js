@@ -24,10 +24,11 @@ const isGuildProcessingVoice = new Set(); // guildIds where voice turn is active
 const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
 const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, channelId, requesterId }
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
+const deepSleepTimers = new Map();        // guildId -> NodeJS.Timeout (15-minute auto-pause & deep sleep)
 const dismissedGuilds = new Set();        // guildIds where bot was dismissed by Attila (anti auto-rejoin)
 
 // Summon-Based Conversation State Machine
-// guildId -> { mode: 'PASSIVE'|'ACTIVE', lastActiveAt: number, turnCount: number }
+// guildId -> { mode: 'PASSIVE'|'ACTIVE'|'DEEP_SLEEP', lastActiveAt: number, turnCount: number }
 const conversationMode = new Map();
 const activeExpireTimers = new Map();     // guildId -> NodeJS.Timeout (6s auto-expire to PASSIVE in Solo Mode)
 const ACTIVE_EXPIRE_MS = 6000;            // 6 seconds of silence -> back to PASSIVE in Solo Mode
@@ -340,14 +341,27 @@ function playInVC(guildId, resource) {
 }
 
 // ============================================================
-// Inactivity 10-Minute Icebreaker & Conversation Catalyst Engine
+// Inactivity 10-Minute Icebreaker & 15-Minute Deep Sleep Engine
 // ============================================================
 const IDLE_SILENCE_ICEBREAKER_MS = 10 * 60 * 1000; // 10 minutes of silence in VC
+const DEEP_SLEEP_TIMEOUT_MS = 15 * 60 * 1000;      // 15 minutes of silence -> Deep Sleep (0% bandwidth/API)
 
 function resetIdleTimer(guildId, client, voiceChannel) {
   if (idleTimers.has(guildId)) {
     clearTimeout(idleTimers.get(guildId));
     idleTimers.delete(guildId);
+  }
+
+  if (deepSleepTimers.has(guildId)) {
+    clearTimeout(deepSleepTimers.get(guildId));
+    deepSleepTimers.delete(guildId);
+  }
+
+  // Wake up if currently in DEEP_SLEEP
+  const currentMode = conversationMode.get(guildId)?.mode;
+  if (currentMode === 'DEEP_SLEEP') {
+    console.log(`[Voice Companion]: ⚡ Waking up from Deep Sleep Mode for guild ${guildId}!`);
+    conversationMode.set(guildId, { mode: 'PASSIVE', lastActiveAt: Date.now(), turnCount: 0 });
   }
 
   // Ensure connection is un-deafened so bot is always listening
@@ -360,14 +374,66 @@ function resetIdleTimer(guildId, client, voiceChannel) {
 
   if (!client || !activeConn) return;
 
+  // 1. Arm 10-minute Icebreaker
   const timer = setTimeout(() => {
     triggerAutonomousVcIcebreaker(guildId, client, voiceChannel).catch(err => {
       console.error('[Autonomous VC Icebreaker Error]:', err.message);
     });
   }, IDLE_SILENCE_ICEBREAKER_MS);
-
   idleTimers.set(guildId, timer);
+
+  // 2. Arm 15-minute Deep Sleep Auto-Pause
+  const dsTimer = setTimeout(() => {
+    enterDeepSleep(guildId, client, voiceChannel).catch(err => {
+      console.error('[Deep Sleep Error]:', err.message);
+    });
+  }, DEEP_SLEEP_TIMEOUT_MS);
+  deepSleepTimers.set(guildId, dsTimer);
+
   console.log(`[VC Icebreaker]: ⏳ 10-Minute silence timer armed for guild ${guildId}.`);
+}
+
+/**
+ * Enter ultra-low resource Deep Sleep state after 15 minutes of inactivity in VC
+ */
+async function enterDeepSleep(guildId, client, voiceChannel) {
+  const conn = activeConnections.get(guildId);
+  if (!conn) return;
+
+  // Don't sleep if bot is speaking
+  if (isBotSpeaking.has(guildId)) {
+    resetIdleTimer(guildId, client, voiceChannel);
+    return;
+  }
+
+  // Don't sleep if music is streaming
+  try {
+    const { guildMusicSessions } = require('./musicStreamer');
+    if (guildMusicSessions.has(guildId)) {
+      resetIdleTimer(guildId, client, voiceChannel);
+      return;
+    }
+  } catch (_) {}
+
+  const channel = voiceChannel || client?.channels?.cache?.get(conn.joinConfig?.channelId);
+  const humanCount = channel?.members ? channel.members.filter(m => !m.user.bot).size : 0;
+
+  // If 0 humans left in VC, cleanly leave
+  if (humanCount === 0) {
+    console.log(`[Voice Companion]: 💤 0 humans present in #${channel?.name || 'VC'} for 15 mins. Leaving VC to conserve server resources.`);
+    await cleanupGuild(guildId, client);
+    return;
+  }
+
+  // If Attila/members are still in VC, pause recurring timers and enter DEEP_SLEEP standby
+  conversationMode.set(guildId, { mode: 'DEEP_SLEEP', lastActiveAt: Date.now(), turnCount: 0 });
+
+  if (idleTimers.has(guildId)) {
+    clearTimeout(idleTimers.get(guildId));
+    idleTimers.delete(guildId);
+  }
+
+  console.log(`[Voice Companion]: 💤 15-Minute silence in VC with Attila/members. Entered Deep Sleep Standby for guild ${guildId} (0% background API token usage, listening for wake-word).`);
 }
 
 async function triggerAutonomousVcIcebreaker(guildId, client, voiceChannel) {
@@ -1758,6 +1824,10 @@ async function cleanupGuild(guildId, client) {
   if (idleTimers.has(guildId)) {
     clearTimeout(idleTimers.get(guildId));
     idleTimers.delete(guildId);
+  }
+  if (deepSleepTimers.has(guildId)) {
+    clearTimeout(deepSleepTimers.get(guildId));
+    deepSleepTimers.delete(guildId);
   }
 
   // === LAYER 1: Native Discord REST disconnect ===

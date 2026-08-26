@@ -7,8 +7,9 @@ class PipecatBridgeClient {
     this.ws = null;
     this.connected = false;
     this.reconnectTimer = null;
-    this.activeSessions = new Map(); // sessionId -> sessionData
+    this.activeSessions = new Map();
     this.eventListeners = new Map();
+    this.currentChunkHeader = null;
   }
 
   connect() {
@@ -30,27 +31,37 @@ class PipecatBridgeClient {
 
       this.ws.on('message', (data, isBinary) => {
         if (isBinary) {
-          this.emit('audio_frame', data);
+          if (this.currentChunkHeader) {
+            const header = this.currentChunkHeader;
+            this.emit('audio_chunk', { audio: data, ...header });
+            if (header.is_first_chunk) {
+              globalVoiceTelemetry.markTimestamp(header.turn_id, 't7');
+            }
+          } else {
+            this.emit('audio_frame', data);
+          }
         } else {
           try {
             const parsed = JSON.parse(data.toString());
-            this.emit(parsed.event, parsed.payload);
+            if (parsed.event === 'AUDIO_CHUNK_HEADER') {
+              this.currentChunkHeader = parsed.payload;
+            } else {
+              this.emit(parsed.event, parsed.payload);
+            }
           } catch (_) {}
         }
       });
 
       this.ws.on('close', () => {
         this.connected = false;
-        console.log('[Pipecat Bridge]: Disconnected from Pipecat Realtime Layer. Scheduling reconnect...');
         this.scheduleReconnect();
       });
 
-      this.ws.on('error', (err) => {
+      this.ws.on('error', () => {
         this.connected = false;
-        // Non-fatal error log (legacy voice engine remains active)
         this.scheduleReconnect();
       });
-    } catch (err) {
+    } catch (_) {
       this.connected = false;
       this.scheduleReconnect();
     }
@@ -69,13 +80,14 @@ class PipecatBridgeClient {
     return this.connected && this.ws && this.ws.readyState === WebSocket.OPEN;
   }
 
-  startSession(sessionId, guildId, userId, speakerAlias = 'User') {
+  startSession(sessionId, guildId, channelId, userId, speakerAlias = 'User') {
     if (!this.isConnected()) return false;
-    this.activeSessions.set(sessionId, { sessionId, guildId, userId, speakerAlias });
+    this.activeSessions.set(sessionId, { sessionId, guildId, channelId, userId, speakerAlias });
 
     this.sendJson('SESSION_START', {
       session_id: sessionId,
       guild_id: guildId,
+      channel_id: channelId,
       user_id: userId,
       speaker_alias: speakerAlias
     });
@@ -96,6 +108,17 @@ class PipecatBridgeClient {
     return false;
   }
 
+  sendSpeechEnd(sessionId, turnId) {
+    if (!this.isConnected()) return false;
+    globalVoiceTelemetry.markTimestamp(turnId, 't1');
+    globalVoiceTelemetry.markTimestamp(turnId, 't2');
+    this.sendJson('SPEECH_END', {
+      session_id: sessionId,
+      turn_id: turnId
+    });
+    return true;
+  }
+
   sendAudioFrame(sessionId, pcmBuffer) {
     if (!this.isConnected() || !pcmBuffer) return false;
     try {
@@ -106,13 +129,23 @@ class PipecatBridgeClient {
     }
   }
 
-  sendContextStream(sessionId, turnId, tokens) {
+  sendTokenChunk(sessionId, turnId, token, isLast = false) {
     if (!this.isConnected()) return false;
-    globalVoiceTelemetry.markTimestamp(turnId, 't6');
-    this.sendJson('CONTEXT_TOKEN_STREAM', {
+    this.sendJson('TOKEN_CHUNK', {
       session_id: sessionId,
       turn_id: turnId,
-      tokens
+      token,
+      is_last: isLast
+    });
+    return true;
+  }
+
+  startSynthesis(sessionId, turnId) {
+    if (!this.isConnected()) return false;
+    globalVoiceTelemetry.markTimestamp(turnId, 't6');
+    this.sendJson('START_SYNTHESIS', {
+      session_id: sessionId,
+      turn_id: turnId
     });
     return true;
   }

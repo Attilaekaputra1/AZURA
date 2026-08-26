@@ -472,6 +472,57 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 }
 
 /**
+ * Stream AZURA AI Response token-by-token (for Voice Streaming & Pipecat Bridge)
+ * @param {string} userPrompt 
+ * @param {object} options 
+ * @param {function(string): void} onToken 
+ * @returns {Promise<string>}
+ */
+async function streamAzura(userPrompt, options = {}, onToken = null) {
+  const {
+    userName = 'Attila',
+    userId = config.OWNER_DISCORD_ID,
+    isVoice = true,
+    contextKey = 'voice_stream'
+  } = options;
+
+  const isOwner = (userId === config.OWNER_DISCORD_ID);
+  const systemMessage = getSystemPrompt(userName, userId, false, contextKey, [], isVoice);
+
+  const messages = [
+    { role: 'system', content: systemMessage },
+    { role: 'user', content: userPrompt }
+  ];
+
+  const client = getOpenAIClient();
+  let fullText = '';
+
+  try {
+    const stream = await client.chat.completions.create({
+      model: config.OPENAI_MODEL,
+      messages: messages,
+      stream: true,
+      max_completion_tokens: isVoice ? 250 : 2000
+    });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content || '';
+      if (delta) {
+        fullText += delta;
+        if (typeof onToken === 'function') {
+          onToken(delta);
+        }
+      }
+    }
+
+    return fullText;
+  } catch (err) {
+    console.error('[AZURA Stream Error]:', err.message);
+    throw err;
+  }
+}
+
+/**
  * Post-processing sanitizer to remove black-hat SEO spam or foreign script leaks
  * @param {string} text 
  * @param {string} prompt 
@@ -496,5 +547,7 @@ function sanitizeAiOutput(text, prompt = '') {
 
 module.exports = {
   askAzura,
-  getSystemPrompt
+  streamAzura,
+  getSystemPrompt,
+  sanitizeAiOutput
 };

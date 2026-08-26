@@ -1,6 +1,6 @@
 """
-Custom ElevenLabs v3 Text-to-Dialogue WebSocket Adapter
-Protocol endpoint: wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input
+Custom ElevenLabs v3 Text-to-Dialogue WebSocket Adapter with OpenAI Nova Fallback
+Endpoint: wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input
 Voice ID: d15jrIAARvF899pDoC6T (Kak Ceria)
 Model ID: eleven_v3
 """
@@ -8,15 +8,18 @@ Model ID: eleven_v3
 import asyncio
 import json
 import base64
-import websockets
+import os
 import logging
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Dict
+import websockets
+from openai import AsyncOpenAI
 
-logger = logging.getLogger("ElevenLabsV3DialogueAdapter")
+logger = logging.getLogger("ElevenLabsV3Adapter")
 
-class ElevenLabsV3DialogueAdapter:
-    def __init__(self, api_key: str, voice_id: str = "d15jrIAARvF899pDoC6T"):
-        self.api_key = api_key
+class CustomElevenLabsV3Adapter:
+    def __init__(self, eleven_key: str = None, openai_key: str = None, voice_id: str = "d15jrIAARvF899pDoC6T"):
+        self.eleven_key = eleven_key or os.getenv("ELEVENLABS_API_KEY", "")
+        self.openai_key = openai_key or os.getenv("OPENAI_API_KEY", "")
         self.voice_id = voice_id
         self.model_id = "eleven_v3"
         self.endpoint = "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input"
@@ -29,94 +32,146 @@ class ElevenLabsV3DialogueAdapter:
         self.generation_config = {
             "chunk_length_schedule": [120, 160, 250, 290]
         }
-        self.current_ws = None
-        self.is_active = False
+        self.active_connections: Dict[str, websockets.WebSocketClientProtocol] = {}
+        self.cancelled_turns = set()
+        self.openai_client = AsyncOpenAI(api_key=self.openai_key) if self.openai_key else None
 
-    async def stream_dialogue(self, text_token_generator: AsyncGenerator[str, None], turn_id: str) -> AsyncGenerator[bytes, None]:
+    async def stream_dialogue(
+        self,
+        token_stream: AsyncGenerator[str, None],
+        turn_id: str
+    ) -> AsyncGenerator[Dict, None]:
         """
-        Stream text tokens into ElevenLabs Text-to-Dialogue WebSocket and yield audio bytes.
+        Stream text tokens into ElevenLabs v3 WebSocket.
+        Yields dict with { "audio": bytes, "provider": "elevenlabs_v3" | "openai_nova", "turn_id": turn_id }
+        Guarantees EXACTLY ONE provider generates valid audio per turn.
         """
-        if not self.api_key:
-            logger.error("ELEVENLABS_API_KEY is missing!")
+        if turn_id in self.cancelled_turns:
+            logger.info(f"[TTS Adapter]: Turn {turn_id} already cancelled before start.")
             return
 
-        headers = {
-            "xi-api-key": self.api_key
-        }
+        accumulated_text = []
+        eleven_success = False
+        headers = { "xi-api-key": self.eleven_key }
 
-        try:
-            async with websockets.connect(self.endpoint, extra_headers=headers, ping_interval=20, ping_timeout=20) as ws:
-                self.current_ws = ws
-                self.is_active = True
-
-                # Step 1: Send Initial Handshake / Beginning of Stream (BOS)
-                bos_payload = {
-                    "voice_id": self.voice_id,
-                    "model_id": self.model_id,
-                    "voice_settings": self.voice_settings,
-                    "generation_config": self.generation_config,
-                    "context_id": turn_id
-                }
-                await ws.send(json.dumps(bos_payload))
-                logger.info(f"[ElevenLabs v3 WS]: Connected & BOS sent for turn {turn_id}")
-
-                # Producer Task: Stream incoming text tokens to WebSocket
-                async def sender():
-                    try:
-                        async for token in text_token_generator:
-                            if not self.is_active:
-                                break
-                            if token:
-                                payload = {
-                                    "text": token,
-                                    "try_trigger_generation": True
-                                }
-                                await ws.send(json.dumps(payload))
-                        # End of Stream (EOS)
-                        if self.is_active:
-                            await ws.send(json.dumps({"text": ""}))
-                    except Exception as e:
-                        logger.warning(f"[ElevenLabs v3 Sender Warning]: {e}")
-
-                send_task = asyncio.create_task(sender())
-
-                # Consumer Loop: Read audio chunks from WebSocket
-                try:
-                    async for raw_msg in ws:
-                        if not self.is_active:
-                            break
-
-                        msg = json.loads(raw_msg)
-                        if "audio" in msg and msg["audio"]:
-                            audio_bytes = base64.b64decode(msg["audio"])
-                            yield audio_bytes
-
-                        if msg.get("isFinal"):
-                            logger.info(f"[ElevenLabs v3 WS]: Received isFinal signal for turn {turn_id}")
-                            break
-                finally:
-                    self.is_active = False
-                    if not send_task.done():
-                        send_task.cancel()
-
-        except websockets.exceptions.ConnectionClosed as e:
-            logger.info(f"[ElevenLabs v3 WS]: Connection closed: {e}")
-        except Exception as e:
-            logger.error(f"[ElevenLabs v3 WS Error]: {e}")
-            raise e
-        finally:
-            self.is_active = False
-            self.current_ws = None
-
-    def cancel_active_stream(self, turn_id: str):
-        """
-        Cancel the ongoing dialogue synthesis immediately on interruption / barge-in.
-        """
-        self.is_active = False
-        if self.current_ws:
+        # Attempt 1: ElevenLabs v3 Text-to-Dialogue WebSocket
+        if self.eleven_key:
             try:
-                # Send close_context or terminate
-                asyncio.create_task(self.current_ws.close())
+                async with websockets.connect(
+                    self.endpoint,
+                    extra_headers=headers,
+                    ping_interval=15,
+                    ping_timeout=15,
+                    open_timeout=5
+                ) as ws:
+                    self.active_connections[turn_id] = ws
+                    
+                    # Handshake / Beginning of Stream (BOS)
+                    bos = {
+                        "voice_id": self.voice_id,
+                        "model_id": self.model_id,
+                        "voice_settings": self.voice_settings,
+                        "generation_config": self.generation_config,
+                        "context_id": turn_id
+                    }
+                    await ws.send(json.dumps(bos))
+                    logger.info(f"[ElevenLabs v3 WS]: Connected & Handshake sent for turn {turn_id}")
+
+                    # Sender Task
+                    async def sender():
+                        try:
+                            async for token in token_stream:
+                                if turn_id in self.cancelled_turns:
+                                    break
+                                if token:
+                                    accumulated_text.append(token)
+                                    await ws.send(json.dumps({
+                                        "text": token,
+                                        "try_trigger_generation": True
+                                    }))
+                            if turn_id not in self.cancelled_turns:
+                                await ws.send(json.dumps({ "text": "" }))
+                        except Exception as e:
+                            logger.warning(f"[ElevenLabs Sender Task Error]: {e}")
+
+                    send_task = asyncio.create_task(sender())
+
+                    # Receiver Loop
+                    try:
+                        async for raw_msg in ws:
+                            if turn_id in self.cancelled_turns:
+                                logger.info(f"[ElevenLabs v3 WS]: Dropping audio frame due to cancellation of turn {turn_id}")
+                                break
+
+                            msg = json.loads(raw_msg)
+                            if "audio" in msg and msg["audio"]:
+                                audio_bytes = base64.b64decode(msg["audio"])
+                                eleven_success = True
+                                yield {
+                                    "audio": audio_bytes,
+                                    "provider": "elevenlabs_v3",
+                                    "turn_id": turn_id,
+                                    "is_first_chunk": True if len(accumulated_text) <= 3 else False
+                                }
+
+                            if msg.get("isFinal"):
+                                break
+                    finally:
+                        self.active_connections.pop(turn_id, None)
+                        if not send_task.done():
+                            send_task.cancel()
+
+            except Exception as err:
+                logger.warning(f"[ElevenLabs v3 WS Warning]: ElevenLabs failed ({err}). Triggering seamless fallback to OpenAI Nova for turn {turn_id}...")
+                eleven_success = False
+            finally:
+                self.active_connections.pop(turn_id, None)
+
+        # Attempt 2: Fallback to OpenAI Nova (Only if ElevenLabs produced 0 audio frames)
+        if not eleven_success and turn_id not in self.cancelled_turns and self.openai_client:
+            full_text = "".join(accumulated_text).strip()
+            if not full_text:
+                # Read remainder of token stream if sender didn't consume it
+                async for token in token_stream:
+                    if token:
+                        accumulated_text.append(token)
+                full_text = "".join(accumulated_text).strip()
+
+            if full_text and turn_id not in self.cancelled_turns:
+                logger.info(f"[Fallback Engine]: 🔄 Synthesizing {len(full_text)} chars via OpenAI TTS Nova (Single-Provider Guard)...")
+                try:
+                    response = await self.openai_client.audio.speech.create(
+                        model="tts-1-hd",
+                        voice="nova",
+                        input=full_text,
+                        response_format="pcm"
+                    )
+                    pcm_data = response.content
+                    if turn_id not in self.cancelled_turns and pcm_data:
+                        # Yield in chunks
+                        chunk_size = 4096
+                        for i in range(0, len(pcm_data), chunk_size):
+                            if turn_id in self.cancelled_turns:
+                                break
+                            chunk = pcm_data[i:i + chunk_size]
+                            yield {
+                                "audio": chunk,
+                                "provider": "openai_nova",
+                                "turn_id": turn_id,
+                                "is_first_chunk": (i == 0)
+                            }
+                except Exception as fb_err:
+                    logger.error(f"[OpenAI Nova Fallback Error]: {fb_err}")
+
+    def cancel_turn(self, turn_id: str):
+        """
+        Cancel turn immediately on interruption / barge-in.
+        """
+        self.cancelled_turns.add(turn_id)
+        ws = self.active_connections.pop(turn_id, None)
+        if ws:
+            try:
+                asyncio.create_task(ws.close())
             except Exception:
                 pass
-        logger.info(f"[ElevenLabs v3 WS]: Canceled active stream for turn {turn_id}")
+        logger.info(f"[TTS Adapter]: 🛑 Cancelled active synthesis for turn {turn_id}")

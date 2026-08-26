@@ -61,33 +61,87 @@ function isNegativeOrToxic(text) {
   return TOXIC_PATTERNS.some(rgx => rgx.test(text));
 }
 
+// Capacity alert single-shot tracking
+let isCapacityAlertSent = false;
+
 /**
- * Check if behavior cache reached threshold (>= 15 users) and alert Attila
+ * Check if behavior cache reached threshold (>= 15 users) and alert Attila ONCE only
  * @param {import('discord.js').Client} [client] 
  */
 async function checkBehaviorCapacityAlert(client) {
   const count = Object.keys(behaviorCache).length;
-  const now = Date.now();
-  // Alert once every 6 hours max
-  if (count >= CAPACITY_ALERT_THRESHOLD && (now - lastAlertTimestamp > 6 * 3600 * 1000)) {
-    lastAlertTimestamp = now;
-    console.log(`[Behavior Alert]: ⚠️ Behavior capacity at ${count}/${MAX_BEHAVIOR_USERS} users! Alerting Owner...`);
-    if (client && config.OWNER_DISCORD_ID) {
-      try {
-        const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
-        if (owner) {
-          await owner.send(
-            `⚠️ **[PERINGATAN KAPASITAS DATABASE BEHAVIOR AZURA]**\n\n` +
-            `Slot rekaman karakter & behavior AZURA sudah terisi **${count} dari ${MAX_BEHAVIOR_USERS} pengguna** (${((count / MAX_BEHAVIOR_USERS) * 100).toFixed(0)}%).\n` +
-            `• Kamu bisa membersihkan profil yang kurang aktif via perintah \`/behavior aksi:list\` atau \`/behavior aksi:hapus target:<user>\`.\n` +
-            `• Atau kamu bisa meminta penambahan kuota slot kapan saja! 📊✨`
-          );
+
+  if (count >= CAPACITY_ALERT_THRESHOLD) {
+    if (!isCapacityAlertSent) {
+      isCapacityAlertSent = true;
+      console.log(`[Behavior Alert]: ⚠️ Behavior capacity reached threshold ${count}/${MAX_BEHAVIOR_USERS} users! Alerting Owner once...`);
+      if (client && config.OWNER_DISCORD_ID) {
+        try {
+          const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+          if (owner) {
+            await owner.send(
+              `⚠️ **[PERINGATAN KAPASITAS DATABASE BEHAVIOR AZURA]**\n\n` +
+              `Slot rekaman karakter & behavior AZURA sudah terisi **${count} dari ${MAX_BEHAVIOR_USERS} pengguna** (${((count / MAX_BEHAVIOR_USERS) * 100).toFixed(0)}%).\n` +
+              `• Kamu bisa membersihkan profil yang kurang aktif via perintah \`/behavior aksi:list\` atau \`/behavior aksi:hapus target:<user>\`.\n` +
+              `• Atau kamu bisa meminta penambahan kuota slot kapan saja! 📊✨\n\n` +
+              `*(Pemberitahuan ini hanya dikirim 1x dan tidak akan diulang lagi).*`
+            );
+          }
+        } catch (err) {
+          console.error('[Behavior Alert Error]:', err.message);
         }
-      } catch (err) {
-        console.error('[Behavior Alert Error]:', err.message);
       }
     }
+  } else {
+    // Reset alert flag if capacity drops below threshold
+    isCapacityAlertSent = false;
   }
+}
+
+/**
+ * Reset behavior database: Cleans all dummy/unverified users, keeping strictly Creator + Top 3 verified active users.
+ * @param {boolean} [keepOwnerAndTop3=true]
+ * @returns {number} Remaining user count
+ */
+function resetAllBehaviors(keepOwnerAndTop3 = true) {
+  loadBehaviors();
+  if (!keepOwnerAndTop3) {
+    behaviorCache = {};
+    saveBehaviors();
+    isCapacityAlertSent = false;
+    return 0;
+  }
+
+  const { getAllUsersList, loadVault } = require('./vault');
+  loadVault();
+  const allUsers = getAllUsersList();
+
+  // Find Creator + Top 3 most active real verified users from encrypted vault
+  const creatorIds = new Set([config.OWNER_DISCORD_ID, '759050138353664020', '1226021650374004818'].filter(Boolean));
+  
+  const realUsers = allUsers
+    .filter(u => !creatorIds.has(u.userId) && (u.totalInteractions || (u.totalMessages || 0) + (u.totalVoiceTurns || 0)) >= 5)
+    .sort((a, b) => {
+      const totA = (a.totalInteractions || (a.totalMessages || 0) + (a.totalVoiceTurns || 0));
+      const totB = (b.totalInteractions || (b.totalMessages || 0) + (b.totalVoiceTurns || 0));
+      return totB - totA;
+    });
+
+  const top3Real = realUsers.slice(0, 3);
+  const allowedUids = new Set([...creatorIds, ...top3Real.map(u => u.userId)]);
+
+  const newCache = {};
+  for (const [uid, prof] of Object.entries(behaviorCache)) {
+    if (allowedUids.has(uid) && !prof.displayName.toLowerCase().startsWith('user_')) {
+      newCache[uid] = prof;
+    }
+  }
+
+  behaviorCache = newCache;
+  saveBehaviors();
+  isCapacityAlertSent = false;
+  console.log(`[Behavior Engine]: 🧹 Reset complete! Kept Creator + ${top3Real.length} top verified users. Total now: ${Object.keys(behaviorCache).length}`);
+  return Object.keys(behaviorCache).length;
 }
 
 /**
@@ -287,6 +341,7 @@ module.exports = {
   deleteUserBehavior,
   getUserBehavior,
   getAllBehaviors,
+  resetAllBehaviors,
   getBehaviorContextForPrompt,
   getBehaviorContextForVoice,
   checkBehaviorCapacityAlert,

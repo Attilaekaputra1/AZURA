@@ -21,16 +21,23 @@ async function bootstrapAllUserBehaviors(client = null) {
     return { scanned: 0, updated: 0, profiles: [] };
   }
 
-  // Sort users by total interactions (most active first)
-  const sortedUsers = allUsers
-    .map(u => {
-      const total = (u.totalInteractions || (u.totalMessages || 0) + (u.totalVoiceTurns || 0));
-      return { ...u, effectiveTotal: total };
-    })
-    .sort((a, b) => b.effectiveTotal - a.effectiveTotal);
+  // 1. Separate Creator and Real Verified Users with substantial interaction history
+  const creatorIds = new Set([require('./config').OWNER_DISCORD_ID, '759050138353664020', '1226021650374004818'].filter(Boolean));
+  
+  const creatorUser = allUsers.find(u => creatorIds.has(u.userId));
+  const realUsers = allUsers
+    .filter(u => !creatorIds.has(u.userId) && (u.totalInteractions || (u.totalMessages || 0) + (u.totalVoiceTurns || 0)) >= 5)
+    .sort((a, b) => {
+      const totA = (a.totalInteractions || (a.totalMessages || 0) + (a.totalVoiceTurns || 0));
+      const totB = (b.totalInteractions || (b.totalMessages || 0) + (b.totalVoiceTurns || 0));
+      return totB - totA;
+    });
 
-  // Take top active users up to MAX_BEHAVIOR_USERS
-  const targetUsers = sortedUsers.slice(0, MAX_BEHAVIOR_USERS);
+  // Strictly Creator + Top 3 verified real active users
+  const targetUsers = [];
+  if (creatorUser) targetUsers.push(creatorUser);
+  targetUsers.push(...realUsers.slice(0, 3));
+
   let updatedCount = 0;
 
   for (const user of targetUsers) {
@@ -38,7 +45,7 @@ async function bootstrapAllUserBehaviors(client = null) {
     const displayName = user.displayName || user.username || `User_${uid}`;
     const username = user.username || `user_${uid}`;
     const knownName = user.knownRealName || displayName;
-    const isOwner = (uid === require('./config').OWNER_DISCORD_ID);
+    const isOwner = creatorIds.has(uid);
 
     // 1. Scrape / Fetch actual DM messages if Discord client is active
     let dmTextCorpus = '';
@@ -87,18 +94,24 @@ async function bootstrapAllUserBehaviors(client = null) {
       contextCorpus += ' coding tech wkwk jokes seru gaming ';
     }
 
-    // Fallback baseline for any active user
-    if (contextCorpus.trim().length < 5) {
-      contextCorpus = 'halo santai wkwk makasih salam kenal ya';
+    if (contextCorpus.trim().length >= 5) {
+      recordPositiveBehavior(uid, username, knownName, contextCorpus, false, client);
+      updatedCount++;
     }
+  }
 
-    // Record into behavior engine
-    recordPositiveBehavior(uid, username, knownName, contextCorpus, false, client);
-    updatedCount++;
+  // Clean out any stale/dummy profiles that are not in targetUsers
+  const allowedUids = new Set(targetUsers.map(u => u.userId));
+  const currentBehaviors = getAllBehaviors();
+  for (const b of currentBehaviors) {
+    if (!allowedUids.has(b.userId)) {
+      const { deleteUserBehavior } = require('./behavior');
+      deleteUserBehavior(b.userId);
+    }
   }
 
   const allBehaviors = getAllBehaviors();
-  console.log(`[Behavior Bootstrap]: ✅ Deep analysis complete! Profiled ${allBehaviors.length}/${MAX_BEHAVIOR_USERS} active users.`);
+  console.log(`[Behavior Bootstrap]: ✅ Clean setup complete! Profiled ${allBehaviors.length} verified users (Creator + Top 3).`);
 
   return {
     scanned: targetUsers.length,

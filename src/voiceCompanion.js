@@ -967,22 +967,26 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // Strict Energy Gate: reject quiet background noise or air blow
   const minRms = isOwner ? 180 : 320;
-  const minPeak = isOwner ? 450 : 800;
-  if (rms < minRms || peak < minPeak) {
-    console.log(`[Voice Pipeline]: Audio rejected by Energy Gate (RMS=${rms.toFixed(0)}, Peak=${peak} — wind/breathing/ambient noise).`);
-    return;
-  }
+  // ── Telemetry & Feature Flag Router (Phase 1) ──
+  const { globalVoiceTelemetry } = require('./voiceTelemetry');
+  const { globalPipecatBridge } = require('./pipecatBridge');
+  const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const sessionId = `guild_${guildId}`;
+  globalVoiceTelemetry.startTurn(turnId, sessionId, guildId, isOwner ? 'Att' : 'Member');
+  globalVoiceTelemetry.markTimestamp(turnId, 't1');
 
   voiceCooldowns.set(userId, Date.now());
   resetIdleTimer(guildId, client, voiceChannel);
 
   const sizeKB = (pcmBuffer.length / 1024).toFixed(0);
   const durationSec = (pcmBuffer.length / (48000 * 2 * 2)).toFixed(1);
-  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s, RMS=${rms.toFixed(0)}, Peak=${peak}) from ${isOwner ? 'Attila' : 'Member'}. Transcribing...`);
+  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s, RMS=${rms.toFixed(0)}, Peak=${peak}) from ${isOwner ? 'Attila' : 'Member'}. [Engine: ${config.AZURA_VOICE_ENGINE.toUpperCase()}]`);
 
   // ── Step 1: PCM → WAV → Whisper ──
+  globalVoiceTelemetry.markTimestamp(turnId, 't2');
   const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
   const transcript = await transcribeVoice(wavBuffer);
+  globalVoiceTelemetry.markTimestamp(turnId, 't3');
 
   if (!transcript || transcript.length < 2) {
     console.log('[Voice Pipeline]: Empty/invalid transcript, skipping.');
@@ -1371,7 +1375,9 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
 
   // ── Step 4: General AI Voice Chat (Context-Aware Duration Engine) ──
+  globalVoiceTelemetry.markTimestamp(turnId, 't4');
   const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId);
+  globalVoiceTelemetry.markTimestamp(turnId, 't5');
 
     // Check if AI brain autonomously decided to leave VC
     if (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse)) {
@@ -1386,11 +1392,15 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         await textChannel.send(farewellText).catch(() => {});
       }
 
+      globalVoiceTelemetry.markTimestamp(turnId, 't6');
       const audioResource = await textToAudioResource(farewellSpoken, client);
+      globalVoiceTelemetry.markTimestamp(turnId, 't7');
       if (audioResource) {
+        globalVoiceTelemetry.markTimestamp(turnId, 't8');
         await playInVC(guildId, audioResource);
       }
 
+      globalVoiceTelemetry.finishTurn(turnId);
       conversationMode.delete(guildId);
       clearActiveExpireTimer(guildId);
       await cleanupGuild(guildId, client);
@@ -1400,6 +1410,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     // Check if GPT returned [PASSIVE] signal
     if (/^\[PASSIVE\]$/i.test(spokenResponse.trim())) {
       console.log(`[Voice Pipeline]: 🔇 GPT returned [PASSIVE]. Azura going silent.`);
+      globalVoiceTelemetry.finishTurn(turnId, { status: 'SILENT_PASSIVE' });
       setPassiveMode(guildId);
       return;
     }
@@ -1415,19 +1426,27 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       .slice(0, maxChars)
       .trim();
 
-    if (!spoken) return;
+    if (!spoken) {
+      globalVoiceTelemetry.finishTurn(turnId, { status: 'EMPTY_RESPONSE' });
+      return;
+    }
     console.log(`[Voice Pipeline]: 💬 Response (${isStory ? 'Storytelling ~2-3 menit' : 'Normal ~1 menit'}): "${spoken.slice(0, 80)}..."`);
 
     recordSessionEntry(guildId, 'AZURA', spoken);
 
+    globalVoiceTelemetry.markTimestamp(turnId, 't6');
     const audioResource = await textToAudioResource(spoken, client, maxChars);
+    globalVoiceTelemetry.markTimestamp(turnId, 't7');
     if (!audioResource) {
       console.error('[Voice Pipeline]: TTS generation failed.');
+      globalVoiceTelemetry.finishTurn(turnId, { status: 'TTS_FAILED', error_category: 'TTS_GENERATION_FAILED' });
       return;
     }
 
     console.log('[Voice Pipeline]: 🔊 Playing in VC...');
+    globalVoiceTelemetry.markTimestamp(turnId, 't8');
     await playInVC(guildId, audioResource);
+    globalVoiceTelemetry.finishTurn(turnId, { status: 'COMPLETED' });
     console.log('[Voice Pipeline]: ✅ Done.');
 
     // If in Crowded VC, enforce instant return to PASSIVE & Mute (Single-Turn complete)
@@ -1437,6 +1456,10 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     }
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
+    try {
+      const { globalVoiceTelemetry } = require('./voiceTelemetry');
+      globalVoiceTelemetry.finishTurn(turnId, { status: 'ERROR', error_category: err.message });
+    } catch (_) {}
   } finally {
     isGuildProcessingVoice.delete(guildId);
   }

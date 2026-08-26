@@ -285,7 +285,6 @@ async function handleSendChannelCommand(interaction) {
 
   const rawMessage = interaction.options.getString('pesan');
   const chosenMode = interaction.options.getString('mode') || 'direct';
-  const targetChannelOpt = interaction.options.getChannel('channel');
 
   await interaction.deferReply({ flags: 64 });
 
@@ -294,28 +293,10 @@ async function handleSendChannelCommand(interaction) {
 
   let finalMessage = rawMessage;
   if (chosenMode === 'azura') {
-    finalMessage = await rephraseMessageByAzura(rawMessage, targetChannelOpt?.name || 'general');
+    finalMessage = await rephraseMessageByAzura(rawMessage, interaction.channel?.name || 'general');
   }
 
-  // 1. If channel option was explicitly provided in slash command
-  if (targetChannelOpt && targetChannelOpt.isTextBased()) {
-    const data = {
-      rawMessage,
-      finalMessage,
-      mode: chosenMode,
-      guildId: targetChannelOpt.guild?.id || null,
-      channelId: targetChannelOpt.id,
-      channelName: targetChannelOpt.name,
-      guildName: targetChannelOpt.guild?.name || 'Server',
-      requesterId: interaction.user.id
-    };
-    pendingChannelMsgs.set(pendingId, data);
-
-    const payload = buildPreviewPayload(pendingId, data);
-    return await interaction.editReply(payload);
-  }
-
-  // 2. If invoked inside a server text channel (default to current channel with instant preview)
+  // 1. If invoked inside a server text channel (default to current channel with instant preview)
   if (interaction.guild && interaction.channel && interaction.channel.isTextBased()) {
     const data = {
       rawMessage,
@@ -333,7 +314,7 @@ async function handleSendChannelCommand(interaction) {
     return await interaction.editReply(payload);
   }
 
-  // 3. If invoked from DM without channel parameter: show real-time Server & Channel Picker
+  // 2. If invoked from DM: show real-time Server & Channel Picker
   const data = {
     rawMessage,
     finalMessage,

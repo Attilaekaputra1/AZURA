@@ -155,11 +155,7 @@ const commands = [
         .addChoices(
           { name: '✍️ Direct (Pesan asli persis dari Attila)', value: 'direct' },
           { name: '✨ Dirangkai AZURA (AZURA rangkai kata-kata ramah & natural)', value: 'azura' }
-        ))
-    .addChannelOption(option =>
-      option.setName('channel')
-        .setDescription('Pilih channel target pengiriman secara langsung (Opsional)')
-        .setRequired(false)),
+        )),
 
   new SlashCommandBuilder()
     .setName('image')

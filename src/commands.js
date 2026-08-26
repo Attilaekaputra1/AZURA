@@ -307,8 +307,8 @@ const commands = [
             ))),
 
   new SlashCommandBuilder()
-    .setName('todo')
-    .setDescription('📋 Papan To-Do List & Roadmap Pengembangan AZURA (Owner Only)')
+    .setName('roadmap')
+    .setDescription('📋 Papan Roadmap & Tiket Pengembangan Saran/Bug AZURA (Owner Only)')
     .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addSubcommand(sub =>
       sub.setName('list')
@@ -1223,7 +1223,7 @@ async function handleSlashCommand(interaction, startTime) {
       }
     }
 
-  } else if (commandName === 'todo') {
+  } else if (commandName === 'roadmap') {
     const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
     if (!isOwner) {
       return interaction.reply({

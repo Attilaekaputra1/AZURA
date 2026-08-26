@@ -174,6 +174,7 @@ function generateSessionCookie(userId, firstSeen) {
  */
 function extractRealName(text) {
   if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
 
   const patterns = [
     // "nama asli gw/gue/gua/aku/saya/ane/ku adalah Putra" or "nama asliku Putra"
@@ -181,20 +182,27 @@ function extractRealName(text) {
     // "nama panggilan gw/aku/saya/ku adalah Putra" or "nama panggilanku Putra"
     /\b(?:nama\s+panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku)|nama\s+panggilanku)\s*(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})/i,
     // "panggil gw/gue/gua/aku/saya/ane (aja)? Putra" or "panggilan gw Putra"
-    /\b(?:panggil\s+(?:aja\s+)?(?:gw|gue|gua|aku|saya|ane|ku)|panggil\s+(?:gw|gue|gua|aku|saya|ane|ku)\s+aja|panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku))\s*(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})/i,
-    // "nama gw/gue/gua/aku/saya/ane: Putra" or "namaku adalah Putra"
-    /\b(?:nama\s+(?:gw|gue|gua|aku|saya|ane)|namaku)\s*(?:adalah|yaitu|:|=)\s*([a-zA-Z\s]{2,25})/i
+    /\b(?:panggil\s+(?:aja\s+)?(?:gw|gue|gua|aku|saya|ane|ku)|panggil\s+(?:gw|gue|gua|aku|saya|ane|ku)\s+aja|panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku))\s*(?:adalah|yaitu|:|=|\s+)?\s*([a-zA-Z\s]{2,25})/i,
+    // "namaku Putra", "nama saya Putra", "nama gw Putra"
+    /\b(?:nama\s+(?:gw|gue|gua|aku|saya|ane|ku)|namaku)\s*(?:adalah|yaitu|:|=|\s+)\s*([a-zA-Z\s]{2,25})/i,
+    // Direct command pattern: "panggil aku/gw/saya Putra"
+    /\b(?:panggil\s+(?:aku|gw|gue|gua|saya|ane|ku))\s+([a-zA-Z\s]{2,25})/i,
+    // Prefix direct answer: "aku Putra", "saya Putra"
+    /^(?:aku|saya|panggil|nama)\s+([a-zA-Z]{2,20})/i,
+    // Direct single word name response: "Rizky"
+    /^([a-zA-Z]{2,20})$/i
   ];
 
   const stopWords = new Set([
     'bukan', 'siapa', 'apa', 'kenapa', 'gimana', 'bisa', 'mau', 'lagi', 'udah', 'belum',
     'kalian', 'mereka', 'kamu', 'dia', 'kita', 'kami', 'itu', 'ini', 'dong', 'sih', 'deh',
     'kok', 'kan', 'yang', 'yg', 'dan', 'atau', 'kalau', 'kalo', 'pada', 'sama', 'dari',
-    'ke', 'di', 'untuk', 'dengan', 'ada', 'tidak', 'nggak', 'gak', 'nya', 'annya', 'azura', 'ara', 'zura'
+    'ke', 'di', 'untuk', 'dengan', 'ada', 'tidak', 'nggak', 'gak', 'nya', 'annya', 'azura', 'ara', 'zura',
+    'halo', 'hei', 'hai', 'oi', 'oy', 'pagi', 'siang', 'sore', 'malam', 'test', 'tes', 'ping', 'help'
   ]);
 
   for (const pat of patterns) {
-    const match = text.match(pat);
+    const match = trimmed.match(pat);
     if (match && match[1]) {
       let rawCaptured = match[1].trim();
       const firstSegment = rawCaptured

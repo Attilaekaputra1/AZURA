@@ -93,7 +93,7 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot || message.mentions.everyone) return;
 
   // 0. Security Guard: Absolute Zero Response for Blacklisted / Banned Users
-  const { isUserBanned, recordUserInteraction } = require('./vault');
+  const { isUserBanned, recordUserInteraction, getUserRecord } = require('./vault');
   if (isUserBanned(message.author.id)) {
     console.log(`[Security Guard]: 🛑 Ignored message from BLACKLISTED user @${message.author.tag} (${message.author.id})`);
     return; // Completely stop/block response!
@@ -116,6 +116,25 @@ client.on('messageCreate', async (message) => {
 
   if (nameActionResult) {
     if (nameActionResult.status === 'FIRST_REGISTRATION') {
+      // Notify Owner (Attila) in DM immediately
+      if (config.OWNER_DISCORD_ID) {
+        const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+        if (owner) {
+          const ownerNotif = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setTitle('🆔 Pembaruan Identitas Pengguna AZURA')
+            .setDescription(
+              `Pengguna <@${message.author.id}> (\`@${message.author.username}\`) baru saja menyetel nama panggilannya menjadi: **"${nameActionResult.name}"** 🔒\n\n` +
+              `👤 **Display Name:** **${userName}**\n` +
+              `🔢 **UID:** \`${message.author.id}\`\n` +
+              `📍 **Lokasi:** #${message.channel?.name || 'DM'} (${message.guild?.name || 'DM'})`
+            )
+            .setFooter({ text: 'Identitas resmi telah dikunci di database user_vault.enc' })
+            .setTimestamp();
+          await owner.send({ embeds: [ownerNotif] }).catch(() => {});
+        }
+      }
+
       return message.reply(
         `✨ Halo **${nameActionResult.name}**! Senang kenalan sama kamu. Nama panggilanmu telah resmi didaftarkan & dikunci secara permanen di database AZURA 🔒.\n\n` +
         `⚠️ **Peringatan Keamanan & Ketentuan Penggunaan:**\n` +
@@ -158,9 +177,8 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // 1. Check for 3rd-Person Reference Pattern ("si azura", "si ara", "si ajur", "tentang azura", "azuranya", "kayaknya si ara", etc.)
+  // Check if message is directed at AZURA
   const isThirdPersonReference = !isDM && /\b(?:si\s+(?:azura|ara|zura|ajur|ajura|asura)|tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|kayaknya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(message.content);
-
   const isMentioned = message.mentions.has(client.user.id);
   const startsWithName = /^(?:azura|ara|zura|ajur|ajura|asura|hei azura|hei ara|hei ajur|halo azura|halo ara|halo ajur|hai azura|hai ara|hai ajur)\b/i.test(message.content.trim());
 
@@ -174,6 +192,35 @@ client.on('messageCreate', async (message) => {
     if (repliedMsg && repliedMsg.author.id === client.user.id) {
       isReplyToBot = true;
     }
+  }
+
+  // 1. Mandatory Nickname Gatekeeper (Block all interaction until nickname is registered)
+  const userRecord = getUserRecord(message.author.id);
+  const hasRegisteredName = isOwner || (userRecord && userRecord.knownRealName);
+
+  if (!hasRegisteredName) {
+    const isDirectedAtAzura = isDM || isMentioned || startsWithName || isReplyToBot;
+    if (isDirectedAtAzura) {
+      const regPrompt =
+        `⚠️ **[Registrasi Nama Panggilan Diperlukan]**\n\n` +
+        `Halo <@${message.author.id}>! 👋 Sebelum kamu dapat mulai mengobrol atau menggunakan seluruh fitur AZURA, kamu wajib mendaftarkan nama panggilan resmi kamu terlebih dahulu yaa 🔒.\n\n` +
+        `👉 **Cara Mendaftar:** Cukup balas pesan ini dengan menyebutkan nama panggilanmu, contoh:\n` +
+        `\`panggil aku [Nama Panggilanmu]\` atau \`namaku [Nama Panggilanmu]\`\n\n` +
+        `⚠️ **Ketentuan Keamanan:**\n` +
+        `1. Dilarang keras memalsukan identitas, menggunakan nama orang lain, atau mengklaim identitas staf/creator.\n` +
+        `2. Nama panggilan ini akan dikunci permanen di database AZURA sebagai identitas resmimu.\n` +
+        `3. Pelanggaran ketentuan identitas dapat mengakibatkan pemblokiran akses total.`;
+
+      await message.reply(regPrompt);
+
+      if (!isDM) {
+        try {
+          await message.author.send(regPrompt);
+        } catch (_) {}
+      }
+      return;
+    }
+    return; // Ignore general server chatter if user is not registered
   }
 
   // Check if AZURA is in Voice Companion mode in this guild or called by nickname

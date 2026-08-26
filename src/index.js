@@ -294,6 +294,11 @@ client.on('messageCreate', async (message) => {
   const { extractVisualMedia } = require('./visionHelper');
   const { imageUrls, visualContextPrompt } = await extractVisualMedia(message);
 
+  // Resolve Discord User Mentions to Full Identities & Locked Nicknames
+  const { resolveUserMentions } = require('./mentionResolver');
+  const mentionResolution = await resolveUserMentions(message.content, client, message.guild);
+  const mentionContextPrompt = mentionResolution.mentionContextPrompt;
+
   // Extract Discord Reply / Reference Context (Message Threading & Continuity)
   let replyContextPrompt = '';
   if (message.reference && message.reference.messageId) {
@@ -301,7 +306,8 @@ client.on('messageCreate', async (message) => {
       const referencedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
       if (referencedMsg) {
         const refAuthor = referencedMsg.member?.displayName || referencedMsg.author.displayName || referencedMsg.author.username;
-        const refContent = (referencedMsg.content || '').replace(/<@!?\d+>/g, '').trim();
+        const refResolved = await resolveUserMentions(referencedMsg.content || '', client, message.guild);
+        const refContent = refResolved.resolvedText.trim();
         if (refContent) {
           replyContextPrompt = `[Konteks Membalas Pesan @${refAuthor}]: "${refContent.slice(0, 600)}"`;
         }
@@ -311,8 +317,9 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Clean prompt by removing bot mention tag and leading 'azura' / 'ara' / 'zura' prefix
-  let rawPrompt = message.content.replace(/<@!?\d+>/g, '').trim();
+  // Clean prompt: resolve mentions, strip only bot tag or leading call prefix
+  let rawPrompt = mentionResolution.resolvedText.trim();
+  rawPrompt = rawPrompt.replace(/^@AZURA[,:\s]*/i, '').trim();
   if (startsWithName) {
     rawPrompt = rawPrompt.replace(/^(?:azura|ara|zura|ajur|ajura|asura|hei azura|hei ara|hei ajur|halo azura|halo ara|halo ajur|hai azura|hai ara|hai ajur)[,:\s]+/i, '').trim();
   }
@@ -391,6 +398,9 @@ client.on('messageCreate', async (message) => {
   }
 
   let finalPrompt = rawPrompt;
+  if (mentionContextPrompt) {
+    finalPrompt = `${finalPrompt}${mentionContextPrompt}`;
+  }
   if (replyContextPrompt) {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;
   }

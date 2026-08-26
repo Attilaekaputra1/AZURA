@@ -1517,10 +1517,35 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null) {
   let systemPrompt = '';
   let maxTokens = 250;
 
+  // Get speaker identity & alias
+  let speakerName = isOwner ? 'Attila (panggil Att / Attila)' : 'Teman';
+  try {
+    const { getUserRecord } = require('./vault');
+    const uRec = getUserRecord(userId);
+    if (uRec && uRec.knownRealName) {
+      speakerName = uRec.knownRealName;
+    }
+  } catch (_) {}
+
+  // Contextual To-Do integration for Voice Channel
+  let todoVoiceContext = '';
+  if (/\b(?:to\s*do|agenda|tugas|kerjaan|task)\b/i.test(transcript)) {
+    try {
+      const { getTodos } = require('./todo');
+      const allTodos = getTodos();
+      const pending = allTodos.filter(t => t.status === 'pending');
+      todoVoiceContext = `\n\n[INFO TO-DO LIST TERKINI DI DATABASE]:\nTotal tugas: ${allTodos.length} (${pending.length} pending).\n` +
+        (pending.length > 0 ? `Tugas prioritas pending: ${pending.slice(0, 3).map(t => t.title).join(', ')}.\n` : 'Semua agenda tugas sudah selesai!\n') +
+        `Jelaskan secara ringkas dan ramah lewat suara, dan ingatkan bisa dicek di Web Dashboard To-Do.`;
+    } catch (_) {}
+  }
+
   if (isStoryIntent) {
-    systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) langsung lewat Voice Channel kepada Attila (creator & owner kamu).
+    systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
+Lawan bicara yang sedang berbicara denganmu: ${speakerName}
 ${personalityPrompt}
 ${vcBehaviorContext}
+${todoVoiceContext}
 
 ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
 1. DURASI & PANJANG CERITA: Bawakan cerita secara lengkap, memikat, dan terstruktur (pembuka, alur konflik/misteri/komedi, klimaks, dan penutup). Durasi bicara ideal sekitar 2 MENIT (maksimal 3 MENIT, sekitar 300-450 kata).
@@ -1530,9 +1555,11 @@ ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
     maxTokens = 750; // ~450-500 words = ~2.5 - 3 minutes speech
   } else {
-    systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan ${isOwner ? 'Attila (creator & owner kamu)' : 'teman di Voice Channel'}.
+    systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan ${isOwner ? 'Attila (panggilan: Att / Attila, creator & owner kamu)' : speakerName}.
+Lawan bicara saat ini: ${speakerName} (Gunakan sapaan/panggilan akrab ini secara natural).
 ${personalityPrompt}
 ${vcBehaviorContext}
+${todoVoiceContext}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
 

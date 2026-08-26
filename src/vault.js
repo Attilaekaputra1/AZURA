@@ -843,6 +843,38 @@ function getUserRecord(query) {
     }
   }
 
+  // Fallback sync: If user or knownRealName is missing in vault, check user_behaviors.json
+  if (!user || !user.knownRealName) {
+    try {
+      const behPath = path.join(__dirname, '../data/user_behaviors.json');
+      if (fs.existsSync(behPath)) {
+        const beh = JSON.parse(fs.readFileSync(behPath, 'utf8') || '{}');
+        const behUser = beh[q] || Object.values(beh).find(b => b.userId === q || (b.username && b.username.toLowerCase() === q));
+        if (behUser && behUser.nickname && !behUser.nickname.toLowerCase().startsWith('user_')) {
+          if (!user) {
+            user = {
+              userId: behUser.userId || q,
+              username: behUser.username || q,
+              displayName: behUser.displayName || behUser.nickname,
+              knownRealName: behUser.nickname,
+              isNameLocked: true,
+              firstSeen: new Date().toISOString(),
+              lastSeen: new Date().toISOString(),
+              totalMessages: 10,
+              totalVoiceTurns: 0,
+              totalInteractions: 10
+            };
+            userVaultCache.set(user.userId, user);
+          } else {
+            user.knownRealName = behUser.nickname;
+            user.isNameLocked = true;
+          }
+          saveVault();
+        }
+      }
+    } catch (_) {}
+  }
+
   if (user) {
     const count = (user.totalInteractions || (user.totalMessages || 0) + (user.totalVoiceTurns || 0));
     const relTier = getRelationshipTier(user.userId, count);

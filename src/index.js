@@ -219,7 +219,18 @@ client.on('messageCreate', async (message) => {
 
   // 1. Mandatory Nickname Gatekeeper (Block all interaction until nickname is registered)
   const userRecord = getUserRecord(message.author.id);
-  const hasRegisteredName = isOwner || (userRecord && userRecord.knownRealName);
+  const { getUserBehavior } = require('./behavior');
+  const userBehavior = getUserBehavior(message.author.id);
+  const knownAlias = userRecord?.knownRealName || userBehavior?.nickname;
+  const hasRegisteredName = isOwner || !!knownAlias;
+
+  // Auto-sync if found in behavior but missing in vault
+  if (knownAlias && userRecord && !userRecord.knownRealName) {
+    userRecord.knownRealName = knownAlias;
+    userRecord.isNameLocked = true;
+    const { saveVault } = require('./vault');
+    saveVault();
+  }
 
   if (!hasRegisteredName) {
     const isDirectedAtAzura = isDM || isMentioned || startsWithName || endsWithName || vocativeName || isReplyToBot;
@@ -234,12 +245,7 @@ client.on('messageCreate', async (message) => {
         `• AZURA sangat menghormati privasi dan menjaga keamanan datamu! 💖`;
 
       await message.reply(regPrompt);
-
-      if (!isDM) {
-        try {
-          await message.author.send(regPrompt);
-        } catch (_) {}
-      }
+      // STRICT RULE: Respond ONLY where the user interacted. Do NOT send unprompted DMs!
       return;
     }
     return; // Ignore general server chatter if user is not registered

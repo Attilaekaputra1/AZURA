@@ -1676,7 +1676,7 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null) {
   try {
     const { getPersonalityMode, getPersonalityPrompt } = require('./personality');
     const currentMode = getPersonalityMode();
-    personalityPrompt = getPersonalityPrompt(currentMode, isOwner, isOwner ? 'Attila' : 'Member');
+    personalityPrompt = getPersonalityPrompt(currentMode, isOwner, isOwner ? 'Attila' : 'Member', true);
   } catch (_) {}
 
   let vcBehaviorContext = '';

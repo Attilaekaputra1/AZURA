@@ -58,7 +58,7 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
 
   const { getPersonalityMode, getPersonalityPrompt, SOUL_LOCK_RULE } = require('./personality');
   const currentMode = getPersonalityMode();
-  const personalityInstruction = getPersonalityPrompt(currentMode, isOwner, userName);
+  const personalityInstruction = getPersonalityPrompt(currentMode, isOwner, userName, false);
 
   let personalizationPrompt = '';
   if (userId) {
@@ -487,6 +487,9 @@ function sanitizeAiOutput(text, prompt = '') {
   if (!hasCjkInPrompt) {
     clean = clean.replace(/[\u4e00-\u9fff]{2,}/g, '');
   }
+
+  // Strip audio emotion tags from text chat (these are reserved for Voice Channel ElevenLabs TTS)
+  clean = clean.replace(/\[(?:laughs|giggles|smiles|sighs|whispers|gasp|chuckles|pouts|excited|cheering|sings|screams|groans|wheezing|sobbing|cries|sniffs|softly|melody|humming|groan|sigh|yawn)\]/gi, '');
 
   return clean.replace(/[ \t]+/g, ' ').replace(/\n\s+\n/g, '\n\n').trim();
 }

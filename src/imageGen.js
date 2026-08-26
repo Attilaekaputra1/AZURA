@@ -523,6 +523,57 @@ Output ONLY the synthesized prompt in English as plain text without any markdown
  * @param {Array<string>} imageUrls
  * @returns {Promise<{ isImageRequest: boolean, responsePayload?: any }>}
  */
+/**
+ * Build rich Discord embed for Multi-Step Research & Infographic Visual Generation
+ */
+function buildInfographicEmbed(topic, userName, result, researchSummary, sources, quotaInfo) {
+  const embed = new EmbedBuilder()
+    .setColor(0x00FFB2)
+    .setTitle(`📊 Infografis & Riset Terpadu: ${topic.slice(0, 70)}`)
+    .setDescription(
+      `👤 **Permintaan Oleh:** ${userName}\n\n` +
+      `💡 **Ringkasan Inti & Key Points (Tavily AI Intelligence):**\n${researchSummary.slice(0, 900)}\n\n` +
+      `🎨 **Visualisasi Infografis:** *Gambar visual berhasil digenerate berdasarkan data riset terbaru!*`
+    )
+    .setImage('attachment://infographic.png')
+    .setFooter({
+      text: quotaInfo.isOwner
+        ? '👑 Unlimited Owner Access • Autonomous Research & Visual Engine'
+        : `⚡ Kuota Server: ${quotaInfo.remainingToday}/${DAILY_LIMIT_PER_SERVER} tersisa • Reset 00:00 WIB`
+    })
+    .setTimestamp();
+
+  if (sources && sources.length > 0) {
+    const sourceLinks = sources.slice(0, 3).map((s, i) => `${i + 1}. [${s.title.slice(0, 40)}](${s.url})`).join(' • ');
+    embed.addFields({ name: '🌐 Sumber Terverifikasi', value: sourceLinks || 'Tavily Web Search', inline: false });
+  }
+
+  const attachment = new AttachmentBuilder(result.buffer, { name: 'infographic.png' });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`img_regen_${Date.now()}`)
+      .setLabel('🔄 Generate Ulang Visual')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('🎨')
+  );
+
+  return {
+    embeds: [embed],
+    files: [attachment],
+    components: [row]
+  };
+}
+
+/**
+ * Natural Chat Intelligence Router for Image Generation (Text-to-Image, Multi-Step Research Infographic & Image-to-Image)
+ * @param {string} prompt 
+ * @param {string} userName 
+ * @param {string} guildId 
+ * @param {string} userId 
+ * @param {boolean} isOwner 
+ * @param {Array<string>} imageUrls
+ * @returns {Promise<{ isImageRequest: boolean, responsePayload?: any }>}
+ */
 async function processImageIntelligence(prompt, userName = 'Pengguna', guildId = null, userId = null, isOwner = false, imageUrls = []) {
   // Check Image-to-Image first if image attachments/references are provided
   if (imageUrls && imageUrls.length > 0) {
@@ -535,11 +586,96 @@ async function processImageIntelligence(prompt, userName = 'Pengguna', guildId =
   let cleanPrompt = prompt.trim().replace(/\s+(?:dong|deh|ya|plis|pls|please|kan|coba)$/i, '').trim();
   const lower = cleanPrompt.toLowerCase();
 
-  // Flexible trigger patterns for Text-to-Image
+  // ── NON-VISUAL / PURE TEXT INTENT SHIELD ──
+  // If user asks for pure text, code, database, essay, or business plan without explicit visual intent, REJECT image gen!
+  const explicitVisualKeywords = [
+    'gambar', 'image', 'foto', 'photo', 'wallpaper', 'lukisan', 'painting', 'artwork',
+    'fanart', 'infografis', 'infografik', 'infographic', 'poster', 'ilustrasi', 'illustration',
+    'visualisasi', 'visual', 'banner', 'logo', 'karikatur', 'komik', 'diagram visual', 'sketsa'
+  ];
+
+  const hasExplicitVisual = explicitVisualKeywords.some(kw => lower.includes(kw));
+
+  const nonVisualKeywords = [
+    'code', 'koding', 'script', 'database', 'sql', 'sqlite', 'rencana', 'plan', 'jadwal',
+    'ringkasan', 'summary', 'artikel', 'essay', 'cerita', 'story', 'tabel', 'query',
+    'fungsi', 'backend', 'frontend', 'analisis', 'teks', 'pesan', 'surat', 'puisi',
+    'lirik', 'resep', 'makalah', 'soal', 'jawaban', 'dokumen', 'rumus'
+  ];
+
+  const hasNonVisualOnly = nonVisualKeywords.some(kw => lower.includes(kw)) && !hasExplicitVisual;
+  if (hasNonVisualOnly) {
+    return { isImageRequest: false }; // Let normal LLM answer the text request!
+  }
+
+  // ── MULTI-STEP RESEARCH & VISUAL / INFOGRAPHIC PIPELINE ──
+  const isResearchAndVisual = (
+    (lower.includes('search') || lower.includes('cari') || lower.includes('riset') || lower.includes('googling') || lower.includes('info') || lower.includes('berita')) &&
+    (lower.includes('infografis') || lower.includes('infografik') || lower.includes('infographic') || lower.includes('poster') || lower.includes('visualisasikan') || lower.includes('visual') || (lower.includes('gambar') && (lower.includes('buat') || lower.includes('bikin'))))
+  );
+
+  if (isResearchAndVisual) {
+    console.log(`[Multi-Step Visual Engine]: 🔍 Detected Research + Visual Infographic request: "${cleanPrompt}"`);
+    
+    // Check Quota and Cooldown
+    const quotaCheck = checkImageQuota(guildId, userId, isOwner);
+    if (!quotaCheck.allowed) {
+      return { isImageRequest: true, responsePayload: quotaCheck.reason };
+    }
+
+    try {
+      const { searchTavily } = require('./tavily');
+      // Extract search query topic
+      const topic = cleanPrompt
+        .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong\s+)?(?:search|cari|riset|googling)\s+(?:tentang|soal|mengenai)?/i, '')
+        .replace(/(?:lalu|kemudian|terus|setelah\s+itu)?\s*(?:buatkan|buatin|bikinin|bikin|generate)?\s*(?:infografis|infografik|infographic|poster|visualisasikan|visual|gambar(?:nya)?).*/i, '')
+        .trim() || cleanPrompt;
+
+      console.log(`[Multi-Step Visual Engine]: Step 1 - Conducting live web research on topic: "${topic}"...`);
+      const researchText = await searchTavily(topic, 'general');
+
+      console.log(`[Multi-Step Visual Engine]: Step 2 - Synthesizing key points and crafting visual prompt...`);
+      const client = getOpenAIClient();
+      const synthRes = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are an expert Data Visualizer & Infographic Designer. Given a research text about "${topic}", generate two things in JSON format:
+1. "summary": A concise Indonesian executive summary and 3 bullet key points highlighting the facts/statistics (max 100 words).
+2. "imagePrompt": A vivid, English DALL-E prompt to generate a modern aesthetic minimalist infographic illustration (vector style, clean UI data card visual, high resolution, visually stunning, no garbled text).
+Output JSON format: {"summary": "...", "imagePrompt": "..."}`
+          },
+          { role: 'user', content: researchText }
+        ],
+        response_format: { type: 'json_object' },
+        max_completion_tokens: 450
+      });
+
+      const parsed = JSON.parse(synthRes.choices[0]?.message?.content || '{}');
+      const visualPrompt = parsed.imagePrompt || `Modern minimalist aesthetic infographic illustration about ${topic}, sleek data cards, vibrant elements`;
+      const execSummary = parsed.summary || researchText.slice(0, 300);
+
+      console.log(`[Multi-Step Visual Engine]: Step 3 - Generating visual infographic image...`);
+      const imgResult = await generateAiImage(visualPrompt, 'landscape');
+      const quotaInfo = recordImageGeneration(guildId, userId, isOwner);
+      const payload = buildInfographicEmbed(topic, userName, imgResult, execSummary, [], quotaInfo);
+
+      return {
+        isImageRequest: true,
+        responsePayload: payload
+      };
+    } catch (err) {
+      console.error('[Multi-Step Visual Engine Error]:', err.message);
+      // Fallback to normal flow
+    }
+  }
+
+  // ── STANDARD TEXT-TO-IMAGE INTENT DETECTION ──
   const triggers = [
-    /^(?:azura\s+)?(?:tolong\s+)?(?:buatkan|buatin|bikinin|bikin|generate|buat|gambar|gambarkan|lukiskan|create|draw)\s+(?:sebuah\s+|suatu\s+)?(?:gambar|image|foto|wallpaper|lukisan|artwork|fanart)\s+(.+)/i,
-    /^(?:azura\s+)?(?:tolong\s+)?(?:buatkan|buatin|bikinin|bikin|gambar|gambarkan|lukiskan|draw)\s+(.+)/i,
-    /^(?:azura\s+)?(?:generate|create)\s+image\s+(.+)/i
+    /^(?:azura\s+)?(?:tolong\s+)?(?:buatkan|buatin|bikinin|bikin|generate|buat|gambar|gambarkan|lukiskan|create|draw)\s+(?:sebuah\s+|suatu\s+)?(?:gambar|image|foto|wallpaper|lukisan|artwork|fanart|infografis|poster|ilustrasi)\s+(.+)/i,
+    /^(?:azura\s+)?(?:tolong\s+)?(?:gambar|gambarkan|lukiskan|draw)\s+(.+)/i,
+    /^(?:azura\s+)?(?:generate|create)\s+(?:image|artwork|illustration)\s+(.+)/i
   ];
 
   let rawSubject = null;
@@ -551,11 +687,11 @@ async function processImageIntelligence(prompt, userName = 'Pengguna', guildId =
     }
   }
 
-  if (!rawSubject) {
+  if (!rawSubject && hasExplicitVisual) {
     if (lower.includes('gambar') && (lower.includes('buatin') || lower.includes('buatkan') || lower.includes('bikin') || lower.includes('generate'))) {
       rawSubject = cleanPrompt
         .replace(/^(?:azura\s+)?/i, '')
-        .replace(/(?:tolong\s+)?(?:buatkan|buatin|bikinin|bikin|generate|buat)\s+(?:gambar|image|foto)?/i, '')
+        .replace(/(?:tolong\s+)?(?:buatkan|buatin|bikinin|bikin|generate|buat)\s+(?:gambar|image|foto|wallpaper|lukisan|ilustrasi)?/i, '')
         .trim();
     }
   }
@@ -603,6 +739,7 @@ module.exports = {
   generateAiImage,
   buildImageEmbed,
   buildImg2ImgEmbed,
+  buildInfographicEmbed,
   processImageToImage,
   processImageIntelligence,
   checkImageQuota,

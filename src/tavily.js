@@ -158,21 +158,27 @@ async function searchTavily(query, topicMode = 'general') {
       topic: topicMode,
       search_depth: 'advanced',
       include_answer: true,
-      max_results: 5
+      max_results: 3
     });
+
     let resultStr = '';
     if (response.answer && !containsGamblingContent(response.answer)) {
-      resultStr += `💡 **Tavily AI Executive Summary:**\n${response.answer}\n\n`;
+      resultStr += `💡 **Ringkasan Eksekutif (Tavily AI Intelligence):**\n${response.answer}\n\n`;
     }
+
     const safeResults = filterSafeResults(response.results);
     if (safeResults.length > 0) {
-      const formattedResults = safeResults.map((r, idx) => {
-        const date = r.published_date ? ` (Dipublikasikan: ${r.published_date})` : '';
-        const score = r.score ? ` (Relevansi: ${(r.score * 100).toFixed(0)}%)` : '';
-        return `${idx + 1}. **${r.title}**${date}${score}\n   🔗 Link: ${r.url}\n   📝 Ringkasan: ${r.content}`;
-      }).join('\n\n--------------------\n\n');
-      resultStr += `🌐 **Hasil Pencarian Web Terverifikasi (Tavily Advanced Engine):**\n\n${formattedResults}`;
+      const top3 = safeResults.slice(0, 3);
+      const formattedResults = top3.map((r, idx) => {
+        const date = r.published_date ? ` • 📅 ${r.published_date.slice(0, 10)}` : '';
+        const score = r.score ? ` • 🌟 Relevansi: ${(r.score * 100).toFixed(0)}%` : '';
+        const cleanSnippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 220);
+        return `**${idx + 1}. 📌 [${r.title}](${r.url})**${date}${score}\n   📝 *${cleanSnippet}...*`;
+      }).join('\n\n');
+
+      resultStr += `🌐 **Top 3 Sumber Web Terverifikasi & Terpercaya:**\n\n${formattedResults}`;
     }
+
     const finalResult = resultStr || 'Tidak ditemukan informasi spesifik dari web.';
     setCachedTavily(cacheKey, finalResult);
     return finalResult;
@@ -201,12 +207,17 @@ async function extractTavilyUrl(url) {
     if (response.results && response.results.length > 0) {
       const item = response.results[0];
       const title = item.title || 'Artikel Web';
-      const content = item.raw_content ? item.raw_content.slice(0, 3000) : 'Gagal mengambil isi teks.';
-      if (containsGamblingContent(content) || containsGamblingContent(title)) {
+      const raw = item.raw_content ? cleanSpamFromText(item.raw_content) : '';
+      if (containsGamblingContent(raw) || containsGamblingContent(title)) {
         console.log(`[Tavily Safety Filter]: BLOCKED gambling content in extracted article: ${title}`);
         return 'Konten artikel tersebut terdeteksi mengandung unsur perjudian online dan diblokir oleh sistem keamanan AZURA.';
       }
-      const extractedText = `📄 **Isi Artikel Web yang Diekstrak (Tavily Extract API):**\nJudul: ${title}\nURL: ${url}\n\nKonten Teks:\n${content}`;
+      
+      const cleanContent = raw ? raw.slice(0, 1500) : 'Gagal mengambil isi teks.';
+      const extractedText = `📄 **Ekstraksi Artikel Web (Tavily Intelligence):**\n` +
+        `📌 **Judul:** ${title}\n` +
+        `🔗 **URL:** ${url}\n\n` +
+        `📝 **Rangkuman Konten Utama:**\n${cleanContent}`;
       setCachedTavily(cacheKey, extractedText);
       return extractedText;
     }

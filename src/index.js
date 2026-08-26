@@ -190,6 +190,8 @@ client.on('messageCreate', async (message) => {
         }
       }
       return message.reply(`Nama panggilan kamu saat ini sudah tersimpan sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`);
+    } else if (nameActionResult.status === 'ALIAS_ALREADY_TAKEN') {
+      return message.reply(`⚠️ Maaf ya <@${message.author.id}>, alias/inisial **"${nameActionResult.requestedName}"** sudah terdaftar dan dipakai oleh pengguna lain di database AZURA.\n\n🔒 *Ketentuan AZURA: 1 Alias/Inisial = 1 Profil.* Silakan gunakan alias, inisial, atau nama panggilan unik lainnya yaa! ✨`);
     } else if (nameActionResult.status === 'IMPERSONATION_BLOCKED') {
       return message.reply(`⚠️ Nama panggilan **${nameActionResult.requestedName}** dilindungi oleh sistem keamanan identitas AZURA dan tidak dapat digunakan.`);
     }

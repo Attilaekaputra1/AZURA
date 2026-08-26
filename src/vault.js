@@ -345,10 +345,30 @@ function getRelationshipTier(userId, totalInteractions = 0) {
 
 // Protected Name Blacklist (Anti-Impersonation Defense)
 const PROTECTED_OWNER_NAMES = new Set([
-  'putra', 'attila', 'attilaekaputra', 'owner', 'creator', 'pemilik',
+  'att', 'putra', 'attila', 'attilaekaputra', 'owner', 'creator', 'pemilik',
   'admin', 'administrator', 'azura', 'ara', 'zura', 'ajur', 'ajura',
   'developer', 'dev', 'bot'
 ]);
+
+/**
+ * Check if an alias/inisial/name is already taken by another registered user in the vault (1 Alias = 1 Profile)
+ * @param {string} name 
+ * @param {string} currentUserId 
+ * @returns {boolean}
+ */
+function isAliasTaken(name, currentUserId) {
+  if (!name) return false;
+  loadVault();
+  const targetLower = name.trim().toLowerCase();
+  for (const [uid, user] of userVaultCache.entries()) {
+    if (uid !== currentUserId && user.knownRealName) {
+      if (user.knownRealName.trim().toLowerCase() === targetLower) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 /**
  * Record a user interaction into the encrypted database (Accumulates Lifetime Metrics & Strict Lock-In)
@@ -447,6 +467,15 @@ function recordUserInteraction(userId, meta = {}) {
             displayName: user.displayName,
             requestedName: extracted
           };
+        } else if (!isOwner && isAliasTaken(extracted, userId)) {
+          console.warn(`[User Vault Security]: 🚫 User ${userId} attempted to register already taken alias: "${extracted}"`);
+          nameActionResult = {
+            status: 'ALIAS_ALREADY_TAKEN',
+            userId,
+            username: user.username,
+            displayName: user.displayName,
+            requestedName: extracted
+          };
         } else {
           user.knownRealName = extracted;
           user.isNameLocked = true;
@@ -486,6 +515,15 @@ function recordUserInteraction(userId, meta = {}) {
             console.warn(`[User Vault Security]: 🚫 User ${userId} attempted to request protected identity: "${requestedNewName}"`);
             nameActionResult = {
               status: 'IMPERSONATION_BLOCKED',
+              userId,
+              username: user.username,
+              displayName: user.displayName,
+              requestedName: requestedNewName
+            };
+          } else if (isAliasTaken(requestedNewName, userId)) {
+            console.warn(`[User Vault Security]: 🚫 User ${userId} attempted to request already taken alias: "${requestedNewName}"`);
+            nameActionResult = {
+              status: 'ALIAS_ALREADY_TAKEN',
               userId,
               username: user.username,
               displayName: user.displayName,
@@ -874,6 +912,7 @@ module.exports = {
   unlockUserNameByOwner,
   getAllUsersList,
   isUserBanned,
+  isAliasTaken,
   banUser,
   unbanUser,
   getBlacklist

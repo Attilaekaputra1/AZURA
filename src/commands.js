@@ -352,7 +352,26 @@ const commands = [
           { name: '✨ Original Soul (Cerdas, Ramah, Gen Z 22th)', value: 'original' },
           { name: '👑 Wanita Dewasa & Independen (Elegan, Berwibawa)', value: 'mature' },
           { name: '😼 Keras Kepala & Jual Mahal (Fun Mode)', value: 'stubborn' }
+        )),
+
+  new SlashCommandBuilder()
+    .setName('behavior')
+    .setDescription('Kelola atau hapus data rekaman sifat & behavior publik kamu dari memori AZURA')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
+    .addStringOption(option =>
+      option.setName('aksi')
+        .setDescription('Pilih aksi kelola behavior')
+        .setRequired(true)
+        .addChoices(
+          { name: '🔍 Lihat Rekaman Sifat Saya', value: 'lihat_saya' },
+          { name: '🗑️ Hapus Rekaman Sifat Saya (Lupakan Sifat Publik)', value: 'hapus_saya' },
+          { name: '📊 [Admin] Lihat Semua Behavior & Kapasitas Slot (Maks 20)', value: 'list' },
+          { name: '❌ [Admin] Hapus Behavior Pengguna Tertentu', value: 'hapus' }
         ))
+    .addStringOption(option =>
+      option.setName('target')
+        .setDescription('User ID / @User target (Khusus Admin untuk aksi hapus)')
+        .setRequired(false))
 ];
 
 const fs = require('fs');
@@ -1262,6 +1281,101 @@ async function handleSlashCommand(interaction, startTime) {
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed] });
+
+  } else if (commandName === 'behavior') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    const action = interaction.options.getString('aksi');
+    const { getUserBehavior, getAllBehaviors, deleteUserBehavior, MAX_BEHAVIOR_USERS } = require('./behavior');
+
+    if (action === 'lihat_saya') {
+      const myBehavior = getUserBehavior(user.id);
+      if (!myBehavior || (!myBehavior.positiveTraits?.length && myBehavior.interactionCount === 0)) {
+        return interaction.reply({
+          content: 'ℹ️ **Belum Ada Rekaman Behavior:** AZURA belum mencatat sifat atau kebiasaan publik khusus tentang kamu.',
+          flags: 64
+        });
+      }
+
+      const traits = myBehavior.positiveTraits?.length ? myBehavior.positiveTraits.join(', ') : 'Ramah & Santai';
+      const embed = new EmbedBuilder()
+        .setColor(0x00FFB2)
+        .setTitle(`🎭 Rekaman Sifat & Behavior Publik: ${myBehavior.nickname}`)
+        .setDescription(
+          `👤 **Panggilan Terdaftar:** **${myBehavior.nickname}** (@${myBehavior.username})\n` +
+          `✨ **Vibe & Karakter Positif:** ${traits}\n` +
+          `📝 **Kesan AZURA:** *"${myBehavior.personalitySummary}"*\n` +
+          `📊 **Total Interaksi Terpantau:** \`${myBehavior.interactionCount || 1} kali\`\n\n` +
+          `🔒 *Catatan: Data ini hanya mencatat kebiasaan positif dan bisa kamu hapus kapan saja menggunakan \`/behavior aksi:hapus_saya\`.*`
+        )
+        .setFooter({ text: 'AZURA Social Intelligence & Privacy Guard' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
+
+    } else if (action === 'hapus_saya') {
+      const deleted = deleteUserBehavior(user.id);
+      return interaction.reply({
+        content: deleted
+          ? '🗑️ **Berhasil Dihapus!** Seluruh rekaman sifat, kebiasaan, dan behavior publik kamu telah **dihapus bersih** dari memori AZURA. AZURA tidak akan lagi mengakses atau menyinggung aspek tersebut di server/VC publik.'
+          : 'ℹ️ Tidak ada data rekaman behavior kamu yang tersimpan di memori AZURA.',
+        flags: 64
+      });
+
+    } else if (action === 'list') {
+      if (!isOwner) {
+        return interaction.reply({
+          content: '🔒 **Akses Ditolak!** Daftar ringkasan seluruh behavior server hanya bisa diakses oleh Owner (Attila).',
+          flags: 64
+        });
+      }
+
+      const all = getAllBehaviors();
+      const count = all.length;
+      const isWarning = count >= 15;
+
+      const embed = new EmbedBuilder()
+        .setColor(isWarning ? 0xE67E22 : 0x2ECC71)
+        .setTitle(`📊 Database Behavior & Karakter Pengguna (${count}/${MAX_BEHAVIOR_USERS} Slot)`)
+        .setDescription(
+          `${isWarning ? `⚠️ **Peringatan Kapasitas:** Slot behavior sudah terisi **${count}/20 pengguna** (${((count/MAX_BEHAVIOR_USERS)*100).toFixed(0)}%)!\n\n` : ''}` +
+          (all.length === 0
+            ? '*(Belum ada data behavior pengguna yang tercatat)*'
+            : all.map((u, i) => `**${i + 1}. ${u.nickname}** (\`@${u.username}\`)\n   • Sifat: ${u.positiveTraits?.join(', ') || 'Ramah'}\n   • Kesan: *${u.personalitySummary}*`).join('\n\n'))
+        )
+        .setFooter({ text: `Kapasitas Maksimal: ${MAX_BEHAVIOR_USERS} Pengguna • AZURA Social Intelligence` })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
+
+    } else if (action === 'hapus') {
+      if (!isOwner) {
+        return interaction.reply({
+          content: '🔒 **Akses Ditolak!** Penghapusan behavior pengguna lain hanya bisa dilakukan oleh Owner (Attila).',
+          flags: 64
+        });
+      }
+
+      const target = interaction.options.getString('target');
+      if (!target) {
+        return interaction.reply({
+          content: '❌ Harap sebutkan User ID atau @User target yang ingin dihapus datanya.',
+          flags: 64
+        });
+      }
+
+      const cleanUid = target.replace(/<@!?(\d+)>/, '$1').trim();
+      const { getUserRecord } = require('./vault');
+      const rec = getUserRecord(cleanUid);
+      const targetUid = rec?.userId || cleanUid;
+
+      const deleted = deleteUserBehavior(targetUid);
+      return interaction.reply({
+        content: deleted
+          ? `✅ Data behavior untuk pengguna **${rec?.displayName || targetUid}** berhasil dihapus dari database!`
+          : `❌ Tidak ditemukan rekaman behavior untuk target \`${target}\`.`,
+        flags: 64
+      });
+    }
   }
 }
 

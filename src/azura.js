@@ -241,6 +241,16 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     }
   }
 
+  // ── USER BEHAVIOR DELETION / FORGET TRIGGER (SELF-SERVICE) ──
+  const isForgetBehavior = /\b(?:hapus\s+(?:data\s+)?behavior|hapus\s+(?:data\s+)?sifat|hapus\s+rekaman\s+sifat|lupakan\s+sifat|lupakan\s+behavior|reset\s+behavior)\b/i.test(userPrompt);
+  if (isForgetBehavior) {
+    const { deleteUserBehavior } = require('./behavior');
+    const deleted = deleteUserBehavior(userId);
+    return deleted
+      ? `🗑️ **[Data Behavior Dihapus]**\nSeluruh rekaman sifat, kebiasaan, dan karakter publikmu sudah aku hapus bersih dari memoriku ya, ${userName}! Aku tidak akan lagi mengakses atau menyinggung aspek tersebut di obrolan publik atau Voice Channel.`
+      : `ℹ️ Hai ${userName}, saat ini belum ada rekaman data behavior atau sifat publikmu yang tersimpan di memoriku kok!`;
+  }
+
   // Hermes Autonomous Agent Task Trigger (Owner Exclusive / Explicit Agent Tasks)
   const isAgentTask = /\b(?:hermes\s+agent|suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes)\b/i.test(userPrompt);
   if (isAgentTask) {

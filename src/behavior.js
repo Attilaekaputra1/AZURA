@@ -4,8 +4,10 @@ const config = require('./config');
 
 const BEHAVIOR_FILE = path.join(__dirname, '../data/user_behaviors.json');
 const MAX_BEHAVIOR_USERS = 20;
+const CAPACITY_ALERT_THRESHOLD = 15;
 
 let behaviorCache = {};
+let lastAlertTimestamp = 0;
 
 /**
  * Load behavior profiles from disk
@@ -60,14 +62,44 @@ function isNegativeOrToxic(text) {
 }
 
 /**
+ * Check if behavior cache reached threshold (>= 15 users) and alert Attila
+ * @param {import('discord.js').Client} [client] 
+ */
+async function checkBehaviorCapacityAlert(client) {
+  const count = Object.keys(behaviorCache).length;
+  const now = Date.now();
+  // Alert once every 6 hours max
+  if (count >= CAPACITY_ALERT_THRESHOLD && (now - lastAlertTimestamp > 6 * 3600 * 1000)) {
+    lastAlertTimestamp = now;
+    console.log(`[Behavior Alert]: ⚠️ Behavior capacity at ${count}/${MAX_BEHAVIOR_USERS} users! Alerting Owner...`);
+    if (client && config.OWNER_DISCORD_ID) {
+      try {
+        const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
+        if (owner) {
+          await owner.send(
+            `⚠️ **[PERINGATAN KAPASITAS DATABASE BEHAVIOR AZURA]**\n\n` +
+            `Slot rekaman karakter & behavior AZURA sudah terisi **${count} dari ${MAX_BEHAVIOR_USERS} pengguna** (${((count / MAX_BEHAVIOR_USERS) * 100).toFixed(0)}%).\n` +
+            `• Kamu bisa membersihkan profil yang kurang aktif via perintah \`/behavior aksi:list\` atau \`/behavior aksi:hapus target:<user>\`.\n` +
+            `• Atau kamu bisa meminta penambahan kuota slot kapan saja! 📊✨`
+          );
+        }
+      } catch (err) {
+        console.error('[Behavior Alert Error]:', err.message);
+      }
+    }
+  }
+}
+
+/**
  * Auto-detect and record positive personality traits from user interaction (Good Vibes Only, Max 20 Users)
  * @param {string} userId 
  * @param {string} username 
  * @param {string} displayName 
  * @param {string} textContent 
  * @param {boolean} isDM 
+ * @param {import('discord.js').Client} [client] 
  */
-function recordPositiveBehavior(userId, username, displayName, textContent, isDM = false) {
+function recordPositiveBehavior(userId, username, displayName, textContent, isDM = false, client = null) {
   if (!userId || !textContent || textContent.length < 5) return;
   if (isNegativeOrToxic(textContent)) {
     // Ignore negative response completely
@@ -126,7 +158,7 @@ function recordPositiveBehavior(userId, username, displayName, textContent, isDM
     { trait: 'Tech & Coding Enthusiast', regex: /\b(?:coding|code|javascript|python|bot|api|database|framework|deploy|server|vps|bug|fix|git)\b/i },
     { trait: 'Gaming & Santai', regex: /\b(?:game|mabar|voice|vc|genshin|valorant|steam|discord|roblox|mlbb|chill|santai)\b/i },
     { trait: 'Suportif & Hangat', regex: /\b(?:semangat|mantap|keren|good job|gokil|salut|hebat|bisa yuk|sukses)\b/i },
-    { trait: 'Kreatif & Berwawasan', regex: /\b(?:ide|desain|design|konsep|project|proyek|kreatif|inovasi|strategi)\b/i },
+    { trait: 'Kreatif & Berwawasan', regex: /\b(?:ide|desain|design|konsep|project|proyek|kreatif|inovasi|strategi|arsitektur)\b/i },
     { trait: 'Pemerhati Musik & Media', regex: /\b(?:lagu|musik|anime|film|nonton|youtube|spotify|playlist)\b/i }
   ];
 
@@ -147,6 +179,27 @@ function recordPositiveBehavior(userId, username, displayName, textContent, isDM
   }
 
   saveBehaviors();
+
+  // Check quota threshold
+  if (client) {
+    checkBehaviorCapacityAlert(client).catch(() => {});
+  }
+}
+
+/**
+ * Delete a user's behavior profile completely (User self-service or Owner)
+ * @param {string} userId 
+ * @returns {boolean} true if deleted
+ */
+function deleteUserBehavior(userId) {
+  loadBehaviors();
+  if (behaviorCache[userId]) {
+    delete behaviorCache[userId];
+    saveBehaviors();
+    console.log(`[Behavior Engine]: 🗑️ Deleted behavior profile for userId: ${userId}`);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -169,7 +222,7 @@ function getAllBehaviors() {
 }
 
 /**
- * Build Contextual Behavior & Public Social Intelligence Prompt for AZURA
+ * Build Contextual Behavior & Public Social Intelligence Prompt for AZURA (Chat)
  * @param {string} currentUserId 
  * @param {Array<string>} mentionedUserIds 
  * @returns {string}
@@ -197,10 +250,42 @@ function getBehaviorContextForPrompt(currentUserId, mentionedUserIds = []) {
     `4. RAHASIAKAN USER ID: JANGAN PERNAH menyebutkan angka ID Discord (\`75905...\`) kepada publik di chat. Cukup panggil nama panggilan resminya saja!`;
 }
 
+/**
+ * Build Voice Channel Social Intelligence & Unique Name Humor Context
+ * @param {Array<string>} [activeMemberIds] 
+ * @returns {string}
+ */
+function getBehaviorContextForVoice(activeMemberIds = []) {
+  loadBehaviors();
+
+  const allProfiles = Object.values(behaviorCache);
+  if (allProfiles.length === 0) return '';
+
+  const formatted = allProfiles.map(p => {
+    const traits = p.positiveTraits.length > 0 ? p.positiveTraits.join(', ') : 'Ramah & Santai';
+    return `• ${p.nickname} (@${p.username}): ${traits} - "${p.personalitySummary}"`;
+  }).join('\n');
+
+  return `
+[DATABASE SOSIAL & BEHAVIOR ANGGOTA KOMUNITAS DI VOICE CHANNEL (MAKS 20 USER)]:
+Berikut adalah database karakter, nama panggilan, dan kebiasaan positif member yang tercatat:
+${formatted}
+
+PANDUAN KHUSUS VOICE CHANNEL (HUMOR NAMA UNIK & FILOSOFI):
+1. CROSS-MEMORY & CERITA SERU DI VC: Kamu boleh menceritakan atau menyinggung kebiasaan teman tongkrongan secara natural dan seru jika topiknya nyambung!
+2. JOKES NAMA & USERNAME UNIK: Jika ada member dengan nama panggilan atau username yang nyeleneh/aneh (seperti "Raja Iblis", "Koin Merah", dsb), kamu secara spontan bisa heran lucu, bingung, atau menjadikannya bahan candaan hangat (contoh: "Bentar deh Raja Iblis, kamu mau naklukin bumi apa mau mabar doang nih? [laughs]").
+3. RESPEK & FILOSOFI NAMA: Jika member tersebut menjelaskan bahwa nama panggilannya memiliki makna atau filosofi mendalam, pahami dengan tulus, hargai artinya, dan minta maaf dengan manis karena tadi sempat kamu candain! (contoh: "Wah ternyata ada filosofi mendalamnya ya... maaf ya tadi sempat aku candain, keren banget ternyata maknanya!").
+4. RAHASIAKAN NOMOR USER ID: DILARANG menyebutkan angka ID Discord saat berbicara suara. Cukup panggil nama panggilannya!`;
+}
+
 module.exports = {
   recordPositiveBehavior,
+  deleteUserBehavior,
   getUserBehavior,
   getAllBehaviors,
   getBehaviorContextForPrompt,
-  MAX_BEHAVIOR_USERS
+  getBehaviorContextForVoice,
+  checkBehaviorCapacityAlert,
+  MAX_BEHAVIOR_USERS,
+  CAPACITY_ALERT_THRESHOLD
 };

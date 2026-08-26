@@ -168,40 +168,50 @@ function generateSessionCookie(userId, firstSeen) {
 }
 
 /**
- * Extract known real name / nickname if mentioned in message (Strict & False-Positive Immune)
+ * Comprehensive Stop Words to prevent false-positive name extractions from slang/filler words
+ */
+const STOP_WORDS = new Set([
+  'bukan', 'siapa', 'apa', 'kenapa', 'gimana', 'bisa', 'mau', 'lagi', 'udah', 'belum',
+  'kalian', 'mereka', 'kamu', 'dia', 'kita', 'kami', 'itu', 'ini', 'dong', 'sih', 'deh',
+  'kok', 'kan', 'yang', 'yg', 'dan', 'atau', 'kalau', 'kalo', 'pada', 'sama', 'dari',
+  'ke', 'di', 'untuk', 'dengan', 'ada', 'tidak', 'nggak', 'gak', 'nya', 'annya', 'azura', 'ara', 'zura', 'ajur', 'ajura', 'asura',
+  'halo', 'hei', 'hai', 'oi', 'oy', 'pagi', 'siang', 'sore', 'malam', 'test', 'tes', 'ping', 'help',
+  'lah', 'jir', 'wkwk', 'wkwkwk', 'haha', 'hahaha', 'oalah', 'oalahhh', 'bro', 'bang', 'mas', 'kak',
+  'gua', 'gw', 'aku', 'saya', 'gue', 'lu', 'luu', 'elu', 'anjir', 'anjay', 'bjir', 'buset', 'anj',
+  'yoi', 'yoii', 'ok', 'oke', 'sip', 'siap', 'noted', 'mantap', 'santai', 'sans', 'gpp', 'gapapa',
+  'nama', 'panggilan', 'asli', 'siapakah', 'apakah', 'adalah', 'yaitu'
+]);
+
+/**
+ * Strict First-Time Registration Extraction
+ * Only triggers for new users when message explicitly intends to set/register a nickname.
  * @param {string} text 
+ * @param {boolean} isDM 
  * @returns {string|null}
  */
-function extractRealName(text) {
+function extractRegistrationName(text, isDM = false) {
   if (!text || typeof text !== 'string') return null;
   const trimmed = text.trim();
 
-  const patterns = [
+  // If text contains question marks or obvious conversational inquiries, ignore
+  if (trimmed.includes('?') || /\b(?:siapa|apa|kenapa|gimana|tau|tahu|kenal)\b/i.test(trimmed)) {
+    return null;
+  }
+
+  const strictRegistrationPatterns = [
     // "nama asli gw/gue/gua/aku/saya/ane/ku adalah Putra" or "nama asliku Putra"
-    /\b(?:nama\s+asli\s+(?:gw|gue|gua|aku|saya|ane|ku)|nama\s+asliku)\s*(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})/i,
+    /\b(?:nama\s+asli\s+(?:gw|gue|gua|aku|saya|ane|ku)|nama\s+asliku)\s*(?:adalah|yaitu|:|=|\s+)\s*([a-zA-Z\s]{2,25})/i,
     // "nama panggilan gw/aku/saya/ku adalah Putra" or "nama panggilanku Putra"
-    /\b(?:nama\s+panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku)|nama\s+panggilanku)\s*(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})/i,
+    /\b(?:nama\s+panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku)|nama\s+panggilanku)\s*(?:adalah|yaitu|:|=|\s+)\s*([a-zA-Z\s]{2,25})/i,
     // "panggil gw/gue/gua/aku/saya/ane (aja)? Putra" or "panggilan gw Putra"
     /\b(?:panggil\s+(?:aja\s+)?(?:gw|gue|gua|aku|saya|ane|ku)|panggil\s+(?:gw|gue|gua|aku|saya|ane|ku)\s+aja|panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku))\s*(?:adalah|yaitu|:|=|\s+)?\s*([a-zA-Z\s]{2,25})/i,
-    // "namaku Putra", "nama saya Putra", "nama gw Putra"
-    /\b(?:nama\s+(?:gw|gue|gua|aku|saya|ane|ku)|namaku)\s*(?:adalah|yaitu|:|=|\s+)\s*([a-zA-Z\s]{2,25})/i,
-    // Direct command pattern: "panggil aku/gw/saya Putra"
-    /\b(?:panggil\s+(?:aku|gw|gue|gua|saya|ane|ku))\s+([a-zA-Z\s]{2,25})/i,
-    // Prefix direct answer: "aku Putra", "saya Putra"
-    /^(?:aku|saya|panggil|nama)\s+([a-zA-Z]{2,20})/i,
-    // Direct single word name response: "Rizky"
-    /^([a-zA-Z]{2,20})$/i
+    // "namaku Putra", "nama saya Putra", "nama gw Putra", "nama gua Putra"
+    /^(?:namaku|nama\s+(?:gw|gue|gua|aku|saya|ane|ku))\s+(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})$/i,
+    // Direct command: "panggil aku/gw/saya Putra"
+    /^panggil\s+(?:aku|gw|gue|gua|saya|ane|ku)\s+([a-zA-Z\s]{2,25})$/i
   ];
 
-  const stopWords = new Set([
-    'bukan', 'siapa', 'apa', 'kenapa', 'gimana', 'bisa', 'mau', 'lagi', 'udah', 'belum',
-    'kalian', 'mereka', 'kamu', 'dia', 'kita', 'kami', 'itu', 'ini', 'dong', 'sih', 'deh',
-    'kok', 'kan', 'yang', 'yg', 'dan', 'atau', 'kalau', 'kalo', 'pada', 'sama', 'dari',
-    'ke', 'di', 'untuk', 'dengan', 'ada', 'tidak', 'nggak', 'gak', 'nya', 'annya', 'azura', 'ara', 'zura',
-    'halo', 'hei', 'hai', 'oi', 'oy', 'pagi', 'siang', 'sore', 'malam', 'test', 'tes', 'ping', 'help'
-  ]);
-
-  for (const pat of patterns) {
+  for (const pat of strictRegistrationPatterns) {
     const match = trimmed.match(pat);
     if (match && match[1]) {
       let rawCaptured = match[1].trim();
@@ -212,7 +222,7 @@ function extractRealName(text) {
 
       const words = firstSegment.split(/\s+/).filter(Boolean);
       if (words.length >= 1 && words.length <= 3) {
-        const hasStopWord = words.some(w => stopWords.has(w.toLowerCase()));
+        const hasStopWord = words.some(w => STOP_WORDS.has(w.toLowerCase()));
         if (!hasStopWord) {
           const cleanName = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
           if (cleanName.length >= 2 && cleanName.length <= 25) {
@@ -222,7 +232,64 @@ function extractRealName(text) {
       }
     }
   }
+
   return null;
+}
+
+/**
+ * Strict Name Change Request Extraction (STRICTLY EXCLUSIVE TO DM)
+ * User must explicitly express intent to change their existing registered name.
+ * @param {string} text 
+ * @returns {string|null}
+ */
+function extractNameChangeRequest(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+
+  // If text contains question marks or conversational inquiries, ignore
+  if (trimmed.includes('?') || /\b(?:siapa|apa|kenapa|gimana|tau|tahu|kenal)\b/i.test(trimmed)) {
+    return null;
+  }
+
+  const changePatterns = [
+    // "ganti namaku/namaku jadi/menjadi Putra" or "ubah nama panggilan jadi Putra"
+    /\b(?:ganti|ubah|request\s+ganti|mau\s+ganti)\s+(?:nama\s+panggilan\s+(?:gw|gue|gua|aku|saya|ku)|nama\s+panggilanku|nama\s+(?:gw|gue|gua|aku|saya|ku)|namaku|nama)?\s*(?:menjadi|jadi|ke)\s*([a-zA-Z\s]{2,25})/i,
+    // "panggil aku Putra aja mulai sekarang"
+    /\bpanggil\s+(?:aku|gw|gue|gua|saya)\s+([a-zA-Z\s]{2,25})\s+aja\s+mulai\s+sekarang/i
+  ];
+
+  for (const pat of changePatterns) {
+    const match = trimmed.match(pat);
+    if (match && match[1]) {
+      let rawCaptured = match[1].trim();
+      const firstSegment = rawCaptured
+        .split(/[.,!?;:'"()[\]\n\r]+/)[0]
+        .replace(/\b(?:ya|yah|dong|plis|please|bang|kak|om|bro|sis|nih|deh|aja|sih|azura|ara|zura|ajur|ajura)\b/gi, '')
+        .trim();
+
+      const words = firstSegment.split(/\s+/).filter(Boolean);
+      if (words.length >= 1 && words.length <= 3) {
+        const hasStopWord = words.some(w => STOP_WORDS.has(w.toLowerCase()));
+        if (!hasStopWord) {
+          const cleanName = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+          if (cleanName.length >= 2 && cleanName.length <= 25) {
+            return cleanName;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Legacy extraction helper (Strict)
+ * @param {string} text 
+ * @returns {string|null}
+ */
+function extractRealName(text) {
+  return extractRegistrationName(text, false);
 }
 
 /**
@@ -293,6 +360,7 @@ const PROTECTED_OWNER_NAMES = new Set([
  * @param {string} [meta.channelName]
  * @param {string} [meta.textContent]
  * @param {boolean} [meta.isVoice]
+ * @param {boolean} [meta.isDM]
  * @returns {object|null} nameActionResult
  */
 function recordUserInteraction(userId, meta = {}) {
@@ -361,22 +429,42 @@ function recordUserInteraction(userId, meta = {}) {
 
   // Strict Real Name Extraction & Lock-in Protocol
   let nameActionResult = null;
-  if (meta.textContent) {
-    const extracted = extractRealName(meta.textContent);
-    if (extracted) {
-      const isOwner = (userId === config.OWNER_DISCORD_ID);
-      const isProtected = PROTECTED_OWNER_NAMES.has(extracted.toLowerCase());
 
-      if (!isOwner && isProtected) {
-        console.warn(`[User Vault Security]: 🚫 User ${userId} attempted to impersonate protected identity: "${extracted}"`);
-        nameActionResult = {
-          status: 'IMPERSONATION_BLOCKED',
-          userId,
-          username: user.username,
-          displayName: user.displayName,
-          requestedName: extracted
-        };
-      } else if (isOwner) {
+  if (meta.textContent) {
+    const isOwner = (userId === config.OWNER_DISCORD_ID);
+
+    // Case 1: First-time Registration (User has NO registered nickname yet)
+    if (!user.knownRealName) {
+      const extracted = extractRegistrationName(meta.textContent, isDM);
+      if (extracted) {
+        const isProtected = PROTECTED_OWNER_NAMES.has(extracted.toLowerCase());
+        if (!isOwner && isProtected) {
+          console.warn(`[User Vault Security]: 🚫 User ${userId} attempted to impersonate protected identity: "${extracted}"`);
+          nameActionResult = {
+            status: 'IMPERSONATION_BLOCKED',
+            userId,
+            username: user.username,
+            displayName: user.displayName,
+            requestedName: extracted
+          };
+        } else {
+          user.knownRealName = extracted;
+          user.isNameLocked = true;
+          user.pendingNameChange = null;
+          console.log(`[User Vault]: 🔒 First-time locked real name for ${userId} (@${user.username}): "${extracted}"`);
+          nameActionResult = {
+            status: 'FIRST_REGISTRATION',
+            userId,
+            username: user.username,
+            displayName: user.displayName,
+            name: extracted
+          };
+        }
+      }
+    } else if (isOwner) {
+      // Owner can freely update name anytime
+      const extracted = extractRegistrationName(meta.textContent, isDM) || (isDM && extractNameChangeRequest(meta.textContent));
+      if (extracted) {
         user.knownRealName = extracted;
         user.isNameLocked = true;
         user.pendingNameChange = null;
@@ -385,35 +473,42 @@ function recordUserInteraction(userId, meta = {}) {
           userId,
           name: extracted
         };
-      } else if (!user.knownRealName) {
-        // First-time registration -> Lock in immediately
-        user.knownRealName = extracted;
-        user.isNameLocked = true;
-        user.pendingNameChange = null;
-        console.log(`[User Vault]: 🔒 First-time locked real name for ${userId} (@${user.username}): "${extracted}"`);
-        nameActionResult = {
-          status: 'FIRST_REGISTRATION',
-          userId,
-          username: user.username,
-          displayName: user.displayName,
-          name: extracted
-        };
-      } else if (user.knownRealName.toLowerCase() !== extracted.toLowerCase()) {
-        // Already locked -> Trigger Owner Confirmation Protocol
-        user.pendingNameChange = {
-          requestedName: extracted,
-          requestedAt: nowIso
-        };
-        console.log(`[User Vault]: ⏳ Nickname change request queued for ${userId} (@${user.username}): "${user.knownRealName}" -> "${extracted}" (Pending Attila's Approval)`);
-        nameActionResult = {
-          status: 'PENDING_APPROVAL',
-          userId,
-          username: user.username,
-          displayName: user.displayName,
-          currentName: user.knownRealName,
-          requestedName: extracted
-        };
       }
+    } else {
+      // Case 2: User ALREADY has a registered & locked nickname
+      // 🔒 STRICT RULE: In Server Chat, name is 100% LOCKED. NEVER extract or trigger name changes from server chatter!
+      // Name change requests are STRICTLY EXCLUSIVE to Direct Messages (DM) with explicit intent!
+      if (isDM) {
+        const requestedNewName = extractNameChangeRequest(meta.textContent);
+        if (requestedNewName && requestedNewName.toLowerCase() !== user.knownRealName.toLowerCase()) {
+          const isProtected = PROTECTED_OWNER_NAMES.has(requestedNewName.toLowerCase());
+          if (isProtected) {
+            console.warn(`[User Vault Security]: 🚫 User ${userId} attempted to request protected identity: "${requestedNewName}"`);
+            nameActionResult = {
+              status: 'IMPERSONATION_BLOCKED',
+              userId,
+              username: user.username,
+              displayName: user.displayName,
+              requestedName: requestedNewName
+            };
+          } else {
+            user.pendingNameChange = {
+              requestedName: requestedNewName,
+              requestedAt: nowIso
+            };
+            console.log(`[User Vault]: ⏳ Nickname change request queued in DM for ${userId} (@${user.username}): "${user.knownRealName}" -> "${requestedNewName}" (Pending Attila's Approval)`);
+            nameActionResult = {
+              status: 'PENDING_APPROVAL',
+              userId,
+              username: user.username,
+              displayName: user.displayName,
+              currentName: user.knownRealName,
+              requestedName: requestedNewName
+            };
+          }
+        }
+      }
+      // If in Server (!isDM), nameActionResult remains null! No intercept, no false positive approval requests!
     }
   }
 
@@ -764,6 +859,8 @@ module.exports = {
   saveVault,
   recordUserInteraction,
   extractRealName,
+  extractRegistrationName,
+  extractNameChangeRequest,
   getRelationshipTier,
   getVaultStats,
   getUserRecord,

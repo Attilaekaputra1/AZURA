@@ -49,8 +49,7 @@ ATURAN PERSPEKTIF & PANGGILAN SANGAT PENTING:
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Pesan/Poin dari Attila yang ingin disampaikan:\n"${rawPrompt}"` }
       ],
-      max_completion_tokens: 600,
-      temperature: 0.8
+      max_completion_tokens: 600
     });
 
     return res.choices[0]?.message?.content?.trim() || rawPrompt;

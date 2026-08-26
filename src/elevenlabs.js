@@ -4,8 +4,21 @@ const { canUseElevenLabs, recordVoiceUsage } = require('./voiceQuota');
 
 const DEFAULT_VOICE_ID = 'd15jrIAARvF899pDoC6T'; // Kak Ceria (Indonesian cheerful female)
 
+let circuitBreakerUntil = 0;
+let circuitBreakerReason = '';
+
+function isElevenLabsCircuitOpen() {
+  return Date.now() < circuitBreakerUntil;
+}
+
+function openCircuitBreaker(reason, durationMs = 30 * 60 * 1000) {
+  circuitBreakerUntil = Date.now() + durationMs;
+  circuitBreakerReason = reason;
+  console.warn(`[ElevenLabs Circuit Breaker]: ⚡ Circuit OPEN for ${Math.round(durationMs / 60000)} mins. Instant-fallback active. Reason: ${reason}`);
+}
+
 /**
- * Generate MP3 audio buffer from text using ElevenLabs v3 API with Quota Guard
+ * Generate MP3 audio buffer from text using ElevenLabs v3 API with Quota Guard & Circuit Breaker
  * @param {string} text 
  * @param {string} voiceId 
  * @param {import('discord.js').Client} client
@@ -18,6 +31,10 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
       return reject(new Error('ELEVENLABS_API_KEY not configured'));
     }
 
+    // Circuit Breaker: instant fallback if recent payment issue or quota exhaustion occurred
+    if (isElevenLabsCircuitOpen()) {
+      return reject(new Error(`ElevenLabs Circuit Open: ${circuitBreakerReason}`));
+    }
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
     const selectedModel = config.ELEVENLABS_MODEL_ID || 'eleven_v3';
     const postData = JSON.stringify({
@@ -41,12 +58,15 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
         'Accept': 'audio/mpeg',
         'Content-Length': Buffer.byteLength(postData)
       },
-      timeout: 12000
+      timeout: 10000
     }, (res) => {
       if (res.statusCode !== 200) {
         let errBody = '';
         res.on('data', chunk => errBody += chunk);
         res.on('end', () => {
+          if (res.statusCode === 401 || res.statusCode === 402 || res.statusCode === 429) {
+            openCircuitBreaker(`ElevenLabs error ${res.statusCode}: ${errBody.slice(0, 100)}`, 30 * 60 * 1000);
+          }
           reject(new Error(`ElevenLabs API returned ${res.statusCode}: ${errBody}`));
         });
         return;

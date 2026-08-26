@@ -69,10 +69,16 @@ async function sendVcResponseChoice(message, response, userName, isOwner) {
     if (vcChoiceCache.has(requestId)) {
       vcChoiceCache.delete(requestId);
       try {
-        await promptMsg.edit({
-          content: `💬 **[Respon Teks Chat AZURA untuk @${userName}]**\n\n${response}`,
-          components: []
-        });
+        const fullContent = `💬 **[Respon Teks Chat AZURA untuk @${userName}]**\n\n${response}`;
+        if (fullContent.length <= 1950) {
+          await promptMsg.edit({ content: fullContent, components: [] });
+        } else {
+          const chunks = fullContent.match(/[\s\S]{1,1900}/g) || [fullContent];
+          await promptMsg.edit({ content: chunks[0], components: [] });
+          for (let i = 1; i < chunks.length; i++) {
+            await message.channel.send(chunks[i]);
+          }
+        }
       } catch (_) {}
     }
   }, 45000);
@@ -112,10 +118,17 @@ async function handleVcChoiceButton(interaction) {
     if (data.guildId) {
       recordSessionEntry(data.guildId, 'AZURA', data.response, 'text');
     }
-    return interaction.update({
-      content: `💬 **[Respon Teks Chat AZURA untuk @${data.userName}]**\n\n${data.response}`,
-      components: []
-    });
+    const fullContent = `💬 **[Respon Teks Chat AZURA untuk @${data.userName}]**\n\n${data.response}`;
+    if (fullContent.length <= 1950) {
+      return interaction.update({ content: fullContent, components: [] });
+    } else {
+      const chunks = fullContent.match(/[\s\S]{1,1900}/g) || [fullContent];
+      await interaction.update({ content: chunks[0], components: [] });
+      for (let i = 1; i < chunks.length; i++) {
+        await interaction.channel.send(chunks[i]);
+      }
+      return;
+    }
   }
 
   if (action === 'vc_opt_voice') {
@@ -126,10 +139,17 @@ async function handleVcChoiceButton(interaction) {
     const isAttilaInVC = vcChannel?.members?.has(config.OWNER_DISCORD_ID);
 
     if (!isOwner && !isAttilaInVC) {
-      return interaction.update({
-        content: `Halo **${data.userName}**! Aku cuma bisa bersuara di Voice Channel kalau ada Attila di VC yaa! ✨\n\n💬 **[Respon Teks]:**\n${data.response}`,
-        components: []
-      });
+      const fullContent = `Halo **${data.userName}**! Aku cuma bisa bersuara di Voice Channel kalau ada Attila di VC yaa! ✨\n\n💬 **[Respon Teks]:**\n${data.response}`;
+      if (fullContent.length <= 1950) {
+        return interaction.update({ content: fullContent, components: [] });
+      } else {
+        const chunks = fullContent.match(/[\s\S]{1,1900}/g) || [fullContent];
+        await interaction.update({ content: chunks[0], components: [] });
+        for (let i = 1; i < chunks.length; i++) {
+          await interaction.channel.send(chunks[i]);
+        }
+        return;
+      }
     }
 
     const quota = getMemberDailyVcQuota(data.userId);

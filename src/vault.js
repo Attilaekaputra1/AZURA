@@ -144,7 +144,7 @@ function generateSessionCookie(userId, firstSeen) {
 }
 
 /**
- * Extract known real name / nickname if mentioned in message
+ * Extract known real name / nickname if mentioned in message (Strict & False-Positive Immune)
  * @param {string} text 
  * @returns {string|null}
  */
@@ -152,28 +152,41 @@ function extractRealName(text) {
   if (!text || typeof text !== 'string') return null;
 
   const patterns = [
-    // "nama asli gw/gue/gua/aku/saya/ane/ku putra" or "nama asliku putra"
-    /(?:nama\s+asli\s*(?:gw|gue|gua|aku|saya|ane|ku)?|nama\s+asliku)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i,
-    // "nama panggilan gw/aku/saya/ku putra" or "nama panggilanku putra"
-    /(?:nama\s+panggilan\s*(?:gw|gue|gua|aku|saya|ane|ku)?|nama\s+panggilanku)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i,
-    // "panggil gw/gue/gua/aku/saya/aja/ane putra" or "panggilan gw putra"
-    /(?:panggil\s*(?:aja\s+)?(?:gw|gue|gua|aku|saya|ane|ku)?|panggilan(?:ku)?)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i,
-    // "nama gw/gue/gua/aku/saya/ane putra" or "namaku putra"
-    /(?:nama\s+(?:gw|gue|gua|aku|saya|ane)|namaku)\s*(?:adalah|yaitu|:|nya|itu)?\s*([a-zA-Z\s]{2,30})/i
+    // "nama asli gw/gue/gua/aku/saya/ane/ku adalah Putra" or "nama asliku Putra"
+    /\b(?:nama\s+asli\s+(?:gw|gue|gua|aku|saya|ane|ku)|nama\s+asliku)\s*(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})/i,
+    // "nama panggilan gw/aku/saya/ku adalah Putra" or "nama panggilanku Putra"
+    /\b(?:nama\s+panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku)|nama\s+panggilanku)\s*(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})/i,
+    // "panggil gw/gue/gua/aku/saya/ane (aja)? Putra" or "panggilan gw Putra"
+    /\b(?:panggil\s+(?:aja\s+)?(?:gw|gue|gua|aku|saya|ane|ku)|panggil\s+(?:gw|gue|gua|aku|saya|ane|ku)\s+aja|panggilan\s+(?:gw|gue|gua|aku|saya|ane|ku))\s*(?:adalah|yaitu|:|=)?\s*([a-zA-Z\s]{2,25})/i,
+    // "nama gw/gue/gua/aku/saya/ane: Putra" or "namaku adalah Putra"
+    /\b(?:nama\s+(?:gw|gue|gua|aku|saya|ane)|namaku)\s*(?:adalah|yaitu|:|=)\s*([a-zA-Z\s]{2,25})/i
   ];
+
+  const stopWords = new Set([
+    'bukan', 'siapa', 'apa', 'kenapa', 'gimana', 'bisa', 'mau', 'lagi', 'udah', 'belum',
+    'kalian', 'mereka', 'kamu', 'dia', 'kita', 'kami', 'itu', 'ini', 'dong', 'sih', 'deh',
+    'kok', 'kan', 'yang', 'yg', 'dan', 'atau', 'kalau', 'kalo', 'pada', 'sama', 'dari',
+    'ke', 'di', 'untuk', 'dengan', 'ada', 'tidak', 'nggak', 'gak', 'nya', 'annya', 'azura', 'ara', 'zura'
+  ]);
 
   for (const pat of patterns) {
     const match = text.match(pat);
     if (match && match[1]) {
-      let clean = match[1]
+      let rawCaptured = match[1].trim();
+      const firstSegment = rawCaptured
+        .split(/[.,!?;:'"()[\]\n\r]+/)[0]
         .replace(/\b(?:ya|yah|dong|plis|please|bang|kak|om|bro|sis|nih|deh|aja|sih|azura|ara|zura|ajur|ajura)\b/gi, '')
-        .replace(/[.,!?;:'"()[\]]+/g, ' ')
-        .replace(/\s+/g, ' ')
         .trim();
 
-      const stopWords = ['bukan', 'siapa', 'apa', 'kenapa', 'gimana', 'bisa', 'mau', 'lagi', 'udah', 'belum'];
-      if (clean && !stopWords.includes(clean.toLowerCase()) && clean.length >= 2 && clean.length <= 30) {
-        return clean.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      const words = firstSegment.split(/\s+/).filter(Boolean);
+      if (words.length >= 1 && words.length <= 3) {
+        const hasStopWord = words.some(w => stopWords.has(w.toLowerCase()));
+        if (!hasStopWord) {
+          const cleanName = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+          if (cleanName.length >= 2 && cleanName.length <= 25) {
+            return cleanName;
+          }
+        }
       }
     }
   }

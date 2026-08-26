@@ -1760,8 +1760,7 @@ async function cleanupGuild(guildId, client) {
     idleTimers.delete(guildId);
   }
 
-  // === LAYER 1: Native Discord REST disconnect via GuildMember.voice.setChannel(null) ===
-  // This is the most reliable method - it sends a PATCH to Discord REST API
+  // === LAYER 1: Native Discord REST disconnect ===
   let nativeDisconnected = false;
   if (client && client.guilds) {
     try {
@@ -1769,27 +1768,15 @@ async function cleanupGuild(guildId, client) {
       if (guild) {
         const me = guild.members.me || await guild.members.fetch(client.user.id).catch(() => null);
         if (me && me.voice && me.voice.channel) {
-          console.log(`[cleanupGuild]: LAYER 1 - setChannel(null) in "${guild.name}" (#${me.voice.channel.name})...`);
-          await me.voice.setChannel(null);
+          const chName = me.voice.channel.name;
+          await me.voice.disconnect().catch(async () => {
+            await me.voice.setChannel(null).catch(() => {});
+          });
           nativeDisconnected = true;
-          console.log(`[cleanupGuild]: LAYER 1 SUCCESS - Bot disconnected via setChannel(null)`);
+          console.log(`[cleanupGuild]: LAYER 1 SUCCESS - Bot disconnected from "${guild.name}" (#${chName})`);
         }
       }
-    } catch (e) {
-      console.warn('[cleanupGuild]: LAYER 1 setChannel(null) failed:', e.message);
-      // Fallback: try disconnect() method
-      try {
-        const guild = client.guilds.cache.get(guildId);
-        if (guild) {
-          const me = guild.members.me;
-          if (me && me.voice && me.voice.channel) {
-            await me.voice.disconnect();
-            nativeDisconnected = true;
-            console.log(`[cleanupGuild]: LAYER 1 FALLBACK - disconnect() succeeded`);
-          }
-        }
-      } catch (_) {}
-    }
+    } catch (_) {}
   }
 
   // Small delay to let Discord Gateway process the disconnect before we destroy local state

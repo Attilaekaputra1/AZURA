@@ -149,7 +149,7 @@ function formatToUrl(input) {
   const clean = input.trim();
   if (/^https?:\/\//i.test(clean)) return clean;
   if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/.*)?$/i.test(clean)) return `https://${clean}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
+  return `https://duckduckgo.com/?q=${encodeURIComponent(clean)}`;
 }
 
 /**

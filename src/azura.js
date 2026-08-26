@@ -318,7 +318,8 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       max_completion_tokens: effectiveMaxOutputTokens
     });
 
-    const aiResponse = completion.choices[0]?.message?.content?.trim() || 'eh sori, otak gw blank bentar.';
+    const rawResponse = completion.choices[0]?.message?.content?.trim() || 'eh sori, otak gw blank bentar.';
+    const aiResponse = sanitizeAiOutput(rawResponse, userPrompt);
 
     const historyPrompt = imageUrls.length > 0 ? `[${userName} - Mengirim gambar]: ${userPrompt}` : `[${userName}]: ${userPrompt}`;
     budgetGuard.addMessageToContext(contextKey, 'user', historyPrompt, effectiveMaxContextTokens);
@@ -339,7 +340,8 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
           { role: 'user', content: userContent }
         ]
       });
-      const retryResponse = retryCompletion.choices[0]?.message?.content?.trim() || 'eh sori, otak gw blank bentar.';
+      const rawRetry = retryCompletion.choices[0]?.message?.content?.trim() || 'eh sori, otak gw blank bentar.';
+      const retryResponse = sanitizeAiOutput(rawRetry, userPrompt);
       budgetGuard.addMessageToContext(contextKey, 'user', userPrompt, effectiveMaxContextTokens);
       budgetGuard.addMessageToContext(contextKey, 'assistant', retryResponse, effectiveMaxContextTokens);
       return retryResponse;
@@ -349,6 +351,26 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
     return 'sabar bentar ya, koneksi AI lagi penyesuaian dikit. coba tanya lagi!';
   }
+}
+
+/**
+ * Post-processing sanitizer to remove black-hat SEO spam or foreign script leaks
+ * @param {string} text 
+ * @param {string} prompt 
+ * @returns {string}
+ */
+function sanitizeAiOutput(text, prompt = '') {
+  if (!text || typeof text !== 'string') return text;
+
+  let clean = text;
+
+  // If user prompt did not contain Chinese/Japanese/Korean characters, strip accidental CJK SEO spam injections (e.g. 天天中彩票实名)
+  const hasCjkInPrompt = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(prompt);
+  if (!hasCjkInPrompt) {
+    clean = clean.replace(/[\u4e00-\u9fff]{2,}/g, '');
+  }
+
+  return clean.replace(/[ \t]+/g, ' ').replace(/\n\s+\n/g, '\n\n').trim();
 }
 
 module.exports = {

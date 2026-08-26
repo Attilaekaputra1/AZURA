@@ -22,7 +22,9 @@ const GAMBLING_KEYWORDS = [
   'daftar slot', 'login slot', 'agen slot', 'bandar togel', 'prediksi togel',
   'situs judi', 'judi online', 'taruhan', 'betting online', 'deposit slot',
   'withdraw slot', 'bonus slot', 'promo slot', 'link alternatif',
-  'anti rungkad', 'pasti profit', 'cuan slot', 'modal receh'
+  'anti rungkad', 'pasti profit', 'cuan slot', 'modal receh',
+  // Asian / Chinese SEO Black-Hat Gambling Injection keywords
+  '彩票', '中彩', '中奖', '博彩', '百家乐', '开奖', '投注', '娱乐城', '六合彩', '老虎机', '天天中', '威尼斯人', '实名', '棋牌', '皇冠', '外围'
 ];
 
 // Sacred / Sensitive Data Blacklist (Prevent scraping sacred credentials, private keys, leaked DBs, banking data)
@@ -35,6 +37,12 @@ function isSacredData(queryOrUrl) {
   if (!queryOrUrl) return false;
   const lower = queryOrUrl.toLowerCase();
   return SACRED_DATA_PATTERNS.some(pattern => pattern.test(lower));
+}
+
+function cleanSpamFromText(text) {
+  if (!text || typeof text !== 'string') return '';
+  // Strip isolated Chinese/CJK SEO spam phrases often injected into hacked Indonesian websites
+  return text.replace(/[\u4e00-\u9fff]{2,}/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function filterSafeResults(results) {
@@ -55,7 +63,11 @@ function filterSafeResults(results) {
       return false;
     }
     return true;
-  });
+  }).map(r => ({
+    ...r,
+    title: cleanSpamFromText(r.title),
+    content: cleanSpamFromText(r.content)
+  }));
 }
 
 function containsGamblingContent(text) {

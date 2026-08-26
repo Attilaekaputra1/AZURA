@@ -148,6 +148,11 @@ async function searchTavily(query, topicMode = 'general') {
   }
 
   try {
+    try {
+      const { recordDailyMetric } = require('./digest');
+      recordDailyMetric('webSearches', 1);
+    } catch (_) {}
+
     const response = await tavilyApiCall('/search', {
       query: query,
       topic: topicMode,

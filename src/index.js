@@ -108,6 +108,16 @@ client.on('messageCreate', async (message) => {
   const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
   const guildId = message.guild?.id || null;
 
+  // Record daily metrics for Daily Digest
+  try {
+    const { recordDailyMetric } = require('./digest');
+    if (isDM) {
+      recordDailyMetric('dmMessages', 1, { userId: message.author.id, userName });
+    } else {
+      recordDailyMetric('serverMessages', 1, { userId: message.author.id, userName });
+    }
+  } catch (_) {}
+
   // Record user interaction in encrypted vault (Zero-Knowledge AES-256-GCM Storage & Strict Lock-In)
   const nameActionResult = recordUserInteraction(message.author.id, {
     username: message.author.username,
@@ -242,6 +252,13 @@ client.on('messageCreate', async (message) => {
   // If user used 3rd-person phrasing (e.g. "Si Azura", "Si Ara"), it is NEVER a direct call, even if replying or mentioning!
   const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || isVoiceCommand);
   const isPassiveMention = isThirdPersonReference || (!isDirectCall && calledByName);
+
+  if (isDirectCall && !isDM) {
+    try {
+      const { recordDailyMetric } = require('./digest');
+      recordDailyMetric('serverMentions', 1);
+    } catch (_) {}
+  }
 
   let isThirdPersonNimbrung = false;
   if (isPassiveMention && !isDM) {

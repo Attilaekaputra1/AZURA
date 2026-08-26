@@ -128,6 +128,11 @@ function recordImageGeneration(guildId, userId, isOwner = false) {
   allData[today][scopeKey] = newUsed;
   saveQuotaData(allData);
 
+  try {
+    const { recordDailyMetric } = require('./digest');
+    recordDailyMetric('imagesGenerated', 1);
+  } catch (_) {}
+
   return {
     usedToday: newUsed,
     remainingToday: Math.max(0, DAILY_LIMIT_PER_SERVER - newUsed),

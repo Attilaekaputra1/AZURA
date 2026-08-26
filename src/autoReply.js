@@ -31,6 +31,11 @@ async function forwardToOwnerDM(message, authorName, rawPrompt) {
 
       await ownerUser.send(dmContent);
       console.log(`[AutoReply]: Forwarded mention from ${authorName} directly to Attila's DM.`);
+
+      try {
+        const { recordDailyMetric } = require('./digest');
+        recordDailyMetric('ownerForwards', 1);
+      } catch (_) {}
     }
   } catch (err) {
     console.error('[AutoReply DM Forward Error]:', err.message || err);
@@ -93,6 +98,11 @@ function handleOwnerMentionTracking(message) {
   }
 
   console.log(`[AutoReply]: Attila mentioned by ${message.author.tag} in #${message.channel.name}. Starting ${delayMinutes}-min countdown...`);
+
+  try {
+    const { recordDailyMetric } = require('./digest');
+    recordDailyMetric('ownerMentions', 1, { userId: message.author.id, userName: authorName });
+  } catch (_) {}
 
   // 4. Start countdown timer (Default 5 minutes)
   const timer = setTimeout(async () => {

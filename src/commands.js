@@ -550,9 +550,16 @@ async function handleSlashCommand(interaction, startTime) {
       );
 
     if (isOwner) {
+      let dailyDigestText = '';
+      try {
+        const { getOrCreateTodayStats } = require('./digest');
+        const todayMetrics = getOrCreateTodayStats();
+        dailyDigestText = `\n• **Aktivitas Hari Ini (Daily Digest)**: \`${todayMetrics.serverMessages || 0} pesan server\`, \`${todayMetrics.serverMentions || 0} mention bot\`, \`${todayMetrics.ownerMentions || 0} mention owner\` (\`${todayMetrics.ownerForwards || 0} di-forward\`), \`${todayMetrics.dmMessages || 0} DM\``;
+      } catch (_) {}
+
       statusEmbed.addFields({
         name: '🔒 Database & Jaringan Discord (Khusus Owner)',
-        value: `• **Zero-Knowledge Vault**: \`${vaultStats.totalUsers} pengguna terdaftar\` (\`${vaultStats.totalMessages} interaksi terenkripsi\`)\n• **Status Enkripsi**: \`AES-256-GCM (Authenticated)\`\n• **Koneksi Discord**: \`${totalGuilds} Server\` • \`${totalChannels} Channel\``,
+        value: `• **Zero-Knowledge Vault**: \`${vaultStats.totalUsers} pengguna terdaftar\` (\`${vaultStats.totalMessages} interaksi terenkripsi\`)\n• **Status Enkripsi**: \`AES-256-GCM (Authenticated)\`\n• **Koneksi Discord**: \`${totalGuilds} Server\` • \`${totalChannels} Channel\`${dailyDigestText}`,
         inline: false
       });
     } else {

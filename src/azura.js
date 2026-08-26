@@ -254,6 +254,38 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       : `ℹ️ Hai ${userName}, saat ini belum ada rekaman data behavior atau sifat publikmu yang tersimpan di memoriku kok!`;
   }
 
+  // ── TO-DO LIST & TASK MANAGEMENT NATURAL INTENT ENGINE ──
+  const isTodoRecapIntent = /\b(?:rekap\s+(?:to\s*do|agenda|tugas|kerjaan)|lihat\s+(?:to\s*do|agenda|tugas)|buka\s+(?:to\s*do|dashboard\s+to\s*do)|status\s+(?:to\s*do|tugas))\b/i.test(userPrompt);
+  if (isTodoRecapIntent) {
+    const { generateTodoRecapText } = require('./todo');
+    const recap = generateTodoRecapText(userName);
+    return recap.text;
+  }
+
+  const isTodoAddIntent = /\b(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do\s*list\s*:)\b/i.test(userPrompt);
+  if (isTodoAddIntent) {
+    const { bulkCreateTodos, createTodo, TODO_DASHBOARD_URL } = require('./todo');
+    const taskContent = userPrompt
+      .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do\s*list\s*:?)/i, '')
+      .trim();
+
+    // Check if multiple items separated by newlines, commas, or numbers (1., 2., etc)
+    const items = taskContent.split(/\n|,|(?<=\d[.)])\s+/).map(s => s.trim()).filter(s => s.length > 2);
+    let createdTasks = [];
+    if (items.length > 1) {
+      createdTasks = bulkCreateTodos(items, userId, userName);
+    } else if (taskContent.length > 2) {
+      createdTasks = [createTodo(taskContent, 'General', 'Medium', null, '', userId, userName)];
+    }
+
+    if (createdTasks.length > 0) {
+      const taskListStr = createdTasks.map((t, i) => `${i + 1}. **${t.title}** (\`${t.id}\`)`).join('\n');
+      return `✨ **[Tugas Berhasil Dicatat ke To-Do List]**\n\n` +
+        `${taskListStr}\n\n` +
+        `🌐 *Untuk memantau, memberi ceklis, atau mengedit tanpa sesak di chat, buka Web Dashboard To-Do:* \n👉 **${TODO_DASHBOARD_URL}**`;
+    }
+  }
+
   // Hermes Autonomous Agent Task Trigger (Owner Exclusive / Explicit Agent Tasks)
   const isAgentTask = /\b(?:hermes\s+agent|suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes)\b/i.test(userPrompt);
   if (isAgentTask) {

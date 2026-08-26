@@ -42,7 +42,71 @@ function initLivePortal() {
       return res.end(getPortalHtml());
     }
 
-    if (req.url.startsWith('/todo') || req.url.startsWith('/roadmap')) {
+    // ── TO-DO DASHBOARD & REST API ──
+    if (req.url === '/todo' || req.url === '/tasks' || req.url.startsWith('/todo?')) {
+      const { getTodoDashboardHtml } = require('./todo');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(getTodoDashboardHtml());
+    }
+
+    if (req.url === '/api/todo/list') {
+      const { getTodos } = require('./todo');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, tasks: getTodos() }));
+    }
+
+    if (req.url === '/api/todo/create' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      return req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const { createTodo } = require('./todo');
+          const task = createTodo(payload.title, payload.category, payload.priority, payload.dueDate, payload.notes, 'web', 'Web User');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, task }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+    }
+
+    if (req.url === '/api/todo/toggle' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      return req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const { toggleTodoStatus } = require('./todo');
+          const task = toggleTodoStatus(payload.id);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: !!task, task }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+    }
+
+    if (req.url === '/api/todo/delete' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      return req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const { deleteTodo } = require('./todo');
+          const deleted = deleteTodo(payload.id);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: deleted }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+    }
+
+    if (req.url.startsWith('/roadmap') || req.url.startsWith('/feedback')) {
       const { getTodoListHtml } = require('./feedback');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(getTodoListHtml());

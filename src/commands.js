@@ -371,7 +371,42 @@ const commands = [
     .addStringOption(option =>
       option.setName('target')
         .setDescription('User ID / @User target (Khusus Admin untuk aksi hapus)')
+        .setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('todo')
+    .setDescription('Kelola agenda dan to-do list tugas kamu via Web Dashboard AZURA')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
+    .addStringOption(option =>
+      option.setName('aksi')
+        .setDescription('Pilih aksi to-do list')
+        .setRequired(true)
+        .addChoices(
+          { name: '🌐 Buka Web Dashboard To-Do List', value: 'web' },
+          { name: '📋 Rekap Agenda Tugas & Progres', value: 'rekap' },
+          { name: '➕ Tambah Tugas Baru', value: 'tambah' },
+          { name: '✅ Tandai Tugas Selesai', value: 'selesai' },
+          { name: '🗑️ Hapus Tugas', value: 'hapus' }
+        ))
+    .addStringOption(option =>
+      option.setName('judul')
+        .setDescription('Judul tugas (untuk aksi tambah)')
         .setRequired(false))
+    .addStringOption(option =>
+      option.setName('id')
+        .setDescription('ID Tugas (contoh: TASK-101) untuk aksi selesai/hapus')
+        .setRequired(false))
+    .addStringOption(option =>
+      option.setName('kategori')
+        .setDescription('Kategori tugas (Dev, Work, Urgent, Personal, General)')
+        .setRequired(false)
+        .addChoices(
+          { name: '💻 Dev / Coding', value: 'Dev' },
+          { name: '💼 Work / Proyek', value: 'Work' },
+          { name: '🚨 Urgent / Mendesak', value: 'Urgent' },
+          { name: '🧘 Personal', value: 'Personal' },
+          { name: '📝 General / Umum', value: 'General' }
+        ))
 ];
 
 const fs = require('fs');
@@ -1374,6 +1409,103 @@ async function handleSlashCommand(interaction, startTime) {
           ? `✅ Data behavior untuk pengguna **${rec?.displayName || targetUid}** berhasil dihapus dari database!`
           : `❌ Tidak ditemukan rekaman behavior untuk target \`${target}\`.`,
         flags: 64
+      });
+    }
+
+  } else if (commandName === 'todo') {
+    const action = interaction.options.getString('aksi');
+    const { createTodo, toggleTodoStatus, deleteTodo, generateTodoRecapText, TODO_DASHBOARD_URL } = require('./todo');
+    const userName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
+
+    if (action === 'web') {
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('🌐 Buka Web Dashboard To-Do List')
+          .setStyle(ButtonStyle.Link)
+          .setURL(TODO_DASHBOARD_URL)
+          .setEmoji('📋')
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00FFB2)
+        .setTitle('✨ AZURA To-Do & Task Management Web Hub')
+        .setDescription(
+          `Halo **${userName}**! 👋\n\n` +
+          `Untuk pengalaman manajemen tugas yang rapi, tertata, dan tidak sesak di chat Discord, kamu bisa mengakses **Web Dashboard To-Do List** langsung melalui link di bawah ini:\n\n` +
+          `👉 **[Klik Disini untuk Buka Dashboard To-Do List](${TODO_DASHBOARD_URL})**\n\n` +
+          `✨ *Fitur Web Dashboard: Filter Kategori, Indikator Prioritas, Progres Bar, Toggle Checkbox Cepat, dan Tambah Tugas Instan!*`
+        )
+        .setFooter({ text: 'AZURA Productivity & Task Engine' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], components: [row] });
+
+    } else if (action === 'rekap') {
+      const recapData = generateTodoRecapText(userName);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('🌐 Kelola Lengkap di Web Dashboard')
+          .setStyle(ButtonStyle.Link)
+          .setURL(TODO_DASHBOARD_URL)
+          .setEmoji('✨')
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00FFB2)
+        .setTitle(`📋 Rekap To-Do List & Agenda Tugas ${userName}`)
+        .setDescription(
+          `📊 **Progres Penyelesaian:** \`${recapData.progressPct}%\` (${recapData.completed}/${recapData.total} Selesai)\n` +
+          `⏳ **Pending:** \`${recapData.pending}\` • ✅ **Selesai:** \`${recapData.completed}\`\n\n` +
+          `🌐 *Layout chat Discord terlalu sempit untuk rincian panjang. Buka Web Dashboard untuk tampilan visual lega & estetik:*`
+        )
+        .setFooter({ text: 'AZURA Task Engine • Live VPS Synchronized' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], components: [row] });
+
+    } else if (action === 'tambah') {
+      const title = interaction.options.getString('judul');
+      if (!title) {
+        return interaction.reply({ content: '❌ Harap sebutkan judul tugas yang ingin ditambahkan!', flags: 64 });
+      }
+      const category = interaction.options.getString('kategori') || 'General';
+      const task = createTodo(title, category, 'Medium', null, '', interaction.user.id, userName);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('🌐 Lihat di Web Dashboard')
+          .setStyle(ButtonStyle.Link)
+          .setURL(TODO_DASHBOARD_URL)
+      );
+
+      return interaction.reply({
+        content: `✅ **Tugas Berhasil Ditambahkan!** (\`${task.id}\`)\n📌 **Judul:** ${task.title}\n🏷️ **Kategori:** \`${task.category}\` • Prioritas: \`${task.priority}\``,
+        components: [row]
+      });
+
+    } else if (action === 'selesai') {
+      const id = interaction.options.getString('id');
+      if (!id) {
+        return interaction.reply({ content: '❌ Harap masukkan ID Tugas (contoh: `TASK-101`) yang ingin ditandai selesai!', flags: 64 });
+      }
+      const task = toggleTodoStatus(id);
+      if (!task) {
+        return interaction.reply({ content: `❌ Tugas dengan ID \`${id}\` tidak ditemukan.`, flags: 64 });
+      }
+      return interaction.reply({
+        content: `✅ Tugas **${task.title}** (\`${task.id}\`) sekarang berstatus: **${task.status.toUpperCase()}**!`
+      });
+
+    } else if (action === 'hapus') {
+      const id = interaction.options.getString('id');
+      if (!id) {
+        return interaction.reply({ content: '❌ Harap masukkan ID Tugas yang ingin dihapus!', flags: 64 });
+      }
+      const deleted = deleteTodo(id);
+      return interaction.reply({
+        content: deleted
+          ? `🗑️ Tugas dengan ID \`${id}\` berhasil dihapus!`
+          : `❌ Tugas dengan ID \`${id}\` tidak ditemukan.`
       });
     }
   }

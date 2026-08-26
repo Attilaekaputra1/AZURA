@@ -67,6 +67,10 @@ client.once(Events.ClientReady, async () => {
   const { initLivePortal } = require('./livePortal');
   initLivePortal();
 
+  // Initialize Real-time Channel Listeners & Weekly Silent Channel Auto-Scanner
+  const { initChannelAutoScanner } = require('./sendChannel');
+  initChannelAutoScanner(client);
+
   // Auto-connect to VC if Attila is already in a voice channel on startup
   setTimeout(async () => {
     try {
@@ -708,7 +712,9 @@ client.on('interactionCreate', async (interaction) => {
       interaction.customId.startsWith('cancelch_') ||
       interaction.customId.startsWith('rephrasech_') ||
       interaction.customId.startsWith('regenrephrasech_') ||
-      interaction.customId.startsWith('directch_')
+      interaction.customId.startsWith('directch_') ||
+      interaction.customId.startsWith('pickch_') ||
+      interaction.customId.startsWith('pickguild_')
     ) {
       return handleSendChannelButton(interaction);
     }
@@ -727,9 +733,12 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isStringSelectMenu()) {
     const { handleSendDmSelectMenu } = require('./ownerDm');
     const { handleHelpSelectMenu } = require('./commands');
-    const { handleSendChannelSelectMenu } = require('./sendChannel');
+    const { handleSendChannelSelectMenu, handleSendChannelGuildSelectMenu } = require('./sendChannel');
     if (interaction.customId === 'help_category_select') {
       return handleHelpSelectMenu(interaction);
+    }
+    if (interaction.customId.startsWith('selectguild_')) {
+      return handleSendChannelGuildSelectMenu(interaction);
     }
     if (interaction.customId.startsWith('selectchannel_')) {
       return handleSendChannelSelectMenu(interaction);

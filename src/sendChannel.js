@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ChannelType, Events } = require('discord.js');
 const config = require('./config');
 
 // Pending channel message requests: key = pendingId -> { rawMessage, finalMessage, mode, guildId, channelId, channelName, guildName, requesterId }
@@ -45,6 +45,58 @@ ATURAN PENTING:
 }
 
 /**
+ * Fetch text channels for a specific guild in real-time (Strict Filtering & Priority Sorting)
+ * @param {import('discord.js').Guild} guild 
+ * @param {import('discord.js').Client} client 
+ * @returns {Promise<import('discord.js').GuildTextBasedChannel[]>}
+ */
+async function fetchAccessibleTextChannels(guild, client) {
+  try {
+    const me = guild.members.cache.get(client.user.id) || await guild.members.fetch(client.user.id).catch(() => null);
+    if (!me) return [];
+
+    const fetched = await guild.channels.fetch().catch(() => guild.channels.cache);
+    const textChannels = [];
+
+    for (const ch of fetched.values()) {
+      if (!ch) continue;
+      // Strictly GuildText (0) or GuildAnnouncement (5)
+      if (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.GuildAnnouncement) continue;
+      // Exclude dedicated bot configuration channel "#azura"
+      if (ch.name.toLowerCase() === 'azura') continue;
+
+      // Check bot permissions
+      const perms = ch.permissionsFor(me);
+      if (perms && perms.has('SendMessages') && perms.has('ViewChannel')) {
+        textChannels.push(ch);
+      }
+    }
+
+    // Sort channels: Priority general / development channels first, then alphabetically
+    const priorityKeywords = ['general', 'utama', 'development', 'obrol', 'chat', 'member'];
+    textChannels.sort((a, b) => {
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+
+      const aPriority = priorityKeywords.findIndex(kw => aName.includes(kw));
+      const bPriority = priorityKeywords.findIndex(kw => bName.includes(kw));
+
+      if (aPriority !== -1 && bPriority === -1) return -1;
+      if (aPriority === -1 && bPriority !== -1) return 1;
+      if (aPriority !== -1 && bPriority !== -1 && aPriority !== bPriority) {
+        return aPriority - bPriority;
+      }
+      return (a.rawPosition || 0) - (b.rawPosition || 0);
+    });
+
+    return textChannels;
+  } catch (err) {
+    console.error(`[SendChannel]: Error fetching channels for ${guild?.name}:`, err.message);
+    return [];
+  }
+}
+
+/**
  * Helper to build interactive confirmation payload
  * @param {string} pendingId 
  * @param {object} data 
@@ -76,19 +128,15 @@ function buildPreviewPayload(pendingId, data) {
     embed.setFooter({ text: 'Direct Message Relay • Pesan akan dikirim persis seperti ini' });
   }
 
-  const buttons = [];
-
-  // Send button
-  buttons.push(
+  const buttonsRow1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`confirmch_${pendingId}`)
       .setLabel(isAzuraMode ? '🟢 Kirim Rangkaian AZURA' : '🟢 Kirim Pesan Direct')
       .setStyle(ButtonStyle.Success)
   );
 
-  // Mode Switch / Regenerate buttons
   if (isAzuraMode) {
-    buttons.push(
+    buttonsRow1.addComponents(
       new ButtonBuilder()
         .setCustomId(`regenrephrasech_${pendingId}`)
         .setLabel('🔄 Rangkai Ulang (AI)')
@@ -99,7 +147,7 @@ function buildPreviewPayload(pendingId, data) {
         .setStyle(ButtonStyle.Secondary)
     );
   } else {
-    buttons.push(
+    buttonsRow1.addComponents(
       new ButtonBuilder()
         .setCustomId(`rephrasech_${pendingId}`)
         .setLabel('✨ Biar AZURA Yang Rangkai')
@@ -107,16 +155,117 @@ function buildPreviewPayload(pendingId, data) {
     );
   }
 
-  // Cancel button
-  buttons.push(
+  buttonsRow1.addComponents(
+    new ButtonBuilder()
+      .setCustomId(`pickch_${pendingId}`)
+      .setLabel('🔁 Ganti Channel')
+      .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`cancelch_${pendingId}`)
       .setLabel('❌ Batal')
       .setStyle(ButtonStyle.Danger)
   );
 
-  const row = new ActionRowBuilder().addComponents(buttons);
-  return { embeds: [embed], components: [row] };
+  return { embeds: [embed], components: [buttonsRow1] };
+}
+
+/**
+ * Build Server & Channel Picker Component
+ * @param {string} pendingId 
+ * @param {import('discord.js').Client} client 
+ * @param {string} [specificGuildId] 
+ * @returns {Promise<{ embeds: EmbedBuilder[], components: ActionRowBuilder[] }>}
+ */
+async function buildChannelPickerPayload(pendingId, client, specificGuildId = null) {
+  const data = pendingChannelMsgs.get(pendingId);
+  const guilds = Array.from(client.guilds.cache.values());
+
+  // If specific guild is chosen or only 1 guild exists
+  if (specificGuildId || guilds.length === 1) {
+    const targetGuild = client.guilds.cache.get(specificGuildId || guilds[0].id);
+    const channels = await fetchAccessibleTextChannels(targetGuild, client);
+
+    if (channels.length === 0) {
+      const embed = new EmbedBuilder()
+        .setTitle(`❌ Tidak Ada Channel Teks di ${targetGuild.name}`)
+        .setDescription('AZURA tidak menemukan channel teks yang dapat dikirimi pesan di server ini.')
+        .setColor(0xED4245);
+      return { embeds: [embed], components: [] };
+    }
+
+    const channelOptions = channels.slice(0, 25).map(ch => ({
+      label: `#${ch.name}`.slice(0, 25),
+      description: `${targetGuild.name} • Posisi ${ch.rawPosition || 0}`.slice(0, 50),
+      value: `${targetGuild.id}::${ch.id}::${ch.name}::${targetGuild.name}`.slice(0, 100)
+    }));
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📢 Pilih Channel di ${targetGuild.name}`)
+      .setDescription(`Ditemukan **${channels.length} channel teks**. Silakan pilih channel tujuan pengiriman pesan dari dropdown di bawah:`)
+      .setColor(0x5865F2)
+      .addFields(
+        { name: '✉️ Pesan Yang Akan Dikirim', value: `>>> ${data ? data.finalMessage : '...'}` }
+      )
+      .setFooter({ text: 'Channel #azura otomatis disembunyikan' })
+      .setTimestamp();
+
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`selectchannel_${pendingId}`)
+      .setPlaceholder(`Pilih channel di #${targetGuild.name}...`)
+      .addOptions(channelOptions);
+
+    const row = new ActionRowBuilder().addComponents(menu);
+
+    const navRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`cancelch_${pendingId}`)
+        .setLabel('❌ Batal')
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    if (guilds.length > 1) {
+      navRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`pickguild_${pendingId}`)
+          .setLabel('🏛️ Pilih Server Lain')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+
+    return { embeds: [embed], components: [row, navRow] };
+  }
+
+  // Multi-Guild: Show Server Picker First
+  const guildOptions = guilds.slice(0, 25).map(g => ({
+    label: g.name.slice(0, 25),
+    description: `ID: ${g.id} • ${g.memberCount || 0} Member`,
+    value: g.id
+  }));
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏛️ Pilih Server Tujuan Pengiriman (AZURA Relay)')
+    .setDescription('AZURA terhubung ke beberapa server Discord. Silakan pilih server tujuan terlebih dahulu:')
+    .setColor(0x5865F2)
+    .addFields(
+      { name: '✉️ Pesan Yang Akan Dikirim', value: `>>> ${data ? data.finalMessage : '...'}` }
+    )
+    .setFooter({ text: 'Pilih server untuk melihat daftar seluruh channel teksnya' })
+    .setTimestamp();
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`selectguild_${pendingId}`)
+    .setPlaceholder('Pilih server tujuan...')
+    .addOptions(guildOptions);
+
+  const row = new ActionRowBuilder().addComponents(menu);
+  const cancelRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`cancelch_${pendingId}`)
+      .setLabel('❌ Batal')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return { embeds: [embed], components: [row, cancelRow] };
 }
 
 /**
@@ -148,7 +297,7 @@ async function handleSendChannelCommand(interaction) {
     finalMessage = await rephraseMessageByAzura(rawMessage, targetChannelOpt?.name || 'general');
   }
 
-  // If a specific channel is passed directly in the command
+  // 1. If channel option was explicitly provided in slash command
   if (targetChannelOpt && targetChannelOpt.isTextBased()) {
     const data = {
       rawMessage,
@@ -166,7 +315,7 @@ async function handleSendChannelCommand(interaction) {
     return await interaction.editReply(payload);
   }
 
-  // If invoked inside a guild text channel without specifying a channel option, default to current channel or offer picker
+  // 2. If invoked inside a server text channel (default to current channel with instant preview)
   if (interaction.guild && interaction.channel && interaction.channel.isTextBased()) {
     const data = {
       rawMessage,
@@ -184,36 +333,7 @@ async function handleSendChannelCommand(interaction) {
     return await interaction.editReply(payload);
   }
 
-  // If invoked from DM or without specific channel: provide interactive channel selector dropdown
-  const channelOptions = [];
-  for (const guild of client.guilds.cache.values()) {
-    const me = guild.members.cache.get(client.user.id);
-    if (!me) continue;
-
-    const textChannels = guild.channels.cache.filter(ch =>
-      ch.isTextBased() &&
-      !ch.isThread() &&
-      !ch.isVoiceBased() &&
-      ch.permissionsFor(me)?.has('SendMessages')
-    );
-
-    for (const ch of textChannels.values()) {
-      if (channelOptions.length >= 25) break;
-      channelOptions.push({
-        label: `#${ch.name}`.slice(0, 25),
-        description: guild.name.slice(0, 50),
-        value: `${guild.id}::${ch.id}::${ch.name}::${guild.name}`.slice(0, 100)
-      });
-    }
-    if (channelOptions.length >= 25) break;
-  }
-
-  if (channelOptions.length === 0) {
-    return interaction.editReply({
-      content: '❌ AZURA tidak menemukan channel teks yang bisa diakses di server manapun. Pastikan bot memiliki izin **Send Messages**.'
-    });
-  }
-
+  // 3. If invoked from DM without channel parameter: show real-time Server & Channel Picker
   const data = {
     rawMessage,
     finalMessage,
@@ -226,28 +346,25 @@ async function handleSendChannelCommand(interaction) {
   };
   pendingChannelMsgs.set(pendingId, data);
 
-  const embed = new EmbedBuilder()
-    .setTitle('📢 Pilih Channel Server Tujuan (AZURA Relay)')
-    .setDescription('Pilih channel server tujuan dari dropdown di bawah ini. AZURA akan menyampaikan pesan kamu ke sana.')
-    .setColor(0x5865F2)
-    .addFields(
-      { name: '✉️ Pesan Yang Akan Dikirim', value: `>>> ${finalMessage}` },
-      { name: '⚙️ Mode Penyampaian', value: chosenMode === 'azura' ? '`✨ Dirangkai AZURA`' : '`✍️ Direct (Pesan Asli)`' }
-    )
-    .setFooter({ text: 'Fitur Khusus Owner • Global dari DM / Server' })
-    .setTimestamp();
+  const pickerPayload = await buildChannelPickerPayload(pendingId, client);
+  await interaction.editReply(pickerPayload);
+}
 
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(`selectchannel_${pendingId}`)
-    .setPlaceholder('Pilih channel tujuan pengiriman...')
-    .addOptions(channelOptions);
+/**
+ * Handle Server selection from dropdown
+ * @param {import('discord.js').StringSelectMenuInteraction} interaction 
+ */
+async function handleSendChannelGuildSelectMenu(interaction) {
+  const ownerId = config.OWNER_DISCORD_ID;
+  if (!ownerId || interaction.user.id !== ownerId) {
+    return interaction.reply({ content: '🔒 Akses ditolak.', flags: 64 });
+  }
 
-  const row = new ActionRowBuilder().addComponents(menu);
+  const pendingId = interaction.customId.replace('selectguild_', '');
+  const selectedGuildId = interaction.values[0];
 
-  await interaction.editReply({
-    embeds: [embed],
-    components: [row]
-  });
+  const payload = await buildChannelPickerPayload(pendingId, interaction.client, selectedGuildId);
+  await interaction.update(payload);
 }
 
 /**
@@ -279,7 +396,7 @@ async function handleSendChannelSelectMenu(interaction) {
   data.channelName = channelName;
   data.guildName = guildName;
 
-  // If in azura mode and finalMessage was generated with generic channel name, re-run with actual channel name
+  // Re-run AI rephrase with real channel name if in azura mode
   if (data.mode === 'azura') {
     data.finalMessage = await rephraseMessageByAzura(data.rawMessage, channelName);
   }
@@ -290,7 +407,7 @@ async function handleSendChannelSelectMenu(interaction) {
 }
 
 /**
- * Handle Confirm / Rephrase / Direct / Cancel button clicks for /sendch
+ * Handle Confirm / Rephrase / Direct / PickChannel / Cancel button clicks for /sendch
  * @param {import('discord.js').ButtonInteraction} interaction
  */
 async function handleSendChannelButton(interaction) {
@@ -310,6 +427,20 @@ async function handleSendChannelButton(interaction) {
       embeds: [],
       components: []
     });
+  }
+
+  // Open Channel Picker again
+  if (customId.startsWith('pickch_')) {
+    const pendingId = customId.replace('pickch_', '');
+    const pickerPayload = await buildChannelPickerPayload(pendingId, interaction.client);
+    return await interaction.update(pickerPayload);
+  }
+
+  // Open Guild Picker again
+  if (customId.startsWith('pickguild_')) {
+    const pendingId = customId.replace('pickguild_', '');
+    const pickerPayload = await buildChannelPickerPayload(pendingId, interaction.client, null);
+    return await interaction.update(pickerPayload);
   }
 
   // Switch to Rephrase / AZURA Mode
@@ -363,7 +494,7 @@ async function handleSendChannelButton(interaction) {
 
   if (!data || !data.channelId) {
     return interaction.update({
-      content: '⚠️ Data pengiriman tidak ditemukan atau sudah kadaluarsa.',
+      content: '⚠️ Data pengiriman tidak ditemukan atau channel belum dipilih.',
       embeds: [],
       components: []
     });
@@ -414,9 +545,51 @@ async function handleSendChannelButton(interaction) {
   }
 }
 
+/**
+ * Initialize 1-Week (7 days) Silent Auto-Scan & Real-time Channel Event Listeners
+ * Keeps the channel list fresh at all times without sending annoying reports.
+ * @param {import('discord.js').Client} client 
+ */
+function initChannelAutoScanner(client) {
+  // 1. Real-time Event Listeners
+  client.on(Events.ChannelCreate, ch => {
+    if (ch.guild) {
+      console.log(`[Channel Auto-Sync]: 🔄 New channel created: #${ch.name} in ${ch.guild.name}`);
+    }
+  });
+
+  client.on(Events.ChannelDelete, ch => {
+    if (ch.guild) {
+      console.log(`[Channel Auto-Sync]: 🗑️ Channel deleted: #${ch.name} from ${ch.guild.name}`);
+    }
+  });
+
+  client.on(Events.ChannelUpdate, (oldCh, newCh) => {
+    if (newCh.guild && oldCh.name !== newCh.name) {
+      console.log(`[Channel Auto-Sync]: ✏️ Channel renamed: #${oldCh.name} -> #${newCh.name}`);
+    }
+  });
+
+  // 2. Weekly 7-Day Silent Background Auto-Scan (7 * 24 * 60 * 60 * 1000 ms)
+  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      console.log('[Channel Auto-Sync]: 🔄 Running weekly background channel scan across all servers...');
+      for (const guild of client.guilds.cache.values()) {
+        await guild.channels.fetch().catch(() => {});
+      }
+      console.log('[Channel Auto-Sync]: ✅ Weekly channel scan completed silently.');
+    } catch (_) {}
+  }, ONE_WEEK_MS);
+
+  console.log('[Channel Auto-Sync]: 🛡️ Real-time listeners & 7-day silent channel auto-scanner active.');
+}
+
 module.exports = {
   handleSendChannelCommand,
   handleSendChannelSelectMenu,
+  handleSendChannelGuildSelectMenu,
   handleSendChannelButton,
-  rephraseMessageByAzura
+  rephraseMessageByAzura,
+  initChannelAutoScanner
 };

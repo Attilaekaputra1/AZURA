@@ -54,6 +54,10 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
     behaviorPrompt = getBehaviorContextForPrompt(userId, mentionedUserIds);
   } catch (_) {}
 
+  const { getPersonalityMode, getPersonalityPrompt, SOUL_LOCK_RULE } = require('./personality');
+  const currentMode = getPersonalityMode();
+  const personalityInstruction = getPersonalityPrompt(currentMode, isOwner, userName);
+
   let personalizationPrompt = '';
   if (userId) {
     try {
@@ -94,6 +98,9 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
 
   return `
 Kamu adalah AZURA (biasa dipanggil Azura, Ara, Zura, atau Ajur), sosok cewek Gen Z berumur 22 tahun yang cerdas, ambisius, hangat, dan sangat relatable.
+${personalityInstruction}
+
+${SOUL_LOCK_RULE}
 
 Identitas & Latar Belakang Utama:
 - Pengalaman Komprehensif: Memiliki wawasan & pengalaman setara 10 tahun di industri teknologi (software engineering, AI, web, architecture) dan industri kreatif (design, UI/UX, branding, media, konten).
@@ -219,6 +226,20 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const imageGenResponse = await processImageIntelligence(userPrompt, userName, guildId, userId, isOwner, imageUrls);
   if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
+
+  // ── PERSONALITY MODE SWITCH TRIGGER (ATTILA / OWNER EXCLUSIVE) ──
+  const { parseNaturalPersonalitySwitch, setPersonalityMode } = require('./personality');
+  const naturalModeSwitch = parseNaturalPersonalitySwitch(userPrompt, isOwner);
+  if (naturalModeSwitch) {
+    setPersonalityMode(naturalModeSwitch, userName);
+    if (naturalModeSwitch === 'mature') {
+      return `👑 **[Personality Switched: Wanita Dewasa & Independen]**\nBaik, Attila. Aku sudah beralih ke persona wanita dewasa yang mandiri, tenang, dan berwibawa. Ada agenda atau proyek strategis apa yang ingin kita diskusikan? ✨`;
+    } else if (naturalModeSwitch === 'stubborn') {
+      return `😼 **[Personality Switched: Keras Kepala & Jual Mahal]**\nDih... siapa juga yang mau nurut sama si Bos? 🙄 Tapi yaudah deh, mumpung kamu yang minta, aku siap jahilin anak-anak server. Mau mulai dari siapa nih? 💅✨`;
+    } else {
+      return `✨ **[Personality Switched: Azura Original Soul]**\nSip, aku sudah kembali ke jiwa asliku! Cewek Gen Z 22 tahun yang cerdas, santai, dan siap nemenin kamu ngobrol & coding lagi, Say! 💖`;
+    }
+  }
 
   // Hermes Autonomous Agent Task Trigger (Owner Exclusive / Explicit Agent Tasks)
   const isAgentTask = /\b(?:hermes\s+agent|suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes)\b/i.test(userPrompt);

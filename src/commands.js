@@ -337,7 +337,22 @@ const commands = [
         .addStringOption(opt =>
           opt.setName('ticket')
             .setDescription('Ticket ID tugas (misal: ADV-7B3 atau REP-9A1)')
-            .setRequired(true)))
+            .setRequired(true))),
+
+  new SlashCommandBuilder()
+    .setName('personality')
+    .setDescription('Ubah mode kepribadian AZURA (Khusus Owner Attila)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
+    .addStringOption(option =>
+      option.setName('mode')
+        .setDescription('Pilih mode kepribadian AZURA')
+        .setRequired(true)
+        .addChoices(
+          { name: '✨ Original Soul (Cerdas, Ramah, Gen Z 22th)', value: 'original' },
+          { name: '👑 Wanita Dewasa & Independen (Elegan, Berwibawa)', value: 'mature' },
+          { name: '😼 Keras Kepala & Jual Mahal (Fun Mode)', value: 'stubborn' }
+        ))
 ];
 
 const fs = require('fs');
@@ -1216,6 +1231,37 @@ async function handleSlashCommand(interaction, startTime) {
 
       return interaction.editReply({ embeds: [embed] });
     }
+
+  } else if (commandName === 'personality') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({
+        content: '🔒 **Akses Ditolak!** Kepribadian dan jiwa AZURA terkunci (*Soul Locked*) dan hanya dapat diubah oleh Owner utama (Attila).',
+        flags: 64
+      });
+    }
+
+    const { setPersonalityMode } = require('./personality');
+    const targetMode = interaction.options.getString('mode');
+    const userName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
+    const res = setPersonalityMode(targetMode, userName);
+
+    let emoji = '✨';
+    if (res.mode === 'mature') emoji = '👑';
+    if (res.mode === 'stubborn') emoji = '😼';
+
+    const embed = new EmbedBuilder()
+      .setColor(res.mode === 'stubborn' ? 0xE67E22 : (res.mode === 'mature' ? 0x9B59B6 : 0x00FFB2))
+      .setTitle(`${emoji} Mode Kepribadian AZURA Berhasil Diubah`)
+      .setDescription(
+        `🎭 **Mode Aktif:** **${res.title}** (\`${res.mode}\`)\n` +
+        `📝 **Karakter:** *${res.description}*\n\n` +
+        `🔒 *Mode ini tersimpan permanen di database VPS dan hanya berlaku atas instruksi Attila.*`
+      )
+      .setFooter({ text: 'Soul Lock Engine • Attila Exclusive Authority' })
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
   }
 }
 

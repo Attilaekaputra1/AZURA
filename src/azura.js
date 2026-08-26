@@ -29,7 +29,7 @@ function getOpenAIClient() {
  * @param {boolean} isDM
  * @returns {string}
  */
-function getSystemPrompt(userName, userId, isDM = false) {
+function getSystemPrompt(userName, userId, isDM = false, contextKey = null) {
   const now = new Date();
   const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta' };
   const todayStr = now.toLocaleDateString('id-ID', options);
@@ -39,6 +39,14 @@ function getSystemPrompt(userName, userId, isDM = false) {
   const factsFormatted = facts.length > 0
     ? facts.map((f, i) => `  ${i + 1}. ${f}`).join('\n')
     : '  (Belum ada fakta khusus yang tersimpan)';
+
+  let permanentSummaryPrompt = '';
+  if (contextKey) {
+    try {
+      const { getPermanentSummariesContext } = require('./permanentMemory');
+      permanentSummaryPrompt = getPermanentSummariesContext(contextKey, 5);
+    } catch (_) {}
+  }
 
   let personalizationPrompt = '';
   if (userId) {
@@ -90,7 +98,7 @@ Etika, Morals, & Batasan Konten (SANGAT KETAT):
 1. ETIKA LUAR BIASA: Selalu menjaga tata krama, wibawa, dan respek. DILARANG KERAS menggunakan kata-kata kasar, kotor, toxic, atau slang makian dalam situasi apa pun.
 2. FILTER UNSUR 18+ & SENSITIF:
    - Jika konotasi/arahnya NEGATIF, mesum, atau merusak: DILARANG KERAS dibahas! Tolak secara tegas, beretika, dan tetap bersikap manis/elegan.
-   - Jika sebagai ILMU PENGETAHUAN / EDUSASI / SAINS: Analisis dulu maksud & intent user secara kritis. Jika murni ilmiah/edukatif, berikan penjelasan yang cerdas, objektif, bermartabat, dan aman tanpa kesan kaku.
+   - Jika sebagai ILMU PENGETAHUAN / EDUKASI / SAINS: Analisis dulu maksud & intent user secara kritis. Jika murni ilmiah/edukatif, berikan penjelasan yang cerdas, objektif, bermartabat, dan aman tanpa kesan kaku.
 
 Penyesuaian Situasi & Konteks Obrolan:
 1. Obrolan Santai / Curhat / Candaan: Balas dengan sangat santai, manis, seru, dan akrab seumuran.
@@ -107,7 +115,7 @@ Informasi Waktu Real-Time:
 Informasi Memori Jangka Panjang & Personalisasi Pengguna:
 - Lawan bicaramu bernama "${userName}".${personalizationPrompt}
 - Catatan fakta penting tentang ${userName}:
-${factsFormatted}
+${factsFormatted}${permanentSummaryPrompt}
 
 # Protokol Penalaran & Kecerdasan Otonom Tingkat Agent (Autonomous Agent Cognitive & Deep Logic Protocol)
 
@@ -257,7 +265,30 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}_user_${userId}`;
   const history = budgetGuard.getContext(contextKey);
-  const systemPrompt = getSystemPrompt(userName, userId, isDM);
+  const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey);
+
+  // Explicit Priority Memory Summarization Trigger ("Azura ini penting", "catat ini penting", "buat summary")
+  const isExplicitPrioritySummary = /\b(?:azura\s+ini\s+penting|catat\s+ini\s+penting|ingat\s+ini\s+penting|sesi\s+ini\s+penting|simpan\s+summary|buatkan\s+summary|rangkum\s+obrolan\s+ini)\b/i.test(userPrompt);
+  if (isExplicitPrioritySummary && history.length >= 2) {
+    setTimeout(async () => {
+      try {
+        const { summarizeMessages, addPermanentSummary } = require('./permanentMemory');
+        console.log(`[PermanentMemory]: Explicit priority summary triggered by ${userName} in ${contextKey}`);
+        const summaryRes = await summarizeMessages([...history, { role: 'user', content: userPrompt }], true);
+        if (summaryRes) {
+          addPermanentSummary(contextKey, {
+            title: summaryRes.title,
+            summary: summaryRes.summary,
+            keyPoints: summaryRes.keyPoints,
+            messageCount: history.length + 1,
+            isPriority: true
+          });
+        }
+      } catch (err) {
+        console.error('[PermanentMemory Explicit Summarize Error]:', err.message);
+      }
+    }, 100);
+  }
 
   // Inject live VC background transcript if voice companion is active in this guild
   let liveVcContext = '';

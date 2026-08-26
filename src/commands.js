@@ -629,27 +629,57 @@ async function handleSlashCommand(interaction, startTime) {
       }
     }
 
+    const contextKey = interaction.guild
+      ? `channel_${interaction.channelId}_user_${user.id}`
+      : `user_${user.id}`;
+
     if (aksi === 'hapus') {
       clearUserMemory(user.id);
+      try {
+        const { clearPermanentSummaries } = require('./permanentMemory');
+        clearPermanentSummaries(contextKey);
+      } catch (_) {}
       return interaction.reply({
-        content: '🗑️ **Semua memori jangka panjang tentang kamu sudah dihapus!**',
+        content: '🗑️ **Semua memori jangka panjang & ringkasan permanen tentang kamu sudah dibersihkan!**',
         flags: 64
       });
     }
 
+    const { getPermanentSummaries, MAX_SUMMARIES_PER_CONTEXT } = require('./permanentMemory');
     const facts = getUserFacts(user.id);
-    if (facts.length === 0) {
-      await interaction.reply({
-        content: '🧠 **AZURA belum memiliki catatan fakta khusus tentang kamu.**\n\nKamu bisa ketik "ingat ya..." di chat atau gunakan `/memory fakta:...` untuk mencatat!',
-        flags: 64
-      });
-    } else {
-      const factsList = facts.map((f, i) => `${i + 1}. ${f}`).join('\n');
-      await interaction.reply({
-        content: `🧠 **Fakta Jangka Panjang yang Diingat AZURA Tentang Kamu:**\n\n${factsList}`,
-        flags: 64
-      });
-    }
+    const summaries = getPermanentSummaries(contextKey);
+
+    const factsList = facts.length > 0
+      ? facts.map((f, i) => `${i + 1}. ${f}`).join('\n')
+      : '*(Belum ada fakta khusus yang tersimpan)*';
+
+    const summariesList = summaries.length > 0
+      ? summaries.slice(0, 5).map((s, i) => {
+          const pTag = s.isPriority ? ' ⭐ `[Prioritas]`' : '';
+          return `**${i + 1}. ${s.title}** (${s.dateFormatted})${pTag}\n📝 *${s.summary}*`;
+        }).join('\n\n')
+      : '*(Belum ada ringkasan sesi yang dipermanenkan)*';
+
+    const embed = new EmbedBuilder()
+      .setColor(0x00FFB2)
+      .setTitle(`🧠 Sistem Memori & Arsip Permanen AZURA`)
+      .setDescription(`AZURA menyimpan memori hierarkis (Fakta Kunci + Ringkasan Eksekutif Permanen hingga **5.000 Pesan**):`)
+      .addFields(
+        {
+          name: `📌 Fakta & Kebiasaan Kunci (${facts.length}/20)`,
+          value: factsList,
+          inline: false
+        },
+        {
+          name: `💾 Arsip Sesi Percakapan Permanen (${summaries.length}/${MAX_SUMMARIES_PER_CONTEXT} Summary Keys)`,
+          value: summariesList,
+          inline: false
+        }
+      )
+      .setFooter({ text: 'Ketik "Azura ini penting" di chat untuk menandai sesi berbobot tinggi' })
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed], flags: 64 });
 
   } else if (commandName === 'search') {
     const query = interaction.options.getString('query');

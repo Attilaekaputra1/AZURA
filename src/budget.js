@@ -60,9 +60,29 @@ const budgetGuard = {
     let history = conversationContexts.get(userId) || [];
     history.push({ role, content });
 
-    // Enforce sliding window limit (MAX_CONTEXT_MESSAGES)
-    if (history.length > config.MAX_CONTEXT_MESSAGES) {
-      history = history.slice(-config.MAX_CONTEXT_MESSAGES);
+    // Enforce sliding window limit (MAX_CONTEXT_MESSAGES) & Trigger Permanent Memory Summarization
+    if (history.length >= config.MAX_CONTEXT_MESSAGES) {
+      const messagesToArchive = history.slice(0, Math.max(10, history.length - 20));
+      history = history.slice(-20); // Keep last 20 messages active
+
+      // Asynchronously distill and archive older messages to Permanent VPS Storage
+      setTimeout(async () => {
+        try {
+          const { summarizeMessages, addPermanentSummary } = require('./permanentMemory');
+          const summaryResult = await summarizeMessages(messagesToArchive, false);
+          if (summaryResult) {
+            addPermanentSummary(userId, {
+              title: summaryResult.title,
+              summary: summaryResult.summary,
+              keyPoints: summaryResult.keyPoints,
+              messageCount: messagesToArchive.length,
+              isPriority: false
+            });
+          }
+        } catch (err) {
+          console.error('[PermanentMemory Auto-Summarize Error]:', err.message);
+        }
+      }, 500);
     }
 
     // Enforce Token Memory Buffer limit (1/3 for regular member DM, full for server & owner)

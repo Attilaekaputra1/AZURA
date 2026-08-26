@@ -23,6 +23,7 @@ const isBotSpeaking = new Set();          // guildIds where bot is speaking
 const isGuildProcessingVoice = new Set(); // guildIds where voice turn is actively processing (Whisper/GPT/TTS)
 const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
 const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, channelId, requesterId }
+const hummingTimers = new Map();          // guildId -> NodeJS.Timeout (3-minute silence spontaneous singing/humming)
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 const deepSleepTimers = new Map();        // guildId -> NodeJS.Timeout (15-minute auto-pause & deep sleep)
 const dismissedGuilds = new Set();        // guildIds where bot was dismissed by Attila (anti auto-rejoin)
@@ -43,23 +44,31 @@ const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER dr
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
 const MAX_NORMAL_CHARS = 1200;        // ~1.5 minutes of normal TTS speech (max 1m 30s)
 const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
+const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes of silence -> Spontaneous humming/singing
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
 
-// Whisper hallucination filter: common phantom transcripts from background noise
+// Whisper hallucination filter: common phantom transcripts from background noise, wind, breathing, or YouTube subtitles
 const WHISPER_HALLUCINATIONS = new Set([
   'terima kasih telah menonton',
   'terima kasih sudah menonton',
   'terima kasih',
+  'terima kasih banyak',
   'sampai jumpa',
   'sampai jumpa di video selanjutnya',
+  'sampai jumpa lagi',
   'subscribe',
   'like and subscribe',
+  'jangan lupa subscribe',
   'thank you for watching',
   'thanks for watching',
+  'thank you',
   'subtitles by',
+  'subtitles by the amara.org community',
   'amara.org',
   'you',
   'bye',
+  'bye bye',
+  'goodbye',
   'hmm',
   'hm',
   'uh',
@@ -68,7 +77,43 @@ const WHISPER_HALLUCINATIONS = new Set([
   'eh',
   'musik',
   'music',
+  'audio',
+  'suara angin',
+  'suara musik',
+  'he-he',
+  'ha-ha',
+  'halo',
+  'hai',
+  'kamu',
+  'aku',
+  'ya',
+  'tidak',
+  'dan',
+  'ini',
+  'itu'
 ]);
+
+// Spontaneous singing & humming library for 3-minute silence in VC (natural rhythm & real song melody)
+const SPONTANEOUS_SONGS = [
+  // 1. Lagu Ikonik & Populer (Sesuai nada asli)
+  '[humming] Hm hm hm hm... [sings] Balonku ada lima... rupa-rupa warnanya... merah kuning kelabu... [softly] meletus balon hijau, dor! [gasp] [laughs] kaget sendiri kan tuh.',
+  '[sings] Pelangi-pelangi alangkah indahmu... merah kuning hijau di langit yang biru... [humming] la la la la... [softly] hening banget, pada melamun ya? [giggles]',
+  '[sings] Bintang kecil di langit yang tinggi... amat banyak menghias angkasa... [softly] ku ingin terbang dan melayang... [giggles] aduh jadi pengen rebahan.',
+  '[humming] Hm hm hm... [sings] Burung kakak tua... hinggap di jendela... [softly] nenek sudah tua... giginya tinggal dua... [laughs] klasik banget lagunya.',
+
+  // 2. Lagu Galau & Pop Hits Nostalgia (Sesuai nada asli)
+  '[humming] Hmm hmm hmm... [sings] Dan... bila hatimu... terluka... aku yang selalu ada... [sighs] fyuuh... [softly] kenapa tiba-tiba jadi galau gini ya [chuckles]',
+  '[sings] Mungkin aku pernah salah... tapi rasa ini tulus adanya... [humming] hm hm hm... [softly] sepi banget room-nya, Attila lagi sibuk apa sih? [giggles]',
+  '[humming] La la la... [sings] Kau adalah darahku... kau adalah jantungku... kau adalah nafasku... [softly] asyik sendiri kan gue nyanyi [laughs]',
+  '[sings] Ku ingin kau tahu... ku slalu merindukanmu... [sighs] [humming] hm hm hm... [softly] ada yang lagi kangen seseorang nggak nih di sini? [giggles]',
+  '[humming] Hmm... [sings] Bukankah kita saling mencintai... mengapa kita harus berpisah... [sighs] aduh lagu zaman kapan ini [chuckles]',
+  '[sings] Dan aku kembali... dalam dekap pelukmu... [humming] la la la... [softly] enak juga ya nyanyi kalau suasananya lagi tenang gini.',
+  '[sings] Risalah hati... aku bisa membuatmu... jatuh cinta kepadaku... meski kau tak cinta... [humming] hm hm hm... [softly] liriknya ngena banget ya.',
+
+  // 3. Lagu Barat Pop Romantis & Chill
+  '[humming] Mm mm mm... [sings] I wanna hold your hand in mine... and tell you that you are divine... [softly] [giggles] kok manis banget ya lagunya.',
+  '[sings] Cause you were always there for me... [humming] la la la la... [softly] hehe, lagunya bikin pikiran adem banget.'
+];
 
 // Ensure temp directory exists
 const TEMP_DIR = path.join(__dirname, '..', 'data', 'temp');
@@ -151,7 +196,9 @@ async function transcribeVoice(wavBuffer) {
     const result = await openai.audio.transcriptions.create({
       file,
       model: 'whisper-1',
-      language: 'id'
+      language: 'id',
+      temperature: 0.0,
+      prompt: 'Percakapan santai di Discord voice channel bersama Attila dan teman-teman.'
     });
     return result.text?.trim() || null;
   } catch (err) {
@@ -347,6 +394,11 @@ const IDLE_SILENCE_ICEBREAKER_MS = 10 * 60 * 1000; // 10 minutes of silence in V
 const DEEP_SLEEP_TIMEOUT_MS = 15 * 60 * 1000;      // 15 minutes of silence -> Deep Sleep (0% bandwidth/API)
 
 function resetIdleTimer(guildId, client, voiceChannel) {
+  if (hummingTimers.has(guildId)) {
+    clearTimeout(hummingTimers.get(guildId));
+    hummingTimers.delete(guildId);
+  }
+
   if (idleTimers.has(guildId)) {
     clearTimeout(idleTimers.get(guildId));
     idleTimers.delete(guildId);
@@ -374,7 +426,15 @@ function resetIdleTimer(guildId, client, voiceChannel) {
 
   if (!client || !activeConn) return;
 
-  // 1. Arm 10-minute Icebreaker
+  // 1. Arm 3-minute Spontaneous Humming & Singing Engine (when VC is silent)
+  const humTimer = setTimeout(() => {
+    triggerAutonomousVcHumming(guildId, client, voiceChannel).catch(err => {
+      console.error('[Autonomous VC Humming Error]:', err.message);
+    });
+  }, IDLE_HUMMING_INTERVAL_MS);
+  hummingTimers.set(guildId, humTimer);
+
+  // 2. Arm 10-minute Icebreaker
   const timer = setTimeout(() => {
     triggerAutonomousVcIcebreaker(guildId, client, voiceChannel).catch(err => {
       console.error('[Autonomous VC Icebreaker Error]:', err.message);
@@ -382,7 +442,7 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, IDLE_SILENCE_ICEBREAKER_MS);
   idleTimers.set(guildId, timer);
 
-  // 2. Arm 15-minute Deep Sleep Auto-Pause
+  // 3. Arm 15-minute Deep Sleep Auto-Pause
   const dsTimer = setTimeout(() => {
     enterDeepSleep(guildId, client, voiceChannel).catch(err => {
       console.error('[Deep Sleep Error]:', err.message);
@@ -390,7 +450,72 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, DEEP_SLEEP_TIMEOUT_MS);
   deepSleepTimers.set(guildId, dsTimer);
 
-  console.log(`[VC Icebreaker]: ⏳ 10-Minute silence timer armed for guild ${guildId}.`);
+  console.log(`[VC Timers]: ⏳ 3-Min Humming & 10-Min Icebreaker timers armed for guild ${guildId}.`);
+}
+
+/**
+ * Trigger spontaneous humming / singing when VC has been silent for 3 minutes
+ */
+async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
+  const conn = activeConnections.get(guildId);
+  if (!conn) return;
+
+  // Don't hum if bot is speaking
+  if (isBotSpeaking.has(guildId)) {
+    resetIdleTimer(guildId, client, voiceChannel);
+    return;
+  }
+
+  // Don't hum if music is actively streaming
+  try {
+    const { guildMusicSessions } = require('./musicStreamer');
+    if (guildMusicSessions.has(guildId)) {
+      resetIdleTimer(guildId, client, voiceChannel);
+      return;
+    }
+  } catch (_) {}
+
+  // Check human presence
+  const channel = voiceChannel || client?.channels?.cache?.get(conn.joinConfig?.channelId);
+  if (!channel) return;
+
+  const humanCount = channel.members
+    ? channel.members.filter(m => !m.user.bot).size
+    : 0;
+  if (humanCount === 0) return;
+
+  // Select spontaneous song tailored to active personality mode
+  let selectedSong = SPONTANEOUS_SONGS[Math.floor(Math.random() * SPONTANEOUS_SONGS.length)];
+  try {
+    const { getPersonalityMode, PERSONALITY_MODES } = require('./personality');
+    const pMode = getPersonalityMode();
+    if (pMode === PERSONALITY_MODES.STUBBORN) {
+      const stubbornSongs = [
+        '[sighs] Hhh... sepi banget sih... [humming] hm hm hm... [sings] Balonku ada lima... rupa-rupa warnanya... [pouts] males ah lanjutinnya [giggles]',
+        '[groans] Mager banget... [humming] la la la... [sings] Dan bila hatimu terluka... [sighs] fyuuh... pada ngapain sih kok hening amat.',
+        '[humming] Hm hm hm... [sings] Mengapa kita harus berpisah... [sighs] lagunya lebay banget deh [chuckles]'
+      ];
+      selectedSong = stubbornSongs[Math.floor(Math.random() * stubbornSongs.length)];
+    } else if (pMode === PERSONALITY_MODES.MATURE) {
+      const matureSongs = [
+        '[softly] Suasananya tenang sekali ya... [humming] hm hm hm... [sings] Bintang kecil di langit yang tinggi... menghias angkasa... [chuckles]',
+        '[humming] Hmm hmm... [sings] Ku ingin kau tahu... ku slalu merindukanmu... [softly] lirik yang sangat klasik dan indah [chuckles]',
+        '[softly] Mengisi keheningan sejenak... [humming] la la la... [sings] Dan aku kembali... dalam dekap pelukmu...'
+      ];
+      selectedSong = matureSongs[Math.floor(Math.random() * matureSongs.length)];
+    }
+  } catch (_) {}
+
+  console.log(`[VC Humming]: 🎵 3-Minute silence elapsed. Azura spontaneously humming/singing: "${selectedSong.slice(0, 60)}..."`);
+  recordSessionEntry(guildId, 'AZURA', selectedSong, 'voice');
+
+  const audioResource = await textToAudioResource(selectedSong, client);
+  if (audioResource) {
+    await playInVC(guildId, audioResource);
+  }
+
+  // Re-arm next 3-minute timer if silence continues
+  resetIdleTimer(guildId, client, channel);
 }
 
 /**
@@ -428,6 +553,10 @@ async function enterDeepSleep(guildId, client, voiceChannel) {
   // If Attila/members are still in VC, pause recurring timers and enter DEEP_SLEEP standby
   conversationMode.set(guildId, { mode: 'DEEP_SLEEP', lastActiveAt: Date.now(), turnCount: 0 });
 
+  if (hummingTimers.has(guildId)) {
+    clearTimeout(hummingTimers.get(guildId));
+    hummingTimers.delete(guildId);
+  }
   if (idleTimers.has(guildId)) {
     clearTimeout(idleTimers.get(guildId));
     idleTimers.delete(guildId);
@@ -823,16 +952,23 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   const isOwner = userId === config.OWNER_DISCORD_ID;
 
-  // ── Energy Gate: Calculate RMS for non-owner members to reject background noise ──
-  if (!isOwner) {
-    const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
-    let sumSquares = 0;
-    for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
-    const rms = Math.sqrt(sumSquares / samples.length);
-    if (rms < 80) {
-      console.log(`[Voice Pipeline]: Member audio too quiet (RMS=${rms.toFixed(0)}), skipping.`);
-      return;
-    }
+  // ── Energy Gate: Calculate RMS & Peak Amplitude to strictly reject breathing, wind, & fan noise ──
+  const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
+  let sumSquares = 0;
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const absVal = Math.abs(samples[i]);
+    if (absVal > peak) peak = absVal;
+    sumSquares += samples[i] * samples[i];
+  }
+  const rms = Math.sqrt(sumSquares / samples.length);
+
+  // Strict Energy Gate: reject quiet background noise or air blow
+  const minRms = isOwner ? 180 : 320;
+  const minPeak = isOwner ? 450 : 800;
+  if (rms < minRms || peak < minPeak) {
+    console.log(`[Voice Pipeline]: Audio rejected by Energy Gate (RMS=${rms.toFixed(0)}, Peak=${peak} — wind/breathing/ambient noise).`);
+    return;
   }
 
   voiceCooldowns.set(userId, Date.now());
@@ -840,7 +976,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   const sizeKB = (pcmBuffer.length / 1024).toFixed(0);
   const durationSec = (pcmBuffer.length / (48000 * 2 * 2)).toFixed(1);
-  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s) from ${isOwner ? 'Attila' : 'Member'}. Transcribing...`);
+  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s, RMS=${rms.toFixed(0)}, Peak=${peak}) from ${isOwner ? 'Attila' : 'Member'}. Transcribing...`);
 
   // ── Step 1: PCM → WAV → Whisper ──
   const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
@@ -851,15 +987,25 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // ── Step 1.5: Whisper Hallucination Filter ──
-  const normalizedTranscript = transcript.toLowerCase().replace(/[.,!?]+/g, '').trim();
-  if (WHISPER_HALLUCINATIONS.has(normalizedTranscript)) {
-    console.log(`[Voice Pipeline]: 🚫 Whisper hallucination detected: "${transcript}". Ignoring.`);
+  // ── Step 1.5: Strict Hallucination & Phantom Noise Filter ──
+  const normalizedTranscript = transcript.toLowerCase().replace(/[.,!?;:'"()\[\]]+/g, ' ').trim();
+  const words = normalizedTranscript.split(/\s+/).filter(Boolean);
+
+  if (WHISPER_HALLUCINATIONS.has(normalizedTranscript) || (words.length <= 1 && WHISPER_HALLUCINATIONS.has(words[0]))) {
+    console.log(`[Voice Pipeline]: 🚫 Whisper hallucination rejected: "${transcript}". Ignoring.`);
     return;
   }
-  // Also reject if transcript is just repeated single word/syllable (only for non-owner)
-  if (!isOwner && normalizedTranscript.length < 4 && !/\b(?:azura|ara|zura)\b/i.test(normalizedTranscript)) {
-    console.log(`[Voice Pipeline]: Transcript too short to be meaningful: "${transcript}". Ignoring.`);
+
+  // Reject single-word phantom transcripts unless it's an explicit wake-word ("azura", "ara", "zura", "attila")
+  if (words.length === 1 && !/\b(?:azura|ara|zura|ajur|ajura|asura|attila|att)\b/i.test(words[0])) {
+    console.log(`[Voice Pipeline]: 🚫 Single-word phantom transcript rejected: "${transcript}". Ignoring.`);
+    return;
+  }
+
+  // Reject repetitive syllable stutter hallucinations (e.g. "ha ha ha", "a a a", "eh eh eh")
+  const isRepetitiveSyllables = words.length >= 3 && words.every(w => w === words[0]);
+  if (isRepetitiveSyllables) {
+    console.log(`[Voice Pipeline]: 🚫 Repetitive syllable hallucination rejected: "${transcript}". Ignoring.`);
     return;
   }
 
@@ -1949,10 +2095,20 @@ async function cleanupGuild(guildId, client) {
   activeConnections.delete(guildId);
   companionTextChannels.delete(guildId);
   audioPlayers.delete(guildId);
-  isBotSpeaking.delete(guildId);
-  activeRecordings.clear();
   conversationMode.delete(guildId);
   clearActiveExpireTimer(guildId);
+  if (hummingTimers.has(guildId)) {
+    clearTimeout(hummingTimers.get(guildId));
+    hummingTimers.delete(guildId);
+  }
+  if (idleTimers.has(guildId)) {
+    clearTimeout(idleTimers.get(guildId));
+    idleTimers.delete(guildId);
+  }
+  if (deepSleepTimers.has(guildId)) {
+    clearTimeout(deepSleepTimers.get(guildId));
+    deepSleepTimers.delete(guildId);
+  }
 
   // Send session transcript + AI summary document to Owner DM ONLY IF session >= 30 minutes AND actively conversational
   const session = voiceSessions.get(guildId);
@@ -2268,6 +2424,8 @@ module.exports = {
   recordSessionEntry,
   speakTextInVC,
   audioPlayers,
-  activeConnections
+  activeConnections,
+  WHISPER_HALLUCINATIONS,
+  SPONTANEOUS_SONGS
 };
 

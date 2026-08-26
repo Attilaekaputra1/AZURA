@@ -1,4 +1,4 @@
-const { REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits } = require('discord.js');
+const { REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits, InteractionContextType } = require('discord.js');
 const os = require('os');
 const config = require('./config');
 const budgetGuard = require('./budget');
@@ -12,28 +12,33 @@ const { handleSendDmCommand, handleListScheduledCommand } = require('./ownerDm')
 const { handleSendChannelCommand } = require('./sendChannel');
 const { generateAiImage, buildImageEmbed, checkImageQuota, recordImageGeneration } = require('./imageGen');
 
-// Definition of slash commands
+// Definition of slash commands with scoped contexts (Server vs DM)
 const commands = [
   new SlashCommandBuilder()
     .setName('help')
-    .setDescription('Tampilkan panduan interaktif seluruh fitur & perintah AZURA'),
+    .setDescription('Tampilkan panduan interaktif seluruh fitur & perintah AZURA')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM),
 
   new SlashCommandBuilder()
     .setName('scheduled')
-    .setDescription('Lihat & kelola antrean DM yang sedang dijadwalkan (Khusus Owner)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDescription('Lihat & kelola antrean DM yang sedang dijadwalkan (Khusus Owner - Hanya di DM)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setContexts(InteractionContextType.BotDM),
 
   new SlashCommandBuilder()
     .setName('reset')
-    .setDescription('Mereset riwayat percakapan kamu dengan AZURA'),
+    .setDescription('Mereset riwayat percakapan kamu dengan AZURA (Hanya di DM Pribadi)')
+    .setContexts(InteractionContextType.BotDM),
 
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Melihat status sistem dan performa AZURA'),
+    .setDescription('Melihat status sistem dan performa AZURA')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM),
 
   new SlashCommandBuilder()
     .setName('remindme')
     .setDescription('Minta AZURA mengingatkan kamu setelah waktu tertentu')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('waktu')
         .setDescription('Berapa lama? Contoh: 5m (5 menit), 1h (1 jam), 30s (30 detik)')
@@ -46,6 +51,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('vn')
     .setDescription('Minta AZURA membalas dengan Voice Note (pesan suara)')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('teks')
         .setDescription('Teks yang ingin diucapkan AZURA')
@@ -54,6 +60,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('memory')
     .setDescription('Melihat atau mengelola memori jangka panjang AZURA tentang kamu')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('aksi')
         .setDescription('Pilih aksi (lihat / hapus / catat)')
@@ -70,6 +77,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('search')
     .setDescription('Lakukan pencarian berita & web live dengan Tavily AI Engine')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('query')
         .setDescription('Apa yang ingin kamu cari di internet?')
@@ -79,6 +87,7 @@ const commands = [
     .setName('agent')
     .setDescription('Jalankan tugas otonom, riset teknis, atau automasi dengan Hermes Agent (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('tugas')
         .setDescription('Instruksi atau tugas yang ingin dijalankan oleh Hermes Agent')
@@ -87,6 +96,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('crypto')
     .setDescription('Cek harga kripto / kurs USD real-time (CoinGecko & ExchangeRate-API)')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('koin')
         .setDescription('Nama koin (contoh: btc, eth, sol, bnb) atau ketik "usd" untuk kurs dollar')
@@ -95,6 +105,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('anime')
     .setDescription('Cari anime atau minta rekomendasi berdasarkan genre (MyAnimeList / Jikan API)')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('judul')
         .setDescription('Cari anime spesifik berdasarkan judul (contoh: Naruto, One Piece)')
@@ -108,6 +119,7 @@ const commands = [
     .setName('setowner')
     .setDescription('Daftarkan/ubah Owner utama AZURA (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addUserOption(option =>
       option.setName('target')
         .setDescription('Pilih user Discord yang ingin dijadikan Owner baru (Kosongkan untuk diri sendiri)')
@@ -117,6 +129,7 @@ const commands = [
     .setName('senddm')
     .setDescription('Kirim Direct Message (DM) ke member server (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('target')
         .setDescription('Display Name / Username / Nickname / ID member yang ingin dikirimi DM')
@@ -128,8 +141,9 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('sendch')
-    .setDescription('Kirim pesan ke channel server melalui AZURA (Khusus Owner)')
+    .setDescription('Kirim pesan ke channel server melalui AZURA (Khusus Owner - Hanya di Server)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setContexts(InteractionContextType.Guild)
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan yang ingin dikirim ke channel server')
@@ -138,6 +152,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('image')
     .setDescription('Generate gambar AI dengan OpenAI (Portrait, Landscape, Square)')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('prompt')
         .setDescription('Deskripsi gambar yang ingin dibuat (Contoh: cyber city night, anime girl)')
@@ -170,7 +185,8 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('activity')
-    .setDescription('Luncurkan sesi YouTube Watch Together atau Game sinkron di Voice Channel')
+    .setDescription('Luncurkan sesi YouTube Watch Together atau Game sinkron di Voice Channel (Hanya di Server)')
+    .setContexts(InteractionContextType.Guild)
     .addStringOption(option =>
       option.setName('jenis')
         .setDescription('Pilih jenis aktivitas')
@@ -186,6 +202,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('report')
     .setDescription('Kirim Saran (Advice) atau Laporan Bug (Report) langsung ke Creator AZURA')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('kategori')
         .setDescription('Pilih kategori (Saran / Laporan Bug)')
@@ -207,6 +224,7 @@ const commands = [
     .setName('vault')
     .setDescription('Kelola & lihat Database Pengguna Terenkripsi AES-256-GCM (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addSubcommand(sub =>
       sub.setName('stats')
         .setDescription('Lihat statistik & rekap pengguna aktif di database terenkripsi'))
@@ -278,6 +296,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('todo')
     .setDescription('📋 Papan To-Do List & Roadmap Pengembangan AZURA (Owner Only)')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addSubcommand(sub =>
       sub.setName('list')
         .setDescription('Lihat daftar antrean tugas pengembangan, saran, dan perbaikan bug')
@@ -425,12 +444,25 @@ async function handleSlashCommand(interaction, startTime) {
     });
 
   } else if (commandName === 'scheduled') {
+    if (interaction.guild) {
+      return interaction.reply({
+        content: '⚠️ Perintah `/scheduled` hanya dapat digunakan di **Direct Message (DM Pribadi)**.',
+        flags: 64
+      });
+    }
     await handleListScheduledCommand(interaction);
 
   } else if (commandName === 'reset') {
+    if (interaction.guild) {
+      return interaction.reply({
+        content: '⚠️ Perintah `/reset` hanya dapat digunakan di **Direct Message (DM Pribadi)** untuk membersihkan riwayat obrolan privat kamu.',
+        flags: 64
+      });
+    }
+    budgetGuard.resetContext(`user_${user.id}`);
     budgetGuard.resetContext(user.id);
     await interaction.reply({
-      content: '🧹 **Memori percakapan sesi ini sudah dibersihkan!** Mari mulai obrolan baru.',
+      content: '🧹 **Memori percakapan sesi DM kamu sudah dibersihkan!** Mari mulai obrolan baru.',
       flags: 64
     });
 
@@ -711,6 +743,12 @@ async function handleSlashCommand(interaction, startTime) {
     await handleSendDmCommand(interaction);
 
   } else if (commandName === 'sendch') {
+    if (!interaction.guild) {
+      return interaction.reply({
+        content: '⚠️ Perintah `/sendch` hanya dapat digunakan di dalam **Server**.',
+        flags: 64
+      });
+    }
     await handleSendChannelCommand(interaction);
 
   } else if (commandName === 'image') {
@@ -747,6 +785,12 @@ async function handleSlashCommand(interaction, startTime) {
     }
 
   } else if (commandName === 'activity') {
+    if (!interaction.guild) {
+      return interaction.reply({
+        content: '⚠️ Perintah `/activity` hanya dapat digunakan di dalam **Server (Voice Channel)** untuk aktivitas bersama member.',
+        flags: 64
+      });
+    }
     const { launchVoiceActivity } = require('./activities');
     const actType = interaction.options.getString('jenis') || 'youtube';
     const voiceChannel = interaction.member?.voice?.channel;
@@ -1115,7 +1159,7 @@ async function handleHelpSelectMenu(interaction) {
         { name: '🧠 /memory', value: 'Lihat atau kelola fakta jangka panjang tentang kamu yang disimpan AZURA.' },
         { name: '🎙️ /vn teks:<...>', value: 'Minta AZURA merespon dalam bentuk Voice Note (suara).' },
         { name: '⚡ /status', value: 'Cek status bot, latency, uptime, dan AI engine.' },
-        { name: '🔄 /reset', value: 'Mereset riwayat percakapan dengan AZURA.' }
+        { name: '🔄 /reset (Khusus di DM)', value: 'Mereset riwayat percakapan sesi DM kamu dengan AZURA.' }
       );
   }
 

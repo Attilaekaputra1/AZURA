@@ -21,6 +21,7 @@ const config = {
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
   IMAGE_MODEL: process.env.IMAGE_MODEL || 'gpt-image-2',
   AZURA_VOICE_ENGINE: (process.env.AZURA_VOICE_ENGINE || 'legacy').trim().toLowerCase(),
+  AZURA_VOICE_ADAPTIVE_BUDGET: (process.env.AZURA_VOICE_ADAPTIVE_BUDGET === 'true'),
 
   // Cost & Performance Parameters
   MAX_OUTPUT_TOKENS: parseInt(process.env.MAX_OUTPUT_TOKENS || '50000', 10),

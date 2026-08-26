@@ -484,7 +484,8 @@ async function streamAzura(userPrompt, options = {}, onToken = null) {
     userId = config.OWNER_DISCORD_ID,
     isVoice = true,
     contextKey = 'voice_stream',
-    useVoiceProjection = false
+    useVoiceProjection = false,
+    adaptiveVoiceBudget = (config.AZURA_VOICE_ADAPTIVE_BUDGET || false)
   } = options;
 
   let systemMessage = '';
@@ -507,12 +508,16 @@ async function streamAzura(userPrompt, options = {}, onToken = null) {
   const client = getOpenAIClient();
   let fullText = '';
 
+  const maxTokens = isVoice
+    ? (adaptiveVoiceBudget ? 150 : 250)
+    : 2000;
+
   try {
     const stream = await client.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages: messages,
       stream: true,
-      max_completion_tokens: isVoice ? 250 : 2000
+      max_completion_tokens: maxTokens
     });
 
     for await (const chunk of stream) {

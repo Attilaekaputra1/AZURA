@@ -260,6 +260,12 @@ client.on('messageCreate', async (message) => {
     } catch (_) {}
   }
 
+  // Record positive user behavior & personality traits (Good Vibes Only, Max 20 users)
+  try {
+    const { recordPositiveBehavior } = require('./behavior');
+    recordPositiveBehavior(message.author.id, message.author.username, userName, message.content, isDM);
+  } catch (_) {}
+
   let isThirdPersonNimbrung = false;
   if (isPassiveMention && !isDM) {
     const trackerKey = message.channel.id;
@@ -562,8 +568,9 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // Call OpenAI API via AZURA module (with optional images for Vision)
-    const response = await askAzura(message.author.id, finalPrompt, userName, imageUrls, isDM, message.channel.id, guildId, isOwner);
+    // Call OpenAI API via AZURA module (with optional images for Vision and Mention Resolution)
+    const mentionedUserIds = (mentionResolution?.mentionedUsers || []).map(u => u.userId);
+    const response = await askAzura(message.author.id, finalPrompt, userName, imageUrls, isDM, message.channel.id, guildId, isOwner, mentionedUserIds);
 
     const elapsed = Date.now() - startTime;
     console.log(`[Response] User: ${message.author.tag} | Time: ${elapsed}ms`);

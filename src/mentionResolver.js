@@ -84,7 +84,8 @@ async function resolveUserMentions(text, client, guild = null) {
       `ATURAN IDENTIFIKASI MENTION SANGAT PENTING:\n` +
       `1. Hubungkan pertanyaan user secara langsung dengan identitas orang yang ditag di atas berdasarkan User ID Discord uniknya.\n` +
       `2. Jika user bertanya "siapa @Attila", "nama asli @Attila", atau menanyakan tentang sosok yang ditag, jelaskan profil orang yang ditag tersebut dengan tepat (misal: Attila adalah Creator/Owner utama AZURA, nama aslinya Putra).\n` +
-      `3. JANGAN PERNAH tertukar mengira user menanyakan dirimu sendiri (AZURA) atau menanyakan nama si penanya, jika dia jelas-jelas menandai/menanyakan orang lain!`;
+      `3. JANGAN PERNAH tertukar mengira user menanyakan dirimu sendiri (AZURA) atau menanyakan nama si penanya, jika dia jelas-jelas menandai/menanyakan orang lain!\n` +
+      `4. ATURAN PRIVASI USER ID (SANGAT KETAT): Gunakan User ID hanya untuk identifikasi internalmu di balik layar. DILARANG KERAS membeberkan atau menyebutkan deretan angka User ID (misal: 759050138353664020) di balasan chat kepada user! Cukup sebutkan nama panggilan resmi, nama aslinya, atau username-nya saja!`;
   }
 
   return { resolvedText, mentionedUsers, mentionContextPrompt };

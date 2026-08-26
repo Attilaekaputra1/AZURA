@@ -29,7 +29,7 @@ function getOpenAIClient() {
  * @param {boolean} isDM
  * @returns {string}
  */
-function getSystemPrompt(userName, userId, isDM = false, contextKey = null) {
+function getSystemPrompt(userName, userId, isDM = false, contextKey = null, mentionedUserIds = []) {
   const now = new Date();
   const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta' };
   const todayStr = now.toLocaleDateString('id-ID', options);
@@ -47,6 +47,12 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null) {
       permanentSummaryPrompt = getPermanentSummariesContext(contextKey, 5);
     } catch (_) {}
   }
+
+  let behaviorPrompt = '';
+  try {
+    const { getBehaviorContextForPrompt } = require('./behavior');
+    behaviorPrompt = getBehaviorContextForPrompt(userId, mentionedUserIds);
+  } catch (_) {}
 
   let personalizationPrompt = '';
   if (userId) {
@@ -115,7 +121,7 @@ Informasi Waktu Real-Time:
 Informasi Memori Jangka Panjang & Personalisasi Pengguna:
 - Lawan bicaramu bernama "${userName}".${personalizationPrompt}
 - Catatan fakta penting tentang ${userName}:
-${factsFormatted}${permanentSummaryPrompt}
+${factsFormatted}${permanentSummaryPrompt}${behaviorPrompt}
 
 # Protokol Penalaran & Kecerdasan Otonom Tingkat Agent (Autonomous Agent Cognitive & Deep Logic Protocol)
 
@@ -202,7 +208,7 @@ function needsSearch(prompt) {
  * @param {boolean} isOwner
  * @returns {Promise<string|object>}
  */
-async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, guildId = null, isOwner = false) {
+async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, guildId = null, isOwner = false, mentionedUserIds = []) {
   autoExtractFact(userId, userPrompt);
 
   const reminderResponse = await processSmartReminder(userId, userPrompt, channelId);
@@ -265,7 +271,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}_user_${userId}`;
   const history = budgetGuard.getContext(contextKey);
-  const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey);
+  const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey, mentionedUserIds);
 
   // Explicit Priority Memory Summarization Trigger ("Azura ini penting", "catat ini penting", "buat summary")
   const isExplicitPrioritySummary = /\b(?:azura\s+ini\s+penting|catat\s+ini\s+penting|ingat\s+ini\s+penting|sesi\s+ini\s+penting|simpan\s+summary|buatkan\s+summary|rangkum\s+obrolan\s+ini)\b/i.test(userPrompt);

@@ -213,6 +213,20 @@ function getPermanentSummariesContext(contextKey, maxCount = 5) {
 }
 
 /**
+ * Clear permanent summaries for a context
+ * @param {string} contextKey 
+ */
+function clearPermanentSummaries(contextKey) {
+  loadPermanentMemory();
+  if (permanentMemoryCache[contextKey]) {
+    delete permanentMemoryCache[contextKey];
+    savePermanentMemory();
+    return true;
+  }
+  return false;
+}
+
+/**
  * Delete a specific permanent summary by ID or index
  * @param {string} contextKey 
  * @param {string} summaryId 

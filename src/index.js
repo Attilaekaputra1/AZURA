@@ -71,6 +71,10 @@ client.once(Events.ClientReady, async () => {
   const { initChannelAutoScanner } = require('./sendChannel');
   initChannelAutoScanner(client);
 
+  // Autonomous Deep Behavior Analysis & Historical User Profile Backfill
+  const { bootstrapAllUserBehaviors } = require('./bootstrapBehavior');
+  bootstrapAllUserBehaviors(client).catch(err => console.error('[Behavior Bootstrap Error]:', err.message));
+
   // Auto-connect to VC if Attila is already in a voice channel on startup
   setTimeout(async () => {
     try {

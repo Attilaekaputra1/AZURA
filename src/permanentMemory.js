@@ -213,17 +213,111 @@ function getPermanentSummariesContext(contextKey, maxCount = 5) {
 }
 
 /**
- * Clear permanent summaries for a context
+ * Delete a specific permanent summary by ID or index
  * @param {string} contextKey 
+ * @param {string} summaryId 
+ * @returns {boolean}
  */
-function clearPermanentSummaries(contextKey) {
+function deletePermanentSummaryById(contextKey, summaryId) {
   loadPermanentMemory();
-  if (permanentMemoryCache[contextKey]) {
-    delete permanentMemoryCache[contextKey];
+  if (!permanentMemoryCache[contextKey]) return false;
+  const initialLength = permanentMemoryCache[contextKey].length;
+  const cleanTarget = summaryId.replace(/^sum_/, '');
+  permanentMemoryCache[contextKey] = permanentMemoryCache[contextKey].filter(
+    s => s.id !== summaryId && s.id !== `sum_${cleanTarget}`
+  );
+  const deleted = permanentMemoryCache[contextKey].length < initialLength;
+  if (deleted) {
     savePermanentMemory();
-    return true;
   }
-  return false;
+  return deleted;
+}
+
+/**
+ * AI Memory Audit & Pruning Advisory Engine
+ * Analyzes stored summaries against actual dates, identifying obsolete, temporary, or active contexts.
+ * @param {string} contextKey 
+ * @returns {Promise<{ total: number, advisoryText: string, items: Array<{ id: string, title: string, status: 'KEEP'|'REVIEW'|'PRUNE', reason: string }> }>}
+ */
+async function auditPermanentMemories(contextKey) {
+  loadPermanentMemory();
+  const list = permanentMemoryCache[contextKey] || [];
+  if (list.length === 0) {
+    return {
+      total: 0,
+      advisoryText: 'Belum ada ringkasan memori permanen yang tersimpan untuk sesi/konteks ini.',
+      items: []
+    };
+  }
+
+  const { OpenAI } = require('openai');
+  const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+
+  const now = new Date();
+  const todayStr = now.toLocaleDateString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  const formattedItems = list.map((item, idx) => {
+    return `[ID: ${item.id}] [Tanggal: ${item.dateFormatted}] Judul: "${item.title}" (Prioritas: ${item.isPriority ? 'YA' : 'TIDAK'})\nRingkasan: ${item.summary}\nPoin Kunci: ${(item.keyPoints || []).join(', ')}`;
+  }).join('\n\n---\n\n');
+
+  const systemPrompt = `Kamu adalah AZURA, AI Advisor & Memory Curator untuk Creatormu (Attila / Putra).
+Hari ini adalah ${todayStr}.
+
+TUGAS UTAMA:
+Lakukan audit kritis dan cerdas terhadap seluruh daftar memori permanen yang tersimpan di bawah ini.
+Bandingkan tanggal pencatatan aktual masing-masing memori dengan tanggal hari ini, serta analisis apakah informasi tersebut:
+1. 🟢 [KEEP]: Masih sangat relevan, prinsip arsitektur penting, fakta identitas, atau proyek jangka panjang.
+2. 🟡 [REVIEW]: Topik yang mungkin sudah selesai atau jadwal sementara yang sudah lewat beberapa minggu/bulan.
+3. 🔴 [PRUNE]: Obrolan atau kesepakatan sementara yang sudah basi, kadaluarsa, atau sudah tidak berlaku lagi.
+
+Berikan analisis kritis yang ramah, santai khas Gen Z, namun terstruktur dan objektif, serta berikan rekomendasi ID memori mana yang disarankan untuk dibersihkan agar database tetap ramping dan efisien.
+
+FORMAT JSON OUTPUT (STRICT):
+{
+  "advisoryText": "Narasi ringkas hasil audit memori dari AZURA untuk Attila...",
+  "items": [
+    {
+      "id": "sum_xxx",
+      "title": "...",
+      "status": "KEEP" | "REVIEW" | "PRUNE",
+      "reason": "Alasan singkat status..."
+    }
+  ]
+}`;
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: config.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Daftar Memori yang Perlu Diaudit:\n\n${formattedItems}` }
+      ],
+      max_completion_tokens: 600
+    });
+
+    const content = res.choices[0]?.message?.content?.trim() || '';
+    const cleanJson = content.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(cleanJson);
+
+    return {
+      total: list.length,
+      advisoryText: parsed.advisoryText || 'Audit memori selesai.',
+      items: parsed.items || []
+    };
+  } catch (err) {
+    console.error('[PermanentMemory Audit Error]:', err.message);
+    return {
+      total: list.length,
+      advisoryText: `Gagal melakukan audit AI: ${err.message}`,
+      items: []
+    };
+  }
 }
 
 module.exports = {
@@ -232,5 +326,7 @@ module.exports = {
   getPermanentSummaries,
   getPermanentSummariesContext,
   clearPermanentSummaries,
+  deletePermanentSummaryById,
+  auditPermanentMemories,
   MAX_SUMMARIES_PER_CONTEXT
 };

@@ -723,6 +723,35 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    // Handle Memory Audit & Pruning Buttons
+    if (interaction.customId.startsWith('mem_prune_auto:')) {
+      const parts = interaction.customId.split(':');
+      const targetContextKey = parts[1];
+      const idsToDelete = (parts[2] || '').split(',').filter(Boolean);
+
+      const { deletePermanentSummaryById } = require('./permanentMemory');
+      let count = 0;
+      for (const id of idsToDelete) {
+        if (deletePermanentSummaryById(targetContextKey, id)) {
+          count++;
+        }
+      }
+
+      return interaction.update({
+        content: `🗑️ **[PEMBERSIHAN SELESAI]** Berhasil menghapus **${count} ringkasan memori** yang sudah usang/tidak relevan dari VPS! Database memori sekarang lebih bersih dan optimal.`,
+        embeds: [],
+        components: []
+      });
+    }
+
+    if (interaction.customId === 'mem_prune_cancel') {
+      return interaction.update({
+        content: '✨ **[DIPERTAHANKAN]** Seluruh ringkasan memori tetap dipertahankan di database VPS.',
+        embeds: [],
+        components: []
+      });
+    }
+
     // Route to correct button handler based on customId prefix
     if (
       interaction.customId.startsWith('confirmch_') ||

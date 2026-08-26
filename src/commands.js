@@ -59,19 +59,24 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('memory')
-    .setDescription('Melihat atau mengelola memori jangka panjang AZURA tentang kamu')
+    .setDescription('Melihat, mengaudit relevansi, atau mengelola memori jangka panjang AZURA')
     .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('aksi')
-        .setDescription('Pilih aksi (lihat / hapus / catat)')
+        .setDescription('Pilih aksi memori')
         .setRequired(false)
         .addChoices(
-          { name: 'Lihat Fakta Tersimpan', value: 'lihat' },
-          { name: 'Hapus Semua Memori', value: 'hapus' }
+          { name: '📋 Lihat Fakta & Arsip Ringkasan', value: 'lihat' },
+          { name: '🧠 Audit AI & Rekomendasi Pembersihan', value: 'audit' },
+          { name: '🗑️ Hapus Semua Memori', value: 'hapus' }
         ))
     .addStringOption(option =>
       option.setName('fakta')
         .setDescription('Tulis fakta baru yang ingin dicatat AZURA (Opsional)')
+        .setRequired(false))
+    .addStringOption(option =>
+      option.setName('id')
+        .setDescription('ID ringkasan yang ingin dihapus spesifik (Contoh: sum_1787729179639)')
         .setRequired(false)),
 
   new SlashCommandBuilder()
@@ -633,6 +638,26 @@ async function handleSlashCommand(interaction, startTime) {
       ? `channel_${interaction.channelId}_user_${user.id}`
       : `user_${user.id}`;
 
+    const { getPermanentSummaries, MAX_SUMMARIES_PER_CONTEXT, deletePermanentSummaryById, auditPermanentMemories } = require('./permanentMemory');
+    const deleteId = interaction.options.getString('id');
+
+    // 1. Delete specific summary by ID
+    if (deleteId) {
+      const isDeleted = deletePermanentSummaryById(contextKey, deleteId);
+      if (isDeleted) {
+        return interaction.reply({
+          content: `🗑️ **[HAPUS BERHASIL]** Ringkasan memori dengan ID \`${deleteId}\` telah berhasil dihapus dari penyimpanan permanen VPS!`,
+          flags: 64
+        });
+      } else {
+        return interaction.reply({
+          content: `❌ Ringkasan memori dengan ID \`${deleteId}\` tidak ditemukan di sesi ini. Gunakan \`/memory aksi:lihat\` untuk melihat daftar ID aktif.`,
+          flags: 64
+        });
+      }
+    }
+
+    // 2. Full clear
     if (aksi === 'hapus') {
       clearUserMemory(user.id);
       try {
@@ -645,7 +670,61 @@ async function handleSlashCommand(interaction, startTime) {
       });
     }
 
-    const { getPermanentSummaries, MAX_SUMMARIES_PER_CONTEXT } = require('./permanentMemory');
+    // 3. AI Memory Audit & Pruning Advisory
+    if (aksi === 'audit') {
+      await interaction.deferReply({ flags: 64 });
+      const auditResult = await auditPermanentMemories(contextKey);
+
+      if (auditResult.total === 0) {
+        return interaction.editReply({
+          content: '🧠 Belum ada ringkasan memori permanen yang tersimpan untuk diaudit di sesi ini.'
+        });
+      }
+
+      let itemsStr = '';
+      const pruneIds = [];
+
+      if (auditResult.items && auditResult.items.length > 0) {
+        itemsStr = '\n\n' + auditResult.items.map(item => {
+          let badge = '🟢 `[TETAP RELEVAN]`';
+          if (item.status === 'REVIEW') badge = '🟡 `[PERLU DIKONFIRMASI]`';
+          if (item.status === 'PRUNE') {
+            badge = '🔴 `[REKOMENDASI HAPUS]`';
+            pruneIds.push(item.id);
+          }
+          return `${badge} **${item.title}** (\`${item.id}\`)\n   📝 *${item.reason}*`;
+        }).join('\n\n');
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x9B59B6)
+        .setTitle(`🧠 AZURA AI Memory Audit & Rekomendasi Pembersihan`)
+        .setDescription(
+          `**Analisis Kritis AZURA:**\n${auditResult.advisoryText}` +
+          itemsStr
+        )
+        .setFooter({ text: 'Audit memori berbasis perbandingan tanggal aktual & relevansi topik' })
+        .setTimestamp();
+
+      const row = new ActionRowBuilder();
+      if (pruneIds.length > 0) {
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`mem_prune_auto:${contextKey}:${pruneIds.join(',')}`)
+            .setLabel(`🗑️ Bersihkan Otomatis (${pruneIds.length} Usang)`)
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId('mem_prune_cancel')
+            .setLabel('✨ Pertahankan Semua')
+            .setStyle(ButtonStyle.Secondary)
+        );
+        return interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        return interaction.editReply({ embeds: [embed] });
+      }
+    }
+
+    // 4. Default: View Facts & Permanent Summaries
     const facts = getUserFacts(user.id);
     const summaries = getPermanentSummaries(contextKey);
 
@@ -656,7 +735,7 @@ async function handleSlashCommand(interaction, startTime) {
     const summariesList = summaries.length > 0
       ? summaries.slice(0, 5).map((s, i) => {
           const pTag = s.isPriority ? ' ⭐ `[Prioritas]`' : '';
-          return `**${i + 1}. ${s.title}** (${s.dateFormatted})${pTag}\n📝 *${s.summary}*`;
+          return `**${i + 1}. ${s.title}** (\`${s.id}\` - ${s.dateFormatted})${pTag}\n📝 *${s.summary}*`;
         }).join('\n\n')
       : '*(Belum ada ringkasan sesi yang dipermanenkan)*';
 
@@ -676,7 +755,7 @@ async function handleSlashCommand(interaction, startTime) {
           inline: false
         }
       )
-      .setFooter({ text: 'Ketik "Azura ini penting" di chat untuk menandai sesi berbobot tinggi' })
+      .setFooter({ text: 'Gunakan /memory aksi:audit untuk konsultasi relevansi memori dengan AZURA' })
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed], flags: 64 });

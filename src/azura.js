@@ -262,20 +262,22 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     return recap.text;
   }
 
-  const isTodoAddIntent = /\b(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do\s*list\s*:)\b/i.test(userPrompt);
+  const isTodoAddIntent = /\b(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do(?:\s*list)?\s*:)\b/i.test(userPrompt);
   if (isTodoAddIntent) {
     const { bulkCreateTodos, createTodo, TODO_DASHBOARD_URL } = require('./todo');
     const taskContent = userPrompt
-      .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do\s*list\s*:?)/i, '')
+      .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to\s*do(?:\s*list)?|tambah(?:kan)?\s+(?:ke\s+)?to\s*do(?:\s*list)?|masuk(?:kan)?\s+(?:ke\s+)?to\s*do(?:\s*list)?|buat(?:kan)?\s+to\s*do(?:\s*list)?|to\s*do(?:\s*list)?\s*:?)/i, '')
+      .replace(/^[\s,;:]+/, '')
       .trim();
 
     // Check if multiple items separated by newlines, commas, or numbers (1., 2., etc)
-    const items = taskContent.split(/\n|,|(?<=\d[.)])\s+/).map(s => s.trim()).filter(s => s.length > 2);
+    const rawItems = taskContent.split(/\n|,|(?<=\d[.)])\s+/).map(s => s.trim().replace(/^[-*•\d.]+\s*/, '')).filter(s => s.length > 2);
     let createdTasks = [];
-    if (items.length > 1) {
-      createdTasks = bulkCreateTodos(items, userId, userName);
+    if (rawItems.length > 1) {
+      createdTasks = bulkCreateTodos(rawItems, userId, userName);
     } else if (taskContent.length > 2) {
-      createdTasks = [createTodo(taskContent, 'General', 'Medium', null, '', userId, userName)];
+      const cleanSingle = taskContent.replace(/^[-*•\d.]+\s*/, '');
+      createdTasks = [createTodo(cleanSingle || taskContent, 'General', 'Medium', null, '', userId, userName)];
     }
 
     if (createdTasks.length > 0) {

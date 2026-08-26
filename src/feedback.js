@@ -196,6 +196,17 @@ async function consultAiOnFeedback(ticketId) {
   const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
   const isAdvice = ticket.type === 'advice';
 
+  let webResearch = '';
+  try {
+    const { searchTavily } = require('./tavily');
+    if (ticket.content && ticket.content.length > 5) {
+      const searchRes = await searchTavily(ticket.content, 'general').catch(() => null);
+      if (searchRes && !searchRes.includes('Gagal') && !searchRes.includes('Tidak ditemukan')) {
+        webResearch = `\n\n🌐 **Data Riset Web Terkini (Tavily AI Engine):**\n${searchRes.slice(0, 1200)}`;
+      }
+    }
+  } catch (_) {}
+
   const systemPrompt = `Kamu adalah AZURA, Asisten AI Cerdas & Strategis tingkat tinggi yang sedang berdiskusi secara privat dengan Creator-mu (Attila).
 Attila sedang mempertimbangkan apakah akan MENERIMA atau MENOLAK ${isAdvice ? 'sebuah saran/masukan (Advice)' : 'laporan bug/masalah (Bug Report)'} dari pengguna server.
 
@@ -218,7 +229,7 @@ Gaya bahasa: Santai, cerdas, tajam, profesional, hangat khas partner diskusi Att
 - UID: ${ticket.userId}
 - Lokasi: ${ticket.guildName || 'DM'}
 - Isi Pesan:
-"${ticket.content}"
+"${ticket.content}"${webResearch}
 
 Berikan analisis strategis dan rekomendasimu untuk Attila sekarang:`;
 
@@ -229,10 +240,21 @@ Berikan analisis strategis dan rekomendasimu untuk Attila sekarang:`;
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      max_completion_tokens: 1200
+      max_completion_tokens: 1500
     });
 
-    return res.choices[0]?.message?.content?.trim() || 'Gagal menghasilkan analisis AI.';
+    const output = res.choices[0]?.message?.content?.trim();
+    if (output) return output;
+
+    // Fallback if empty
+    const retry = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    });
+    return retry.choices[0]?.message?.content?.trim() || 'Gagal menghasilkan analisis AI.';
   } catch (err) {
     console.error('[AI Consultation Error]:', err.message);
     return `Gagal melakukan analisis AI: ${err.message}`;

@@ -591,5 +591,6 @@ module.exports = {
   handleSendChannelGuildSelectMenu,
   handleSendChannelButton,
   rephraseMessageByAzura,
+  fetchAccessibleTextChannels,
   initChannelAutoScanner
 };

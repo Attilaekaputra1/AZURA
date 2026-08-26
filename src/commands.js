@@ -236,6 +236,27 @@ const commands = [
             .setDescription('User ID atau username pengguna')
             .setRequired(true)))
     .addSubcommand(sub =>
+      sub.setName('ban')
+        .setDescription('Hentikan & blokir seluruh akses respons pengguna (Blacklist Total)')
+        .addStringOption(opt =>
+          opt.setName('target')
+            .setDescription('User ID, @User, atau username pengguna yang ingin diblokir')
+            .setRequired(true))
+        .addStringOption(opt =>
+          opt.setName('alasan')
+            .setDescription('Alasan pemblokiran (misal: Pemalsuan nama, spam, abuse)')
+            .setRequired(false)))
+    .addSubcommand(sub =>
+      sub.setName('unban')
+        .setDescription('Buka kembali blokir akses pengguna (Hapus dari Blacklist)')
+        .addStringOption(opt =>
+          opt.setName('target')
+            .setDescription('User ID atau username pengguna yang ingin dibuka blokirnya')
+            .setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('blacklist')
+        .setDescription('Lihat daftar seluruh pengguna yang sedang diblokir / diblacklist'))
+    .addSubcommand(sub =>
       sub.setName('view')
         .setDescription('Dekripsi dan lihat data profil lengkap pengguna tertentu')
         .addStringOption(opt =>
@@ -716,8 +737,7 @@ async function handleSlashCommand(interaction, startTime) {
   } else if (commandName === 'report' || commandName === 'feedback') {
     const { handleFeedbackSlash } = require('./feedback');
     await handleFeedbackSlash(interaction);
-
-  } else if (commandName === 'vault') {
+} else if (commandName === 'vault') {
     const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
     if (!isOwner) {
       return interaction.reply({
@@ -734,8 +754,10 @@ async function handleSlashCommand(interaction, startTime) {
       const topList = stats.topUsers.map((u, i) => {
         const aliasStr = u.knownRealName ? `\n   📛 **Nama Asli/Panggilan:** \`${u.knownRealName}\`` : '';
         const voiceStr = u.totalVoiceTurns ? ` (${u.totalMessages} teks, ${u.totalVoiceTurns} voice)` : '';
+        const dmScope = u.usedInDm ? ` | 📩 \`${u.dmMessages} DM\`` : '';
+        const banTag = u.isBanned ? ' ⛔ `[BANNED]`' : '';
         const firstDate = u.firstSeen ? new Date(u.firstSeen).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
-        return `${i + 1}. **${u.displayName}** (\`${u.username}\`) • \`${u.totalInteractions} interaksi lifetime\`${voiceStr}${aliasStr}\n   🎖️ **Tingkat Keakraban:** ${u.relationshipTier}\n   📅 **Pertama Kali Chat:** \`${firstDate}\``;
+        return `${i + 1}. **${u.displayName}** (\`@${u.username}\`)${banTag} • \`${u.totalInteractions} interaksi lifetime\`${voiceStr}${dmScope}${aliasStr}\n   🎖️ **Tingkat Keakraban:** ${u.relationshipTier}\n   📅 **Pertama Kali Chat:** \`${firstDate}\``;
       }).join('\n\n') || '(Belum ada pengguna aktif)';
 
       const embed = new EmbedBuilder()
@@ -744,12 +766,17 @@ async function handleSlashCommand(interaction, startTime) {
         .setDescription(
           `🛡️ **Status Enkripsi:** \`AES-256-GCM (Authenticated)\`\n` +
           `👥 **Total Pengguna Terdaftar:** \`${stats.totalUsers}\` user\n` +
-          `💬 **Total Interaksi Lifetime Terakumulasi:** \`${stats.totalInteractions}\` interaksi (\`${stats.totalMessages}\` teks, \`${stats.totalVoiceTurns || 0}\` voice)\n` +
+          `💬 **Total Interaksi Lifetime:** \`${stats.totalInteractions}\` interaksi (\`${stats.totalMessages}\` teks, \`${stats.totalVoiceTurns || 0}\` voice)\n` +
+          `🌐 **Pesan di Server:** \`${stats.totalServerMessages || 0}\` pesan\n` +
+          `📩 **Pesan di DM Pribadi:** \`${stats.totalDmMessages || 0}\` pesan (\`${stats.usersWithDm || 0}\` pengguna pernah DM)\n` +
+          `🚫 **Pengguna Diblokir/Blacklist:** \`${stats.totalBanned || 0}\` user\n` +
           `⚡ **Pengguna Aktif 24 Jam Terakhir:** \`${stats.activeToday}\` user\n\n` +
           `🏆 **Top Pengguna Lifetime Paling Aktif (Akumulasi Sejak Update):**\n${topList}`
         )
         .setFooter({ text: 'Data diakumulasikan secara aman & terenkripsi di data/user_vault.enc' })
         .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
 
     } else if (subcommand === 'list') {
       const { getAllUsersList } = require('./vault');
@@ -760,9 +787,12 @@ async function handleSlashCommand(interaction, startTime) {
 
       const formatted = list.map((u, i) => {
         const lockIcon = u.isNameLocked ? '🔒' : '🔓';
+        const banIcon = u.isBanned ? '⛔ `[DIBLOKIR]`' : '';
         const nameStr = u.knownRealName ? `**${u.knownRealName}**` : '*(Belum diset)*';
         const pendingStr = u.pendingNameChange ? ` ⏳ (Minta: "${u.pendingNameChange.requestedName}")` : '';
-        return `${i + 1}. **${u.displayName}** (\`@${u.username}\`)\n   🔢 **UID:** \`${u.userId}\`\n   🏷️ **Nama Panggilan:** ${nameStr} ${lockIcon}${pendingStr}\n   📊 **Total Interaksi:** \`${u.totalInteractions}\` (${u.totalMessages} teks, ${u.totalVoiceTurns} voice)\n   🎖️ **Tier:** ${u.relationshipTier}`;
+        const dmBadge = u.usedInDm ? `📩 \`${u.dmMessages} DM\`` : '📩 `Belum Pernah DM`';
+        const srvBadge = u.usedInServer ? `🌐 \`${u.serverMessages} Server\`` : '🌐 `Hanya DM`';
+        return `${i + 1}. **${u.displayName}** (\`@${u.username}\`) ${banIcon}\n   🔢 **UID:** \`${u.userId}\`\n   🏷️ **Nama:** ${nameStr} ${lockIcon}${pendingStr}\n   📊 **Scope:** ${srvBadge} | ${dmBadge} (${u.totalVoiceTurns} voice)\n   🎖️ **Tier:** ${u.relationshipTier}`;
       }).join('\n\n');
 
       const embed = new EmbedBuilder()
@@ -819,6 +849,59 @@ async function handleSlashCommand(interaction, startTime) {
         flags: 64
       });
 
+    } else if (subcommand === 'ban') {
+      const targetQuery = interaction.options.getString('target');
+      const reason = interaction.options.getString('alasan') || 'Pelanggaran ketentuan penggunaan AZURA';
+      const { banUser } = require('./vault');
+      const res = banUser(targetQuery, reason, interaction.user.tag);
+
+      // Try notifying target user via DM
+      try {
+        const targetUser = await interaction.client.users.fetch(res.userId);
+        if (targetUser) {
+          await targetUser.send(`🚫 **[Pemberitahuan Keamanan AZURA]**\nAkses kamu ke seluruh layanan AZURA telah **dihentikan secara permanen (Diblokir Total)**.\nAlasan: *${reason}*`).catch(() => {});
+        }
+      } catch (_) {}
+
+      return interaction.reply({
+        content: `🚫 **[BLACKLIST BERHASIL]** Pengguna <@${res.userId}> (\`@${res.username}\`) telah **DIBLOKIR TOTAL** dari seluruh respon AZURA (Server & DM)!\n📝 **Alasan:** ${res.reason}\n🔢 **UID:** \`${res.userId}\``,
+        flags: 64
+      });
+
+    } else if (subcommand === 'unban') {
+      const targetQuery = interaction.options.getString('target');
+      const { unbanUser } = require('./vault');
+      const res = unbanUser(targetQuery);
+      if (!res.success) {
+        return interaction.reply({ content: `❌ ${res.message}`, flags: 64 });
+      }
+
+      return interaction.reply({
+        content: `✅ **[UNBAN BERHASIL]** Blokir akses untuk <@${res.userId}> (\`@${res.username}\`) telah dicabut. Pengguna kini dapat berinteraksi kembali dengan AZURA.`,
+        flags: 64
+      });
+
+    } else if (subcommand === 'blacklist') {
+      const { getBlacklist } = require('./vault');
+      const bl = getBlacklist();
+      if (!bl.length) {
+        return interaction.reply({ content: '✅ Tidak ada pengguna yang sedang diblokir/diblacklist saat ini.', flags: 64 });
+      }
+
+      const listStr = bl.map((b, i) => {
+        const banDate = b.bannedAt ? new Date(b.bannedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+        return `${i + 1}. **${b.displayName}** (\`@${b.username}\`)\n   🔢 **UID:** \`${b.userId}\`\n   📝 **Alasan:** *${b.reason}*\n   👮 **Oleh:** \`${b.bannedBy}\` (${banDate} WIB)`;
+      }).join('\n\n');
+
+      const embed = new EmbedBuilder()
+        .setColor(0xE74C3C)
+        .setTitle(`🚫 Daftar Pengguna Diblacklist (${bl.length} Pengguna)`)
+        .setDescription(listStr)
+        .setFooter({ text: 'Gunakan /vault unban target:<uid> untuk membuka blokir' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
+
     } else if (subcommand === 'view') {
       const targetQuery = interaction.options.getString('target');
       const record = getUserRecord(targetQuery);
@@ -833,19 +916,21 @@ async function handleSlashCommand(interaction, startTime) {
       const lastDate = record.lastSeen ? new Date(record.lastSeen).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 
       const embed = new EmbedBuilder()
-        .setColor(0x2ECC71)
+        .setColor(record.isBanned ? 0xE74C3C : 0x2ECC71)
         .setTitle(`👤 Profil Pengguna Lifetime: ${record.displayName} (@${record.username})`)
         .setDescription(
           `🆔 **User ID:** \`${record.userId}\`\n` +
           `👤 **Display Name:** **${record.displayName}**\n` +
           `🏷️ **Username:** \`@${record.username}\`\n` +
-          `📛 **Nama Asli/Panggilan:** **${record.knownRealName ? `\`${record.knownRealName}\`` : '*(Belum pernah menyebutkan)*'}**\n` +
+          `📛 **Nama Resmi/Panggilan:** **${record.knownRealName ? `\`${record.knownRealName}\` ${record.isNameLocked ? '🔒 (Terkunci)' : '🔓'}` : '*(Belum diset)*'}**\n` +
           `🎖️ **Tingkat Keakraban:** ${record.relationshipTier || '🌱 Member Baru'}\n` +
           `📊 **Total Interaksi Lifetime:** \`${record.totalInteractions}\` interaksi (\`${record.totalMessages || 0}\` teks, \`${record.totalVoiceTurns || 0}\` voice)\n` +
+          `🌐 **Aktivitas Server:** \`${record.serverMessages || 0} pesan\` (${record.activeServers?.length ? record.activeServers.join(', ') : 'Belum ada'})\n` +
+          `📩 **Aktivitas DM Pribadi:** ${record.usedInDm ? `\`✅ Pernah DM (${record.dmMessages || 0} pesan)\`` : '\`❌ Belum Pernah DM\`'}\n` +
+          `🚫 **Status Keamanan:** ${record.isBanned ? `\`⛔ DIBLOKIR TOTAL\`\n   📝 *Alasan: ${record.banReason}*` : '\`✅ Normal / Aktif\`'}\n` +
           `🍪 **Session Cookie:** \`${record.sessionCookie || '-'}\`\n` +
           `📅 **Pertama Kali Chat:** \`${firstDate}\`\n` +
-          `⏰ **Terakhir Kali Aktif:** \`${lastDate}\` WIB\n` +
-          `🏛️ **Server Aktif:** ${record.activeServers?.length ? record.activeServers.join(', ') : 'DM Pribadi'}`
+          `⏰ **Terakhir Kali Aktif:** \`${lastDate}\` WIB`
         )
         .setFooter({ text: 'Didekripsi secara aman dengan kunci master AES-256-GCM' })
         .setTimestamp();

@@ -579,6 +579,10 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
   const receiver = connection.receiver;
 
   receiver.speaking.on('start', (userId) => {
+    // === Gate 0: Blacklist Check (Ignore Banned Users) ===
+    const { isUserBanned } = require('./vault');
+    if (isUserBanned(userId)) return;
+
     // === Gate 1: Check if bot is speaking or actively processing previous voice turn (prevent overlaps & double responses) ===
     if (isBotSpeaking.has(guildId) || isGuildProcessingVoice.has(guildId)) return;
 

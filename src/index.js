@@ -92,23 +92,38 @@ client.on('messageCreate', async (message) => {
   // Ignore messages from bots or mass mentions (@everyone / @here)
   if (message.author.bot || message.mentions.everyone) return;
 
+  // 0. Security Guard: Absolute Zero Response for Blacklisted / Banned Users
+  const { isUserBanned, recordUserInteraction } = require('./vault');
+  if (isUserBanned(message.author.id)) {
+    console.log(`[Security Guard]: 🛑 Ignored message from BLACKLISTED user @${message.author.tag} (${message.author.id})`);
+    return; // Completely stop/block response!
+  }
+
   const isDM = !message.guild;
   const userName = message.member?.displayName || message.author.displayName || message.author.username;
   const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
   const guildId = message.guild?.id || null;
 
   // Record user interaction in encrypted vault (Zero-Knowledge AES-256-GCM Storage & Strict Lock-In)
-  const { recordUserInteraction } = require('./vault');
   const nameActionResult = recordUserInteraction(message.author.id, {
     username: message.author.username,
     displayName: userName,
     guildName: message.guild?.name || null,
     channelName: message.channel?.name || null,
-    textContent: message.content
+    textContent: message.content,
+    isDM
   });
 
   if (nameActionResult) {
-    if (nameActionResult.status === 'PENDING_APPROVAL') {
+    if (nameActionResult.status === 'FIRST_REGISTRATION') {
+      return message.reply(
+        `✨ Halo **${nameActionResult.name}**! Senang kenalan sama kamu. Nama panggilanmu telah resmi didaftarkan & dikunci secara permanen di database AZURA 🔒.\n\n` +
+        `⚠️ **Peringatan Keamanan & Ketentuan Penggunaan:**\n` +
+        `1. Dilarang keras memalsukan identitas, menggunakan nama panggilan orang lain, atau mengklaim identitas staf/creator.\n` +
+        `2. Jika terdeteksi melakukan pelanggaran, penipuan identitas, atau penyalahgunaan sistem, AZURA berhak untuk **menghentikan seluruh akses interaksi (Blokir Total)** baik di Server maupun di DM.\n` +
+        `3. Perubahan nama hanya dapat dilakukan melalui persetujuan langsung dari Attila (Creator).`
+      );
+    } else if (nameActionResult.status === 'PENDING_APPROVAL') {
       if (config.OWNER_DISCORD_ID) {
         const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
         if (owner) {
@@ -512,6 +527,18 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 // Event: Interaction (Slash Commands, Button Clicks, & Select Menus)
 client.on('interactionCreate', async (interaction) => {
+  const { isUserBanned } = require('./vault');
+  if (isUserBanned(interaction.user.id)) {
+    console.log(`[Security Guard]: 🛑 Blocked interaction from BLACKLISTED user @${interaction.user.tag} (${interaction.user.id})`);
+    if (interaction.isRepliable()) {
+      return interaction.reply({
+        content: '🚫 Akses kamu ke seluruh layanan AZURA telah dihentikan secara permanen (Diblokir Total).',
+        flags: 64
+      });
+    }
+    return;
+  }
+
   if (interaction.isButton()) {
     const { handleSendDmButton } = require('./ownerDm');
     const { handleSendChannelButton } = require('./sendChannel');

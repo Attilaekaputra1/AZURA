@@ -10,10 +10,12 @@ const crypto = require('crypto');
 const config = require('./config');
 
 const VAULT_FILE_PATH = path.join(__dirname, '../data/user_vault.enc');
+const BLACKLIST_FILE_PATH = path.join(__dirname, '../data/user_blacklist.enc');
 const VAULT_SALT = 'azura_salt_zero_knowledge_vault_2026';
 
 // In-memory cache of decrypted records (accessible strictly by internal vault functions)
 let userVaultCache = new Map();
+let userBlacklistCache = new Map(); // userId -> { userId, username, displayName, reason, bannedAt, bannedBy }
 let isVaultLoaded = false;
 
 /**
@@ -86,7 +88,7 @@ function decryptPayload(envelopeStr) {
 }
 
 /**
- * Load and decrypt the user database from disk
+ * Load and decrypt user database and blacklist database from disk
  */
 function loadVault() {
   if (isVaultLoaded) return;
@@ -96,6 +98,7 @@ function loadVault() {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
+    // 1. Load User Vault
     if (fs.existsSync(VAULT_FILE_PATH)) {
       const encryptedData = fs.readFileSync(VAULT_FILE_PATH, 'utf8');
       const decrypted = decryptPayload(encryptedData);
@@ -107,27 +110,48 @@ function loadVault() {
       userVaultCache = new Map();
       saveVault();
     }
+
+    // 2. Load Blacklist Database
+    if (fs.existsSync(BLACKLIST_FILE_PATH)) {
+      const encryptedBl = fs.readFileSync(BLACKLIST_FILE_PATH, 'utf8');
+      const decryptedBl = decryptPayload(encryptedBl);
+      if (decryptedBl && typeof decryptedBl === 'object') {
+        userBlacklistCache = new Map(Object.entries(decryptedBl));
+        console.log(`[User Vault Engine]: 🛡️ Decrypted and loaded ${userBlacklistCache.size} blacklisted identities.`);
+      }
+    } else {
+      userBlacklistCache = new Map();
+    }
+
     isVaultLoaded = true;
   } catch (err) {
     console.error('[User Vault Load Error]:', err.message);
     userVaultCache = new Map();
+    userBlacklistCache = new Map();
     isVaultLoaded = true;
   }
 }
 
 /**
- * Encrypt and atomically save user database to disk
+ * Encrypt and atomically save user database and blacklist to disk
  */
 function saveVault() {
   try {
+    // 1. Save User Vault
     const plainObj = Object.fromEntries(userVaultCache);
     const encryptedEnvelope = encryptPayload(plainObj);
-
     const tmpPath = `${VAULT_FILE_PATH}.tmp`;
     fs.writeFileSync(tmpPath, encryptedEnvelope, 'utf8');
     fs.renameSync(tmpPath, VAULT_FILE_PATH);
+
+    // 2. Save Blacklist Vault
+    const plainBl = Object.fromEntries(userBlacklistCache);
+    const encryptedBl = encryptPayload(plainBl);
+    const tmpBlPath = `${BLACKLIST_FILE_PATH}.tmp`;
+    fs.writeFileSync(tmpBlPath, encryptedBl, 'utf8');
+    fs.renameSync(tmpBlPath, BLACKLIST_FILE_PATH);
   } catch (err) {
-    console.error('[User Vault Save Error]: Failed to save encrypted vault:', err.message);
+    console.error('[User Vault Save Error]: Failed to save encrypted vault/blacklist:', err.message);
   }
 }
 
@@ -283,6 +307,14 @@ function recordUserInteraction(userId, meta = {}) {
       totalMessages: 0,
       totalVoiceTurns: 0,
       totalInteractions: 0,
+      serverMessages: 0,
+      dmMessages: 0,
+      usedInServer: false,
+      usedInDm: false,
+      isBanned: false,
+      banReason: null,
+      bannedAt: null,
+      bannedBy: null,
       sessionCookie: generateSessionCookie(userId, nowIso),
       activeServers: [],
       activeChannels: [],
@@ -294,6 +326,16 @@ function recordUserInteraction(userId, meta = {}) {
   user.username = meta.username || user.username;
   user.displayName = meta.displayName || user.displayName;
   user.lastSeen = nowIso;
+
+  // Track Scope: DM vs Server
+  const isDM = meta.isDM || !meta.guildName;
+  if (isDM) {
+    user.dmMessages = (user.dmMessages || 0) + 1;
+    user.usedInDm = true;
+  } else {
+    user.serverMessages = (user.serverMessages || 0) + 1;
+    user.usedInServer = true;
+  }
 
   if (meta.isVoice) {
     user.totalVoiceTurns = (user.totalVoiceTurns || 0) + 1;
@@ -370,6 +412,92 @@ function recordUserInteraction(userId, meta = {}) {
   userVaultCache.set(userId, user);
   saveVault();
   return nameActionResult;
+}
+
+/**
+ * Check if a user is currently banned / blacklisted (O(1) in-memory check)
+ * @param {string} userId 
+ * @returns {boolean}
+ */
+function isUserBanned(userId) {
+  if (!userId) return false;
+  loadVault();
+  return userBlacklistCache.has(userId);
+}
+
+/**
+ * Ban / Blacklist a user from all AZURA services (Owner Only or Auto-Security)
+ * @param {string} targetQuery 
+ * @param {string} reason 
+ * @param {string} bannedBy 
+ */
+function banUser(targetQuery, reason = 'Pelanggaran ketentuan penggunaan AZURA', bannedBy = 'ATTILA_OWNER') {
+  loadVault();
+  const user = getUserRecord(targetQuery);
+  const targetId = user ? user.userId : String(targetQuery).replace(/<@!?(\d+)>/, '$1').trim();
+  const targetUsername = user ? user.username : 'unknown';
+  const targetDisplayName = user ? user.displayName : 'User';
+
+  const banRecord = {
+    userId: targetId,
+    username: targetUsername,
+    displayName: targetDisplayName,
+    reason,
+    bannedAt: new Date().toISOString(),
+    bannedBy
+  };
+
+  userBlacklistCache.set(targetId, banRecord);
+
+  // If user exists in vault, mark banned status
+  if (userVaultCache.has(targetId)) {
+    const u = userVaultCache.get(targetId);
+    u.isBanned = true;
+    u.banReason = reason;
+    u.bannedAt = banRecord.bannedAt;
+    u.bannedBy = bannedBy;
+  }
+
+  saveVault();
+  console.log(`[User Vault Security]: 🚫 User ${targetId} (@${targetUsername}) has been PERMANENTLY BLACKLISTED by ${bannedBy}. Reason: ${reason}`);
+  return { success: true, ...banRecord };
+}
+
+/**
+ * Unban / Remove user from blacklist (Owner Only)
+ * @param {string} targetQuery 
+ */
+function unbanUser(targetQuery) {
+  loadVault();
+  const user = getUserRecord(targetQuery);
+  const targetId = user ? user.userId : String(targetQuery).replace(/<@!?(\d+)>/, '$1').trim();
+
+  if (!userBlacklistCache.has(targetId)) {
+    return { success: false, message: 'User tidak ditemukan di daftar blacklist.' };
+  }
+
+  const prev = userBlacklistCache.get(targetId);
+  userBlacklistCache.delete(targetId);
+
+  if (userVaultCache.has(targetId)) {
+    const u = userVaultCache.get(targetId);
+    u.isBanned = false;
+    u.banReason = null;
+    u.bannedAt = null;
+    u.bannedBy = null;
+  }
+
+  saveVault();
+  console.log(`[User Vault Security]: 🔓 User ${targetId} has been UNBANNED.`);
+  return { success: true, userId: targetId, username: prev.username };
+}
+
+/**
+ * Get all blacklisted users
+ */
+function getBlacklist() {
+  loadVault();
+  return Array.from(userBlacklistCache.values());
 }
 
 /**
@@ -459,6 +587,12 @@ function getAllUsersList() {
     totalMessages: u.totalMessages || 0,
     totalVoiceTurns: u.totalVoiceTurns || 0,
     totalInteractions: (u.totalMessages || 0) + (u.totalVoiceTurns || 0),
+    serverMessages: u.serverMessages || 0,
+    dmMessages: u.dmMessages || 0,
+    usedInServer: !!u.usedInServer || (u.activeServers && u.activeServers.length > 0),
+    usedInDm: !!u.usedInDm,
+    isBanned: userBlacklistCache.has(u.userId) || !!u.isBanned,
+    banReason: u.banReason || userBlacklistCache.get(u.userId)?.reason || null,
     relationshipTier: getRelationshipTier(u.userId, (u.totalMessages || 0) + (u.totalVoiceTurns || 0)).badge,
     activeServers: u.activeServers || [],
     firstSeen: u.firstSeen,
@@ -477,6 +611,10 @@ function getVaultStats() {
   const totalMessages = allUsers.reduce((sum, u) => sum + (u.totalMessages || 0), 0);
   const totalVoiceTurns = allUsers.reduce((sum, u) => sum + (u.totalVoiceTurns || 0), 0);
   const totalInteractions = totalMessages + totalVoiceTurns;
+  const totalDmMessages = allUsers.reduce((sum, u) => sum + (u.dmMessages || 0), 0);
+  const totalServerMessages = allUsers.reduce((sum, u) => sum + (u.serverMessages || 0), 0);
+  const usersWithDm = allUsers.filter(u => u.usedInDm || u.dmMessages > 0).length;
+  const totalBanned = userBlacklistCache.size;
 
   const now = Date.now();
   const activeToday = allUsers.filter(u => {
@@ -497,6 +635,10 @@ function getVaultStats() {
         knownRealName: u.knownRealName || null,
         totalMessages: u.totalMessages || 0,
         totalVoiceTurns: u.totalVoiceTurns || 0,
+        serverMessages: u.serverMessages || 0,
+        dmMessages: u.dmMessages || 0,
+        usedInDm: !!u.usedInDm,
+        isBanned: userBlacklistCache.has(u.userId) || !!u.isBanned,
         totalInteractions: count,
         relationshipTier: relTier.badge,
         firstSeen: u.firstSeen,
@@ -509,9 +651,14 @@ function getVaultStats() {
     totalMessages,
     totalVoiceTurns,
     totalInteractions,
+    totalServerMessages,
+    totalDmMessages,
+    usersWithDm,
+    totalBanned,
     activeToday,
     topUsers,
     storageFile: VAULT_FILE_PATH,
+    blacklistFile: BLACKLIST_FILE_PATH,
     encryption: 'AES-256-GCM (Authenticated)'
   };
 }
@@ -543,9 +690,19 @@ function getUserRecord(query) {
   if (user) {
     const count = (user.totalInteractions || (user.totalMessages || 0) + (user.totalVoiceTurns || 0));
     const relTier = getRelationshipTier(user.userId, count);
+    const isBanned = userBlacklistCache.has(user.userId) || !!user.isBanned;
+    const banInfo = userBlacklistCache.get(user.userId) || null;
     return {
       ...user,
       totalInteractions: count,
+      serverMessages: user.serverMessages || 0,
+      dmMessages: user.dmMessages || 0,
+      usedInServer: !!user.usedInServer || (user.activeServers && user.activeServers.length > 0),
+      usedInDm: !!user.usedInDm,
+      isBanned,
+      banReason: user.banReason || banInfo?.reason || null,
+      bannedAt: user.bannedAt || banInfo?.bannedAt || null,
+      bannedBy: user.bannedBy || banInfo?.bannedBy || null,
       relationshipTier: relTier.badge,
       relationshipPromptHint: relTier.promptHint
     };
@@ -564,7 +721,7 @@ function exportVaultData(format = 'json') {
   const allUsers = Array.from(userVaultCache.values());
 
   if (format === 'csv') {
-    const headers = ['User ID', 'Username', 'Display Name', 'Known Real Name', 'Total Interactions', 'Total Messages', 'Total Voice Turns', 'First Seen', 'Last Seen', 'Active Servers', 'Session Cookie'];
+    const headers = ['User ID', 'Username', 'Display Name', 'Known Real Name', 'Total Interactions', 'Total Messages', 'Server Messages', 'DM Messages', 'Used In DM', 'Total Voice Turns', 'Is Banned', 'First Seen', 'Last Seen', 'Active Servers', 'Session Cookie'];
     const rows = allUsers.map(u => {
       const count = (u.totalInteractions || (u.totalMessages || 0) + (u.totalVoiceTurns || 0));
       return [
@@ -574,7 +731,11 @@ function exportVaultData(format = 'json') {
         `"${(u.knownRealName || '-').replace(/"/g, '""')}"`,
         count,
         u.totalMessages || 0,
+        u.serverMessages || 0,
+        u.dmMessages || 0,
+        u.usedInDm ? 'YES' : 'NO',
         u.totalVoiceTurns || 0,
+        userBlacklistCache.has(u.userId) || u.isBanned ? 'BANNED' : 'ACTIVE',
         `"${u.firstSeen}"`,
         `"${u.lastSeen}"`,
         `"${(u.activeServers || []).join(', ').replace(/"/g, '""')}"`,
@@ -584,7 +745,10 @@ function exportVaultData(format = 'json') {
     return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   }
 
-  return JSON.stringify(allUsers, null, 2);
+  return JSON.stringify({
+    users: allUsers,
+    blacklist: Array.from(userBlacklistCache.values())
+  }, null, 2);
 }
 
 module.exports = {
@@ -602,5 +766,9 @@ module.exports = {
   rejectPendingNameChange,
   setUserNameByOwner,
   unlockUserNameByOwner,
-  getAllUsersList
+  getAllUsersList,
+  isUserBanned,
+  banUser,
+  unbanUser,
+  getBlacklist
 };

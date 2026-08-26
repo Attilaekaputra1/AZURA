@@ -620,11 +620,55 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    // Handle Feedback & To-Do Lifecycle buttons (Owner DM)
+    if (interaction.customId.startsWith('fb_discuss:') || interaction.customId.startsWith('fb_accept:') || interaction.customId.startsWith('fb_reject:') || interaction.customId.startsWith('fb_done:')) {
+      const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+      if (!isOwner) {
+        return interaction.reply({ content: '❌ Tombol ini khusus untuk Attila (Owner).', flags: 64 });
+      }
+
+      const { consultAiOnFeedback, handleFeedbackAccept, showFeedbackRejectModal, handleFeedbackDone } = require('./feedback');
+      const ticketId = interaction.customId.split(':')[1];
+
+      if (interaction.customId.startsWith('fb_discuss:')) {
+        await interaction.deferReply({ flags: 64 });
+        const analysis = await consultAiOnFeedback(ticketId);
+        const embed = new EmbedBuilder()
+          .setColor(0x9B59B6)
+          .setTitle(`🧠 Analisis Kritis & Strategis AI • Ticket #${ticketId}`)
+          .setDescription(analysis.length > 4000 ? analysis.slice(0, 4000) + '...' : analysis)
+          .setFooter({ text: 'AZURA Strategic AI Advisory Engine' })
+          .setTimestamp();
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (interaction.customId.startsWith('fb_accept:')) {
+        return handleFeedbackAccept(interaction, ticketId);
+      }
+
+      if (interaction.customId.startsWith('fb_reject:')) {
+        return showFeedbackRejectModal(interaction, ticketId);
+      }
+
+      if (interaction.customId.startsWith('fb_done:')) {
+        return handleFeedbackDone(interaction, ticketId);
+      }
+    }
+
     // Route to correct button handler based on customId prefix
     if (interaction.customId.startsWith('confirmch_') || interaction.customId.startsWith('cancelch_')) {
       return handleSendChannelButton(interaction);
     }
     return handleSendDmButton(interaction);
+  }
+
+  // Handle Modal Submissions (e.g. Feedback Rejection Reason)
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId.startsWith('modal_fb_reject:')) {
+      const ticketId = interaction.customId.split(':')[1];
+      const { handleFeedbackRejectModalSubmit } = require('./feedback');
+      return handleFeedbackRejectModalSubmit(interaction, ticketId);
+    }
   }
 
   if (interaction.isStringSelectMenu()) {

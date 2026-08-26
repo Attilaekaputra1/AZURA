@@ -42,6 +42,12 @@ function initLivePortal() {
       return res.end(getPortalHtml());
     }
 
+    if (req.url.startsWith('/todo') || req.url.startsWith('/roadmap')) {
+      const { getTodoListHtml } = require('./feedback');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(getTodoListHtml());
+    }
+
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
   });

@@ -273,7 +273,39 @@ const commands = [
             .addChoices(
               { name: '📄 JSON Format', value: 'json' },
               { name: '📊 CSV Spreadsheet Format', value: 'csv' }
+            ))),
+
+  new SlashCommandBuilder()
+    .setName('todo')
+    .setDescription('📋 Papan To-Do List & Roadmap Pengembangan AZURA (Owner Only)')
+    .addSubcommand(sub =>
+      sub.setName('list')
+        .setDescription('Lihat daftar antrean tugas pengembangan, saran, dan perbaikan bug')
+        .addStringOption(opt =>
+          opt.setName('status')
+            .setDescription('Filter status tugas')
+            .setRequired(false)
+            .addChoices(
+              { name: '📌 In Progress (To-Do)', value: 'ACCEPTED' },
+              { name: '⏳ Pending Review', value: 'PENDING' },
+              { name: '🎉 Selesai (Completed)', value: 'DONE' },
+              { name: '❌ Ditolak (Rejected)', value: 'REJECTED' },
+              { name: '🌐 Semua Status', value: 'ALL' }
             )))
+    .addSubcommand(sub =>
+      sub.setName('done')
+        .setDescription('Tandai tugas selesai dieksekusi & otomatis kirim notifikasi kabar gembira ke user')
+        .addStringOption(opt =>
+          opt.setName('ticket')
+            .setDescription('Ticket ID tugas (misal: ADV-7B3 atau REP-9A1)')
+            .setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('discuss')
+        .setDescription('Minta analisis strategis & pertimbangan kritis AI untuk sebuah saran/bug')
+        .addStringOption(opt =>
+          opt.setName('ticket')
+            .setDescription('Ticket ID tugas (misal: ADV-7B3 atau REP-9A1)')
+            .setRequired(true)))
 ];
 
 const fs = require('fs');
@@ -958,6 +990,69 @@ async function handleSlashCommand(interaction, startTime) {
           flags: 64
         });
       }
+    }
+
+  } else if (commandName === 'todo') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({
+        content: '🔒 **Akses Ditolak!** Fitur To-Do List & Manajemen Roadmap ini khusus untuk Owner (Attila).',
+        flags: 64
+      });
+    }
+
+    const { getTodoList, handleFeedbackDone, consultAiOnFeedback } = require('./feedback');
+    const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === 'list') {
+      const statusFilter = interaction.options.getString('status') || 'ACCEPTED';
+      const items = getTodoList(statusFilter);
+
+      if (!items.length) {
+        return interaction.reply({
+          content: `📋 Tidak ada item dalam daftar To-Do untuk status: \`${statusFilter}\`.\n🌐 Akses Live Web Dashboard: http://${process.env.VPS_IP || '203.175.10.163'}:7860/todo`,
+          flags: 64
+        });
+      }
+
+      const formatted = items.map((t, i) => {
+        const isAdv = t.type === 'advice';
+        const typeIcon = isAdv ? '💡 [Advice]' : '🐛 [Bug Report]';
+        let statusBadge = '⏳ `PENDING`';
+        if (t.status === 'ACCEPTED') statusBadge = '📌 `IN PROGRESS`';
+        if (t.status === 'DONE') statusBadge = '🎉 `DONE`';
+        if (t.status === 'REJECTED') statusBadge = '❌ `REJECTED`';
+
+        const createdDate = new Date(t.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        return `${i + 1}. **#${t.ticketId}** ${typeIcon} • ${statusBadge}\n   👤 **Dari:** **${t.userName}** (\`${t.userTag}\`) [${createdDate}]\n   📝 **Pesan:** *"${t.content.slice(0, 150)}${t.content.length > 150 ? '...' : ''}"*`;
+      }).join('\n\n');
+
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`📋 AZURA Roadmap & To-Do List (${items.length} Item - ${statusFilter})`)
+        .setDescription(formatted.length > 4000 ? formatted.slice(0, 4000) + '...' : formatted)
+        .setFooter({ text: `🌐 Web Dashboard: http://${process.env.VPS_IP || '203.175.10.163'}:7860/todo` })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
+
+    } else if (subcommand === 'done') {
+      const ticketId = interaction.options.getString('ticket').toUpperCase().replace('#', '');
+      return await handleFeedbackDone(interaction, ticketId);
+
+    } else if (subcommand === 'discuss') {
+      const ticketId = interaction.options.getString('ticket').toUpperCase().replace('#', '');
+      await interaction.deferReply({ flags: 64 });
+      const analysis = await consultAiOnFeedback(ticketId);
+
+      const embed = new EmbedBuilder()
+        .setColor(0x9B59B6)
+        .setTitle(`🧠 Analisis Kritis & Strategis AI • Ticket #${ticketId}`)
+        .setDescription(analysis.length > 4000 ? analysis.slice(0, 4000) + '...' : analysis)
+        .setFooter({ text: 'AZURA Strategic AI Advisory Engine' })
+        .setTimestamp();
+
+      return interaction.editReply({ embeds: [embed] });
     }
   }
 }

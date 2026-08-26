@@ -483,11 +483,21 @@ async function streamAzura(userPrompt, options = {}, onToken = null) {
     userName = 'Attila',
     userId = config.OWNER_DISCORD_ID,
     isVoice = true,
-    contextKey = 'voice_stream'
+    contextKey = 'voice_stream',
+    useVoiceProjection = false
   } = options;
 
-  const isOwner = (userId === config.OWNER_DISCORD_ID);
-  const systemMessage = getSystemPrompt(userName, userId, false, contextKey, [], isVoice);
+  let systemMessage = '';
+  if (useVoiceProjection && isVoice) {
+    try {
+      const { getVoiceContextProjection } = require('./voiceContextProjection');
+      systemMessage = getVoiceContextProjection(userName, userId, options).projectedPrompt;
+    } catch (_) {
+      systemMessage = getSystemPrompt(userName, userId, false, contextKey, [], isVoice);
+    }
+  } else {
+    systemMessage = getSystemPrompt(userName, userId, false, contextKey, [], isVoice);
+  }
 
   const messages = [
     { role: 'system', content: systemMessage },

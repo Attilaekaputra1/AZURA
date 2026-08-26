@@ -703,7 +703,13 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // Route to correct button handler based on customId prefix
-    if (interaction.customId.startsWith('confirmch_') || interaction.customId.startsWith('cancelch_')) {
+    if (
+      interaction.customId.startsWith('confirmch_') ||
+      interaction.customId.startsWith('cancelch_') ||
+      interaction.customId.startsWith('rephrasech_') ||
+      interaction.customId.startsWith('regenrephrasech_') ||
+      interaction.customId.startsWith('directch_')
+    ) {
       return handleSendChannelButton(interaction);
     }
     return handleSendDmButton(interaction);

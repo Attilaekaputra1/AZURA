@@ -141,13 +141,25 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('sendch')
-    .setDescription('Kirim pesan ke channel server melalui AZURA (Khusus Owner - Hanya di Server)')
+    .setDescription('Kirim pesan ke channel server melalui AZURA (Khusus Owner - Global / DM / Server)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.Guild)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('pesan')
-        .setDescription('Isi pesan yang ingin dikirim ke channel server')
-        .setRequired(true)),
+        .setDescription('Isi pesan atau poin/instruksi yang ingin disampaikan ke channel')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('mode')
+        .setDescription('Pilih mode penyampaian pesan (Direct atau Rangkaian Kata AZURA)')
+        .setRequired(false)
+        .addChoices(
+          { name: '✍️ Direct (Pesan asli persis dari Attila)', value: 'direct' },
+          { name: '✨ Dirangkai AZURA (AZURA rangkai kata-kata ramah & natural)', value: 'azura' }
+        ))
+    .addChannelOption(option =>
+      option.setName('channel')
+        .setDescription('Pilih channel target pengiriman secara langsung (Opsional)')
+        .setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('image')
@@ -743,12 +755,6 @@ async function handleSlashCommand(interaction, startTime) {
     await handleSendDmCommand(interaction);
 
   } else if (commandName === 'sendch') {
-    if (!interaction.guild) {
-      return interaction.reply({
-        content: '⚠️ Perintah `/sendch` hanya dapat digunakan di dalam **Server**.',
-        flags: 64
-      });
-    }
     await handleSendChannelCommand(interaction);
 
   } else if (commandName === 'image') {

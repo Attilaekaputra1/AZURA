@@ -48,6 +48,8 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
     } catch (_) {}
   }
 
+  const isOwner = (userId === config.OWNER_DISCORD_ID);
+
   let behaviorPrompt = '';
   try {
     const { getBehaviorContextForPrompt } = require('./behavior');
@@ -78,8 +80,6 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
       }
     } catch (_) {}
   }
-
-  const isOwner = (userId === config.OWNER_DISCORD_ID);
 
   let toneAndRelationshipGuideline = '';
   if (isOwner) {

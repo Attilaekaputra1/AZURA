@@ -2226,6 +2226,7 @@ module.exports = {
   getActiveVoiceSession,
   getLiveVoiceTranscriptContext,
   generateLiveVoiceSummary,
+  generateVoiceAIResponse,
   recordSessionEntry,
   speakTextInVC,
   audioPlayers,

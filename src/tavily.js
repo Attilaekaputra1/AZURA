@@ -1,4 +1,5 @@
 const https = require('https');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('./config');
 
 const TAVILY_API_KEY = config.TAVILY_API_KEY || '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';
@@ -244,8 +245,6 @@ async function processTavilyIntelligence(prompt) {
   console.log(`[Tavily Engine]: Executing General Search (topic: general, depth: advanced)...`);
   return await searchTavily(prompt, 'general');
 }
-
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 /**
  * Searches Tavily and formats into a rich, compact Discord Embed with Thumbnail and Link Buttons.

@@ -12,33 +12,28 @@ const { handleSendDmCommand, handleListScheduledCommand } = require('./ownerDm')
 const { handleSendChannelCommand } = require('./sendChannel');
 const { generateAiImage, buildImageEmbed, checkImageQuota, recordImageGeneration } = require('./imageGen');
 
-// Definition of slash commands with scoped contexts (Server vs DM)
+// Definition of slash commands
 const commands = [
   new SlashCommandBuilder()
     .setName('help')
-    .setDescription('Tampilkan panduan interaktif seluruh fitur & perintah AZURA')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM),
+    .setDescription('Tampilkan panduan interaktif seluruh fitur & perintah AZURA'),
 
   new SlashCommandBuilder()
     .setName('scheduled')
     .setDescription('Lihat & kelola antrean DM yang sedang dijadwalkan (Khusus Owner - Hanya di DM)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.BotDM),
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('reset')
-    .setDescription('Mereset riwayat percakapan kamu dengan AZURA (Hanya di DM Pribadi)')
-    .setContexts(InteractionContextType.BotDM),
+    .setDescription('Mereset riwayat percakapan kamu dengan AZURA (Hanya di DM Pribadi)'),
 
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Melihat status sistem dan performa AZURA')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM),
+    .setDescription('Melihat status sistem dan performa AZURA'),
 
   new SlashCommandBuilder()
     .setName('remindme')
     .setDescription('Minta AZURA mengingatkan kamu setelah waktu tertentu')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('waktu')
         .setDescription('Berapa lama? Contoh: 5m (5 menit), 1h (1 jam), 30s (30 detik)')
@@ -51,7 +46,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('vn')
     .setDescription('Minta AZURA membalas dengan Voice Note (pesan suara)')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('teks')
         .setDescription('Teks yang ingin diucapkan AZURA')
@@ -60,7 +54,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('memory')
     .setDescription('Melihat, mengaudit relevansi, atau mengelola memori jangka panjang AZURA')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('aksi')
         .setDescription('Pilih aksi memori')
@@ -82,7 +75,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('search')
     .setDescription('Lakukan pencarian berita & web live dengan Tavily AI Engine')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('query')
         .setDescription('Apa yang ingin kamu cari di internet?')
@@ -92,7 +84,6 @@ const commands = [
     .setName('agent')
     .setDescription('Jalankan tugas otonom, riset teknis, atau automasi dengan Hermes Agent (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('tugas')
         .setDescription('Instruksi atau tugas yang ingin dijalankan oleh Hermes Agent')
@@ -101,7 +92,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('crypto')
     .setDescription('Cek harga kripto / kurs USD real-time (CoinGecko & ExchangeRate-API)')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('koin')
         .setDescription('Nama koin (contoh: btc, eth, sol, bnb) atau ketik "usd" untuk kurs dollar')
@@ -110,7 +100,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('anime')
     .setDescription('Cari anime atau minta rekomendasi berdasarkan genre (MyAnimeList / Jikan API)')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('judul')
         .setDescription('Cari anime spesifik berdasarkan judul (contoh: Naruto, One Piece)')
@@ -124,7 +113,6 @@ const commands = [
     .setName('setowner')
     .setDescription('Daftarkan/ubah Owner utama AZURA (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addUserOption(option =>
       option.setName('target')
         .setDescription('Pilih user Discord yang ingin dijadikan Owner baru (Kosongkan untuk diri sendiri)')
@@ -134,7 +122,6 @@ const commands = [
     .setName('senddm')
     .setDescription('Kirim Direct Message (DM) ke member server (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('target')
         .setDescription('Display Name / Username / Nickname / ID member yang ingin dikirimi DM')
@@ -148,7 +135,6 @@ const commands = [
     .setName('sendch')
     .setDescription('Kirim pesan ke channel server melalui AZURA (Khusus Owner - Global / DM / Server)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan atau poin/instruksi yang ingin disampaikan ke channel')
@@ -165,7 +151,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('image')
     .setDescription('Generate gambar AI dengan OpenAI (Portrait, Landscape, Square)')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('prompt')
         .setDescription('Deskripsi gambar yang ingin dibuat (Contoh: cyber city night, anime girl)')
@@ -199,7 +184,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('activity')
     .setDescription('Luncurkan sesi YouTube Watch Together atau Game sinkron di Voice Channel (Hanya di Server)')
-    .setContexts(InteractionContextType.Guild)
     .addStringOption(option =>
       option.setName('jenis')
         .setDescription('Pilih jenis aktivitas')
@@ -215,7 +199,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('report')
     .setDescription('Kirim Saran (Advice) atau Laporan Bug (Report) langsung ke Creator AZURA')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('kategori')
         .setDescription('Pilih kategori (Saran / Laporan Bug)')
@@ -237,7 +220,6 @@ const commands = [
     .setName('vault')
     .setDescription('Kelola & lihat Database Pengguna Terenkripsi AES-256-GCM (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addSubcommand(sub =>
       sub.setName('stats')
         .setDescription('Lihat statistik & rekap pengguna aktif di database terenkripsi'))
@@ -309,7 +291,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('roadmap')
     .setDescription('📋 Papan Roadmap & Tiket Pengembangan Saran/Bug AZURA (Owner Only)')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addSubcommand(sub =>
       sub.setName('list')
         .setDescription('Lihat daftar antrean tugas pengembangan, saran, dan perbaikan bug')
@@ -343,7 +324,6 @@ const commands = [
     .setName('personality')
     .setDescription('Ubah mode kepribadian AZURA (Khusus Owner Attila)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('mode')
         .setDescription('Pilih mode kepribadian AZURA')
@@ -357,7 +337,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('behavior')
     .setDescription('Kelola atau hapus data rekaman sifat & behavior publik kamu dari memori AZURA')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('aksi')
         .setDescription('Pilih aksi kelola behavior')
@@ -376,7 +355,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('todo')
     .setDescription('Kelola agenda dan to-do list tugas kamu via Web Dashboard AZURA')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addStringOption(option =>
       option.setName('aksi')
         .setDescription('Pilih aksi to-do list')
@@ -411,7 +389,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('friend')
     .setDescription('Kelola whitelist akses eksklusif & kuota teman (Khusus Attila / Owner)')
-    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
     .addSubcommand(sub =>
       sub.setName('add')
         .setDescription('Beri akses eksklusif beta testing voice & kirim DM sambutan estetik')
@@ -479,26 +456,30 @@ async function registerSlashCommands(client) {
   const commandBody = commands.map(c => c.toJSON());
 
   try {
-    // Register global slash commands
+    // 1. Register global slash commands
     await rest.put(
       Routes.applicationCommands(config.DISCORD_CLIENT_ID),
       { body: commandBody }
     );
+    console.log(`[AZURA]: Global Slash commands (${commandBody.length} perintah) berhasil terdaftar!`);
 
-    // Clear guild-level duplicate commands so commands don't show up twice/thrice in Discord UI
+    // 2. Also register directly to all active Guilds for INSTANT 0-second availability in Discord UI
     if (client && client.guilds && client.guilds.cache.size > 0) {
       for (const guildId of client.guilds.cache.keys()) {
         await rest.put(
           Routes.applicationGuildCommands(config.DISCORD_CLIENT_ID, guildId),
-          { body: [] }
-        ).catch(() => {});
+          { body: commandBody }
+        ).catch(err => {
+          console.warn(`[AZURA Warning]: Gagal mendaftarkan guild commands di guild ${guildId}:`, err.message);
+        });
       }
-      console.log('[AZURA]: Duplicate guild commands successfully cleaned up!');
+      console.log(`[AZURA]: Guild Slash commands instan berhasil disinkronkan ke ${client.guilds.cache.size} server!`);
     }
-
-    console.log('[AZURA]: Global Slash commands berhasil terdaftar!');
   } catch (error) {
     console.error('[AZURA Error]: Gagal mendaftarkan slash commands:', error.message || error);
+    if (error.rawError) {
+      console.error('[AZURA Error Details]:', JSON.stringify(error.rawError, null, 2));
+    }
   }
 }
 

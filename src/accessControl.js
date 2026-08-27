@@ -1,0 +1,438 @@
+const fs = require('fs');
+const path = require('path');
+const { EmbedBuilder } = require('discord.js');
+const config = require('./config');
+
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const APPROVED_FRIENDS_FILE = path.join(DATA_DIR, 'approved_friends.json');
+const MAX_DAILY_VOICE_SECONDS = 120; // 2 minutes max per 24 hours per friend
+const RESET_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// In-memory cache: userId -> FriendRecord
+let approvedFriendsCache = new Map();
+
+/**
+ * Load approved friends from disk
+ */
+function loadApprovedFriends() {
+  try {
+    if (fs.existsSync(APPROVED_FRIENDS_FILE)) {
+      const raw = fs.readFileSync(APPROVED_FRIENDS_FILE, 'utf8');
+      const data = JSON.parse(raw || '{}');
+      approvedFriendsCache.clear();
+      for (const [uid, record] of Object.entries(data)) {
+        approvedFriendsCache.set(uid, record);
+      }
+    }
+  } catch (err) {
+    console.error('[AccessControl Error]: Failed to read approved_friends.json:', err.message);
+  }
+}
+
+/**
+ * Save approved friends to disk atomically
+ */
+function saveApprovedFriends() {
+  try {
+    const data = Object.fromEntries(approvedFriendsCache);
+    const tmp = `${APPROVED_FRIENDS_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tmp, APPROVED_FRIENDS_FILE);
+  } catch (err) {
+    console.error('[AccessControl Error]: Failed to save approved_friends.json:', err.message);
+  }
+}
+
+// Initial load
+loadApprovedFriends();
+
+/**
+ * Check if a user is an approved friend (or the owner)
+ * @param {string} userId 
+ * @returns {boolean}
+ */
+function isApprovedFriend(userId) {
+  if (!userId) return false;
+  if (userId === config.OWNER_DISCORD_ID) return true;
+  loadApprovedFriends();
+  return approvedFriendsCache.has(userId);
+}
+
+/**
+ * Get approved friend record
+ * @param {string} userId 
+ * @returns {object|null}
+ */
+function getApprovedFriend(userId) {
+  loadApprovedFriends();
+  return approvedFriendsCache.get(userId) || null;
+}
+
+/**
+ * Format milliseconds into human readable countdown string (e.g. "14 Jam 28 Menit")
+ * @param {number} ms 
+ * @returns {string}
+ */
+function formatCountdown(ms) {
+  if (ms <= 0) return '0 Menit';
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const parts = [];
+  if (hours > 0) parts.push(`${hours} Jam`);
+  if (minutes > 0) parts.push(`${minutes} Menit`);
+  if (hours === 0 && seconds > 0) parts.push(`${seconds} Detik`);
+  return parts.join(' ') || '1 Menit';
+}
+
+/**
+ * Check a friend's daily 2-minute voice quota in the 24-hour sliding window
+ * @param {string} userId 
+ * @returns {{ allowed: boolean, usedSeconds: number, remainingSeconds: number, maxDailySeconds: number, resetAt: number, timeLeftStr: string, resetAtStr: string }}
+ */
+function checkFriendDailyVoiceQuota(userId) {
+  loadApprovedFriends();
+  const friend = approvedFriendsCache.get(userId);
+  if (!friend) {
+    return {
+      allowed: false,
+      usedSeconds: 0,
+      remainingSeconds: 0,
+      maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+      resetAt: Date.now(),
+      timeLeftStr: '0 Menit',
+      resetAtStr: '-'
+    };
+  }
+
+  const now = Date.now();
+  let quota = friend.quota || {
+    windowStart: now,
+    usedSeconds: 0,
+    maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+    warned80Sent: false,
+    warned100Sent: false
+  };
+
+  // Check if 24-hour reset window has elapsed
+  if (now - quota.windowStart >= RESET_WINDOW_MS) {
+    quota.windowStart = now;
+    quota.usedSeconds = 0;
+    quota.warned80Sent = false;
+    quota.warned100Sent = false;
+    friend.quota = quota;
+    saveApprovedFriends();
+    console.log(`[Friend Quota Engine]: 🔄 24-Hour window expired for friend ${userId}. Quota reset to 0s/120s.`);
+  }
+
+  const resetAt = quota.windowStart + RESET_WINDOW_MS;
+  const msLeft = Math.max(0, resetAt - now);
+  const timeLeftStr = formatCountdown(msLeft);
+  const resetDate = new Date(resetAt);
+  const resetAtStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+  const usedSeconds = Math.round(quota.usedSeconds || 0);
+  const remainingSeconds = Math.max(0, MAX_DAILY_VOICE_SECONDS - usedSeconds);
+  const allowed = usedSeconds < MAX_DAILY_VOICE_SECONDS;
+
+  return {
+    allowed,
+    usedSeconds,
+    remainingSeconds,
+    maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+    resetAt,
+    timeLeftStr,
+    resetAtStr
+  };
+}
+
+/**
+ * Record speech duration usage for an approved friend and automatically send proactive DMs
+ * @param {string} userId 
+ * @param {number} durationSeconds 
+ * @param {import('discord.js').Client} [client] 
+ */
+async function recordFriendVoiceUsage(userId, durationSeconds, client = null) {
+  if (userId === config.OWNER_DISCORD_ID) return; // Owner has unlimited quota
+  loadApprovedFriends();
+  const friend = approvedFriendsCache.get(userId);
+  if (!friend) return;
+
+  const now = Date.now();
+  if (!friend.quota) {
+    friend.quota = {
+      windowStart: now,
+      usedSeconds: 0,
+      maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+      warned80Sent: false,
+      warned100Sent: false
+    };
+  }
+
+  // Check 24h reset
+  if (now - friend.quota.windowStart >= RESET_WINDOW_MS) {
+    friend.quota.windowStart = now;
+    friend.quota.usedSeconds = 0;
+    friend.quota.warned80Sent = false;
+    friend.quota.warned100Sent = false;
+  }
+
+  // Increment usage
+  friend.quota.usedSeconds = Math.min(MAX_DAILY_VOICE_SECONDS, (friend.quota.usedSeconds || 0) + durationSeconds);
+  friend.totalVoiceSecondsAllTime = (friend.totalVoiceSecondsAllTime || 0) + durationSeconds;
+  friend.lastSpokeAt = new Date().toISOString();
+  saveApprovedFriends();
+
+  const used = Math.round(friend.quota.usedSeconds);
+  const remaining = Math.max(0, MAX_DAILY_VOICE_SECONDS - used);
+  const resetAt = friend.quota.windowStart + RESET_WINDOW_MS;
+  const timeLeftStr = formatCountdown(Math.max(0, resetAt - now));
+  const resetDate = new Date(resetAt);
+  const resetTimeStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+  console.log(`[Friend Quota]: Friend "${friend.displayName}" (${userId}) used +${durationSeconds}s. Total today: ${used}s/120s. Remaining: ${remaining}s.`);
+
+  if (!client) return;
+
+  // 1. Proactive DM: 80% Warning (~96 seconds)
+  if (used >= 96 && used < 120 && !friend.quota.warned80Sent) {
+    friend.quota.warned80Sent = true;
+    saveApprovedFriends();
+    await sendQuota80WarningDM(userId, friend, used, remaining, client).catch(err => {
+      console.error('[Friend Quota DM Error]:', err.message);
+    });
+  }
+
+  // 2. Proactive DM: 100% Exhaustion Warning (120 seconds)
+  if (used >= 120 && !friend.quota.warned100Sent) {
+    friend.quota.warned100Sent = true;
+    saveApprovedFriends();
+    await sendQuota100ExhaustedDM(userId, friend, timeLeftStr, resetTimeStr, client).catch(err => {
+      console.error('[Friend Quota DM Error]:', err.message);
+    });
+  }
+}
+
+/**
+ * Send Aesthetic Onboarding Welcome DM to newly approved friend
+ */
+async function sendOnboardingDM(userId, friendRecord, client) {
+  if (!client) return;
+  try {
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (!user) return;
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8A2BE2) // Royal Purple / Aesthetic Anime Tone
+      .setTitle('✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨\n🎉  CONGRATULATIONS & WELCOME!  🎉')
+      .setDescription(
+        `Halo **${friendRecord.customNickname || friendRecord.displayName}**! ✨\n\n` +
+        `Kabar gembira nih! **Attila** (<@${config.OWNER_DISCORD_ID}>) baru saja memberikan kamu **AKSES EKSKLUSIF** untuk ikutan **Beta Testing AZURA Voice Companion**! 🎙️🌸\n\n` +
+        `Aku adalah **AZURA**, AI Voice Companion yang siap nemenin kamu ngobrol langsung di Voice Channel dengan suara manusiawi penuh ekspresi, tawa, lelucon, dan jokes seru!\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📌 **PANDUAN & ATURAN AKSES EKSKLUSIF KAMU:**\n` +
+        `• 🎙️ **Kuota Voice Harian**: Maksimal **2 Menit (120 detik)** per 24 jam.\n` +
+        `• 👑 **Kehadiran Attila**: Aku bisa kamu ajak ngobrol saat Attila sedang berada di Voice Channel yang sama denganmu.\n` +
+        `• ⏳ **Real-Time 24h Reset**: Kuotamu akan otomatis di-reset 24 jam setelah pemakaian pertamamu setiap harinya.\n` +
+        `• 💬 **Panggilan Akrab**: Kamu bisa panggil *"Azura"*, *"Ara"*, *"Zura"*, atau *"Ajur"* saat di VC yaa!\n` +
+        `• 🎭 **Fitur 100% Lengkap**: Kamu bisa ajak aku bercanda, minta jokes, gombalan, atau nyanyi bareng!\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Selamat mencoba dan have fun ngobrol bareng aku dan Attila di VC yaa!* ✨💜`
+      )
+      .setFooter({ text: 'AZURA AI Voice Companion • Beta Testing Access' })
+      .setTimestamp();
+
+    await user.send({ embeds: [embed] });
+    console.log(`[AccessControl]: 💌 Sent Aesthetic Onboarding DM to ${friendRecord.displayName} (${userId})`);
+  } catch (err) {
+    console.error(`[AccessControl DM Warning]: Could not send onboarding DM to ${userId}:`, err.message);
+  }
+}
+
+/**
+ * Send 80% Quota Warning DM
+ */
+async function sendQuota80WarningDM(userId, friendRecord, usedSeconds, remainingSeconds, client) {
+  try {
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (!user) return;
+
+    const embed = new EmbedBuilder()
+      .setColor(0xFFA500) // Amber / Warning
+      .setTitle('⚠️ [PERINGATAN KUOTA VOICE AZURA - 80%]')
+      .setDescription(
+        `Halo **${friendRecord.customNickname || friendRecord.displayName}**! ✨\n\n` +
+        `Kuota ngobrol voice harianmu dengan Azura sudah mencapai **80%** (\`${usedSeconds}s / 120s\`).\n\n` +
+        `⏱️ **Sisa Kuota Hari Ini**: \`${remainingSeconds} detik\` lagi.\n\n` +
+        `*Setelah 120 detik habis, Azura akan beristirahat merespon suaramu dan otomatis membuka kembali setelah 24 jam.*`
+      )
+      .setFooter({ text: 'AZURA Voice Quota Manager' })
+      .setTimestamp();
+
+    await user.send({ embeds: [embed] });
+    console.log(`[AccessControl]: ⚠️ Sent 80% quota warning DM to ${friendRecord.displayName} (${userId})`);
+  } catch (err) {
+    console.error('[AccessControl]: Failed to send 80% DM:', err.message);
+  }
+}
+
+/**
+ * Send 100% Quota Exhausted DM with realtime countdown
+ */
+async function sendQuota100ExhaustedDM(userId, friendRecord, timeLeftStr, resetTimeStr, client) {
+  try {
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (!user) return;
+
+    const embed = new EmbedBuilder()
+      .setColor(0xED4245) // Red / Exhausted
+      .setTitle('⛔ [KUOTA VOICE AZURA HARI INI HABIS]')
+      .setDescription(
+        `Halo **${friendRecord.customNickname || friendRecord.displayName}**! ✨\n\n` +
+        `Kuota voice harian kamu (**2 menit / 120 detik**) bersama Azura telah **100% habis** untuk hari ini.\n\n` +
+        `⏳ **Akses Suara Akan Terbuka Kembali Dalam:**\n` +
+        `👉 **${timeLeftStr}** *(Pukul ${resetTimeStr})*\n\n` +
+        `*Terima kasih sudah seru-seruan ngobrol di VC hari ini! Sampai ketemu besok bareng Attila yaa!* 🌸💜`
+      )
+      .setFooter({ text: 'AZURA Voice Quota Manager • Real-Time Reset' })
+      .setTimestamp();
+
+    await user.send({ embeds: [embed] });
+    console.log(`[AccessControl]: ⛔ Sent 100% quota exhausted DM to ${friendRecord.displayName} (${userId})`);
+  } catch (err) {
+    console.error('[AccessControl]: Failed to send 100% DM:', err.message);
+  }
+}
+
+/**
+ * Approve / Add a friend to the whitelist
+ * @param {string} userId 
+ * @param {string} username 
+ * @param {string} displayName 
+ * @param {string} customNickname 
+ * @param {string} approvedBy 
+ * @param {import('discord.js').Client} [client] 
+ * @returns {object}
+ */
+async function approveFriend(userId, username, displayName, customNickname = null, approvedBy = 'Attila', client = null) {
+  loadApprovedFriends();
+  const now = Date.now();
+  const existing = approvedFriendsCache.get(userId);
+
+  const nickname = customNickname || existing?.customNickname || displayName || username || 'Teman';
+
+  const record = {
+    userId,
+    username: username || existing?.username || 'unknown',
+    displayName: displayName || existing?.displayName || nickname,
+    customNickname: nickname,
+    approvedBy,
+    approvedAt: existing?.approvedAt || new Date().toISOString(),
+    totalVoiceSecondsAllTime: existing?.totalVoiceSecondsAllTime || 0,
+    lastSpokeAt: existing?.lastSpokeAt || null,
+    quota: existing?.quota || {
+      windowStart: now,
+      usedSeconds: 0,
+      maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+      warned80Sent: false,
+      warned100Sent: false
+    }
+  };
+
+  approvedFriendsCache.set(userId, record);
+  saveApprovedFriends();
+
+  // Also sync nickname into encrypted user vault so Azura natively addresses them
+  try {
+    const { setUserNameByOwner } = require('./vault');
+    setUserNameByOwner(userId, nickname, true);
+  } catch (_) {}
+
+  // Send aesthetic welcome onboarding DM
+  if (client) {
+    await sendOnboardingDM(userId, record, client);
+  }
+
+  return record;
+}
+
+/**
+ * Revoke a friend from the whitelist
+ * @param {string} userId 
+ * @returns {boolean}
+ */
+function revokeFriend(userId) {
+  loadApprovedFriends();
+  if (!approvedFriendsCache.has(userId)) return false;
+  approvedFriendsCache.delete(userId);
+  saveApprovedFriends();
+  return true;
+}
+
+/**
+ * Reset a friend's daily voice quota manually (Owner Only)
+ * @param {string} userId 
+ * @returns {object|null}
+ */
+function resetFriendVoiceQuota(userId) {
+  loadApprovedFriends();
+  const friend = approvedFriendsCache.get(userId);
+  if (!friend) return null;
+  friend.quota = {
+    windowStart: Date.now(),
+    usedSeconds: 0,
+    maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+    warned80Sent: false,
+    warned100Sent: false
+  };
+  saveApprovedFriends();
+  return friend;
+}
+
+/**
+ * Get all approved friends formatted for display
+ */
+function getApprovedFriendsList() {
+  loadApprovedFriends();
+  const now = Date.now();
+  return Array.from(approvedFriendsCache.values()).map(f => {
+    const quota = f.quota || { windowStart: now, usedSeconds: 0 };
+    const isExpired = (now - quota.windowStart >= RESET_WINDOW_MS);
+    const used = isExpired ? 0 : Math.round(quota.usedSeconds || 0);
+    const remaining = Math.max(0, MAX_DAILY_VOICE_SECONDS - used);
+    const resetAt = quota.windowStart + RESET_WINDOW_MS;
+    const timeLeftStr = isExpired ? 'Ready' : formatCountdown(Math.max(0, resetAt - now));
+
+    return {
+      userId: f.userId,
+      username: f.username,
+      displayName: f.displayName,
+      customNickname: f.customNickname,
+      approvedAt: f.approvedAt,
+      usedSeconds: used,
+      remainingSeconds: remaining,
+      totalSecondsAllTime: Math.round(f.totalVoiceSecondsAllTime || 0),
+      timeLeftStr,
+      isExhausted: used >= MAX_DAILY_VOICE_SECONDS
+    };
+  });
+}
+
+module.exports = {
+  isApprovedFriend,
+  getApprovedFriend,
+  approveFriend,
+  revokeFriend,
+  resetFriendVoiceQuota,
+  getApprovedFriendsList,
+  checkFriendDailyVoiceQuota,
+  recordFriendVoiceUsage,
+  sendOnboardingDM,
+  MAX_DAILY_VOICE_SECONDS
+};

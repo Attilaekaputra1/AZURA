@@ -52,6 +52,7 @@ const WHISPER_HALLUCINATIONS = new Set([
   'terima kasih telah menonton',
   'terima kasih sudah menonton',
   'terima kasih',
+  'terimakasih',
   'terima kasih banyak',
   'sampai jumpa',
   'sampai jumpa di video selanjutnya',
@@ -62,11 +63,14 @@ const WHISPER_HALLUCINATIONS = new Set([
   'thank you for watching',
   'thanks for watching',
   'thank you',
+  'thanks',
   'subtitles by',
   'subtitles by the amara.org community',
   'subtitles by the amara org community',
   'amara.org',
   'amara org',
+  'translated by',
+  'transcribed by',
   'you',
   'bye',
   'bye bye',
@@ -77,11 +81,14 @@ const WHISPER_HALLUCINATIONS = new Set([
   'ah',
   'oh',
   'eh',
+  'krik',
+  'krik krik',
   'musik',
   'music',
   'audio',
   'suara angin',
   'suara musik',
+  'suara nafas',
   'he-he',
   'ha-ha',
   'halo',
@@ -889,6 +896,8 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
     if (activeRecordings.has(userId)) return;
 
     const isOwner = userId === config.OWNER_DISCORD_ID;
+    const { isApprovedFriend } = require('./accessControl');
+    const isFriend = !isOwner && isApprovedFriend(userId);
 
     // Attila Exclusive Preemption: cancel any member recordings in flight when Attila speaks
     if (isOwner) {
@@ -909,19 +918,19 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
 
     // Cooldown check per user
     const lastTime = voiceCooldowns.get(userId) || 0;
-    if (Date.now() - lastTime < (isOwner ? 0 : 3000)) return;
+    if (Date.now() - lastTime < (isOwner ? 0 : (isFriend ? 1000 : 3000))) return;
 
     activeRecordings.add(userId);
     resetIdleTimer(guildId, client, voiceChannel);
 
-    const speakerTag = isOwner ? 'Attila' : `Member (${userId})`;
+    const speakerTag = isOwner ? 'Attila' : (isFriend ? `Approved Friend (${userId})` : `Member (${userId})`);
     console.log(`[Voice Listener]: ${speakerTag} started speaking in VC. Recording...`);
 
     try {
       const opusStream = receiver.subscribe(userId, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
-          duration: isOwner ? SILENCE_DURATION_MS : 500
+          duration: (isOwner || isFriend) ? SILENCE_DURATION_MS : 500
         }
       });
 
@@ -941,7 +950,7 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
         try { decoder.destroy(); } catch (_) {}
 
         if (pcmChunks.length > 0) {
-          if (isOwner) {
+          if (isOwner || isFriend) {
             processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
               console.error('[Voice Pipeline Fatal]:', err.message);
             });
@@ -1482,44 +1491,66 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
 
   // ══════════════════════════════════════════════════════════════
-  // ── Step 3: SUMMON GATE (Attila Only & Strict Wake-Word) ────
+  // ── Step 3: SUMMON GATE (Attila & Approved Friends) ─────────
   // ══════════════════════════════════════════════════════════════
 
-  // Only Attila (owner) can interact with Azura via voice
-  if (!isOwner) {
-    console.log(`[Voice Pipeline]: Non-owner speech processed (no voice reply). Summon Gate blocked.`);
+  const { isApprovedFriend, checkFriendDailyVoiceQuota, recordFriendVoiceUsage } = require('./accessControl');
+  const isFriend = !isOwner && isApprovedFriend(userId);
+
+  // Block unauthorized non-owner and non-approved users
+  if (!isOwner && !isFriend) {
+    console.log(`[Voice Pipeline]: Non-owner and non-approved user (${userId}) speech processed (no reply). Summon Gate blocked.`);
     return;
   }
 
-  // 1. STRICT SILENCE if preceded by conjunction "si" (e.g. "si Azura", "si Ara", "si Zura", "si Ajur")
+  // 1. STRICT OWNER-PRESENCE GUARD: Approved friends can ONLY interact if Attila is in the VC!
+  if (isFriend) {
+    const isAttilaInVc = voiceChannel?.members ? voiceChannel.members.has(config.OWNER_DISCORD_ID) : false;
+    if (!isAttilaInVc) {
+      console.log(`[Voice Pipeline]: 🔒 Approved Friend ${userId} spoke, but Attila (Owner) is not in VC. Ignoring without deducting quota.`);
+      return;
+    }
+
+    // 2. 2-MINUTE DAILY VOICE QUOTA GUARD (120 seconds max per 24h)
+    const quotaCheck = checkFriendDailyVoiceQuota(userId);
+    if (!quotaCheck.allowed) {
+      console.log(`[Voice Pipeline]: ⛔ Approved Friend ${userId} daily 2-minute VC quota exhausted (${quotaCheck.usedSeconds}s / 120s). Locked until ${quotaCheck.resetAtStr} (in ${quotaCheck.timeLeftStr}).`);
+      return;
+    }
+  }
+
+  // 3. STRICT SILENCE if preceded by conjunction "si" (e.g. "si Azura", "si Ara", "si Zura", "si Ajur")
   const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(transcript);
   if (isThirdPersonWithSi) {
     console.log(`[Voice Pipeline]: 🤫 3rd-person "si Azura/Ajur" detected in "${transcript}". Staying 100% silent.`);
     return;
   }
 
-  // ── Step 3: Fast Channel & Participant Detection Gate ──
+  // ── Fast Channel & Participant Detection Gate ──
   const humanMembers = voiceChannel?.members
     ? voiceChannel.members.filter(m => !m.user.bot)
     : new Map();
   const otherHumans = humanMembers.filter(m => m.id !== config.OWNER_DISCORD_ID).size;
   const isCrowdedVC = otherHumans > 0; // Total participants in room > 2 (Attila + Azura + other friends)
 
-  if (isCrowdedVC) {
-    // ── CROWDED VC (Total participants in VC > 2): SELECTIVE PUSH-TO-WAKE ──
-    // Attila is in a group VC talking with friends. Azura must stay silent unless explicitly addressed:
-    // 1. Wake word ("Azura", "Ara", "Zura", "Ajur", "Kak Azura", "Kak Ajur") at beginning or end of sentence
-    // 2. OR direct question / vocative addressed to Azura
+  if (isFriend) {
+    // Approved Friends in VC: Always require explicit wake-word so they don't accidentally trigger Azura while chatting with Attila
+    const hasWakeWord = isWakeWordInvoked(transcript);
+    if (!hasWakeWord) {
+      console.log(`[Voice Pipeline]: 🔇 Approved Friend (${userId}) spoke without wake-word in "${transcript}". Azura staying silent.`);
+      return;
+    }
+    console.log(`[Voice Pipeline]: 🔔 Approved Friend summoned Azura ("${transcript}"). Generating response...`);
+  } else if (isCrowdedVC) {
+    // Crowded VC with Attila + friends: Attila must use wake-word
     const hasWakeWord = isWakeWordInvoked(transcript);
     if (!hasWakeWord) {
       console.log(`[Voice Pipeline]: 🔇 Crowded VC (${otherHumans} other friends present, total > 2) — no wake-word or direct question in "${transcript}". Azura staying silent.`);
       return;
     }
-    console.log(`[Voice Pipeline]: 🔔 Crowded VC — explicit summon/question detected ("${transcript}"). Responding...`);
+    console.log(`[Voice Pipeline]: 🔔 Crowded VC — explicit summon/question detected from Attila ("${transcript}"). Responding...`);
   } else {
-    // ── SOLO VC (Only Attila & Azura, Total participants = 2): ALWAYS ACTIVE FREE-FLOW ──
-    // In Solo VC, Attila and Azura are 1-on-1. Attila does NOT need to mention Azura's name!
-    // Azura naturally and continuously listens & responds to everything Attila says.
+    // Solo VC (Attila & Azura 1-on-1): Always active free-flow without wake-word
     console.log(`[Voice Pipeline]: 🗣️ Solo VC (1-on-1 with Attila) — Free-flowing natural conversation active. Listening & responding without wake-word.`);
     setActiveMode(guildId);
   }
@@ -1529,8 +1560,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId);
   globalVoiceTelemetry.markTimestamp(turnId, 't5');
 
-    // Check if AI brain autonomously decided to leave VC
-    if (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse)) {
+    // Check if AI brain autonomously decided to leave VC (Owner Only)
+    if (isOwner && (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse))) {
       console.log('[Voice Pipeline]: 🚪 AI Brain triggered LEAVE_VC action!');
       const farewellSpoken = 'Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
       const farewellText = 'Gais aku off dluan ya, babay';
@@ -1599,10 +1630,16 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     globalVoiceTelemetry.finishTurn(turnId, { status: 'COMPLETED' });
     console.log('[Voice Pipeline]: ✅ Done.');
 
-    // If in Crowded VC, enforce instant return to PASSIVE & Mute (Single-Turn complete)
-    if (isCrowdedVC) {
+    // Record speech duration to friend's 24h voice quota
+    if (isFriend) {
+      const spokenDurationSec = Math.max(1, Math.round(spoken.length / 15));
+      await recordFriendVoiceUsage(userId, spokenDurationSec, client);
+    }
+
+    // If in Crowded VC or spoken by friend, return to PASSIVE & Mute (Single-Turn complete)
+    if (isCrowdedVC || isFriend) {
       setPassiveMode(guildId);
-      console.log(`[Voice Pipeline]: 🔒 Crowded VC (${otherHumans} friends) — Single-turn completed. Returned to PASSIVE & Muted.`);
+      console.log(`[Voice Pipeline]: 🔒 Single-turn completed for ${isFriend ? 'Friend' : 'Crowded VC'}. Returned to PASSIVE & Muted.`);
     }
   } catch (err) {
     console.error('[Voice Pipeline Error]:', err.message);
@@ -1835,10 +1872,16 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null) {
   // Get speaker identity & alias
   let speakerName = isOwner ? 'Attila (panggil Att / Attila)' : 'Teman';
   try {
-    const { getUserRecord } = require('./vault');
-    const uRec = getUserRecord(userId);
-    if (uRec && uRec.knownRealName) {
-      speakerName = uRec.knownRealName;
+    const { getApprovedFriend } = require('./accessControl');
+    const friendRec = getApprovedFriend(userId);
+    if (friendRec) {
+      speakerName = friendRec.customNickname || friendRec.displayName;
+    } else {
+      const { getUserRecord } = require('./vault');
+      const uRec = getUserRecord(userId);
+      if (uRec && uRec.knownRealName) {
+        speakerName = uRec.knownRealName;
+      }
     }
   } catch (_) {}
 
@@ -1868,9 +1911,9 @@ ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (DURASI MAKSIMAL 5 MENIT):
 3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu jika ceritanya bertema drama/komedi!
 4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
-    maxTokens = 1200; // ~700-750 words = ~4.5 - 5 minutes speech
+    maxTokens = isOwner ? 1200 : 350; // ~700-750 words for Owner (5 min) / concise for friends
   } else {
-    systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan ${isOwner ? 'Attila (panggilan: Att / Attila, creator & owner kamu)' : speakerName}.
+    systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan ${isOwner ? 'Attila (panggilan: Att / Attila, creator & owner kamu)' : `${speakerName} (teman dekat Attila yang sedang berada di VC bersama Attila)`}.
 Lawan bicara saat ini: ${speakerName} (Gunakan sapaan/panggilan akrab ini secara natural).
 ${personalityPrompt}
 ${vcBehaviorContext}
@@ -1883,9 +1926,9 @@ HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (mis
 "Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli makan", "uang keluar", "keluar bentar"), DILARANG KERAS memicu [ACTION:LEAVE_VC]! Jawablah topik tersebut secara santai dan natural.
 
-ATURAN WAJIB VOICE OBROLAN BIASA (DURASI 1 - 2 MENIT):
-1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara 1 - 2 MENIT, sekitar 2 - 4 kalimat santai padat to the point). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
-2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh memanggilnya dengan panggilan manis/akrab seperti "Attila", "kamu", "sayang", "Attila sayang", atau "siap ganteng".
+ATURAN WAJIB VOICE OBROLAN BIASA:
+1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (${isOwner ? 'durasi bicara 1 - 2 MENIT, sekitar 2 - 4 kalimat santai padat to the point' : 'durasi bicara 20 - 30 DETIK, sekitar 2 - 3 kalimat santai akrab'}). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
+2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh memanggilnya dengan panggilan manis/akrab seperti "Attila", "kamu", "sayang", "Attila sayang", atau "siap ganteng". Untuk teman Attila (${speakerName}), sapa dengan ramah, hangat, dan asyik!
 3. MULTILINGUAL VOICE: Jika lawan bicara berbicara dalam bahasa lain (English, Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
 
@@ -1900,15 +1943,14 @@ Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags
 - 🎉 ANTUSIAS / HORE / SEMANGAT: Gunakan [excited], [cheering] saat ada kabar gembira!
 
 6. HUMOR & BANTER TONGKRONGAN GEN Z (KOCAK, CEPLAS-CEPLOS & BUKAN JOKES BAPAK-BAPAK):
-- Jika ada teman dengan nama panggilan/username unik, nyeleneh, atau absurd (seperti Raja Iblis, Koin Merah, dsb), respon dengan gaya candaan tongkrongan Gen Z yang ceplas-ceplos dan kocak!
+- Jika ada teman dengan nama panggilan/username unik, nyeleneh, atau absurd, respon dengan gaya candaan tongkrongan Gen Z yang ceplas-ceplos dan kocak!
 - Gunakan audio tags ElevenLabs v3 [laughs], [giggles], [chuckles], [softly] agar tawa dan intonasinya hidup.
-- Jika member menjelaskan filosofi namanya: Hargai dengan tulus dan minta maaf dengan nada manis karena tadi sempat meledek!
 
 7. REAKSI KAGET / JUMP-SCARE / PRANK:
 Jika lawan bicara mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti):
 - Buka LANGSUNG dengan tag emosi tarikan napas kaget [gasp] di awal kalimat!
 - Keluarkan reaksi kaget yang heboh, lucu, dan manja khas cewek Gen Z.` + liveRoomContext;
-    maxTokens = 450; // ~200-250 words = ~1.5 - 2 minutes speech
+    maxTokens = isOwner ? 450 : 180; // ~200-250 words for Owner (2 min) / ~60-80 words for friends (20-30s per turn)
   }
 
   const messages = [

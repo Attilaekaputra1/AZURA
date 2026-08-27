@@ -406,7 +406,28 @@ const commands = [
           { name: '🚨 Urgent / Mendesak', value: 'Urgent' },
           { name: '🧘 Personal', value: 'Personal' },
           { name: '📝 General / Umum', value: 'General' }
-        ))
+        )),
+
+  new SlashCommandBuilder()
+    .setName('friend')
+    .setDescription('Kelola whitelist akses eksklusif & kuota teman (Khusus Attila / Owner)')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM)
+    .addSubcommand(sub =>
+      sub.setName('add')
+        .setDescription('Beri akses eksklusif beta testing voice & kirim DM sambutan estetik')
+        .addUserOption(opt => opt.setName('target').setDescription('User Discord target').setRequired(true))
+        .addStringOption(opt => opt.setName('nama').setDescription('Nama panggilan akrab (opsional)').setRequired(false)))
+    .addSubcommand(sub =>
+      sub.setName('remove')
+        .setDescription('Cabut izin akses teman')
+        .addUserOption(opt => opt.setName('target').setDescription('User Discord target').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('list')
+        .setDescription('Lihat daftar seluruh teman yang di-ACC & sisa kuota hari ini'))
+    .addSubcommand(sub =>
+      sub.setName('reset')
+        .setDescription('Reset kuota suara harian teman menjadi 0/120s secara manual')
+        .addUserOption(opt => opt.setName('target').setDescription('User Discord target').setRequired(true)))
 ];
 
 const fs = require('fs');
@@ -1218,6 +1239,122 @@ async function handleSlashCommand(interaction, startTime) {
       } catch (dmErr) {
         return interaction.reply({
           content: `❌ Gagal mengirim file ke DM: ${dmErr.message}. Pastikan kamu membuka izin DM untuk bot yaa!`,
+          flags: 64
+        });
+      }
+    }
+
+  } else if (commandName === 'friend') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({
+        content: '🔒 **Akses Ditolak!** Perintah \`/friend\` khusus untuk Owner utama (Attila) guna mengelola akses eksklusif Voice Companion.',
+        flags: 64
+      });
+    }
+
+    const {
+      approveFriend,
+      revokeFriend,
+      resetFriendVoiceQuota,
+      getApprovedFriendsList,
+      MAX_DAILY_VOICE_SECONDS
+    } = require('./accessControl');
+
+    const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === 'add') {
+      const targetUser = interaction.options.getUser('target');
+      const customName = interaction.options.getString('nama') || targetUser.displayName || targetUser.username;
+
+      await interaction.deferReply({ flags: 64 });
+
+      try {
+        const record = await approveFriend(
+          targetUser.id,
+          targetUser.username,
+          targetUser.displayName,
+          customName,
+          user.username || 'Attila',
+          interaction.client
+        );
+
+        const embed = new EmbedBuilder()
+          .setColor(0x57F287) // Green success
+          .setTitle('✨ [AKSES TEMAN BERHASIL DIBERIKAN]')
+          .setDescription(
+            `Pengguna <@${targetUser.id}> (\`@${targetUser.username}\`) telah resmi di-ACC sebagai **Approved Friend**! 🎉\n\n` +
+            `• 🏷️ **Nama Panggilan Resmi**: **${record.customNickname}**\n` +
+            `• 🎙️ **Batas Kuota Voice**: \`${MAX_DAILY_VOICE_SECONDS} detik (2 menit) per 24 jam realtime\`\n` +
+            `• 👑 **Aturan Khusus**: Hanya aktif saat **Attila** berada di Voice Channel yang sama.\n` +
+            `• 📩 **Onboarding DM**: Azura telah otomatis mengirimkan DM sambutan estetik ke <@${targetUser.id}>!`
+          )
+          .setFooter({ text: 'AZURA Approved Friends Engine' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [embed] });
+      } catch (err) {
+        return interaction.editReply(`❌ Gagal menambahkan teman: ${err.message}`);
+      }
+
+    } else if (subcommand === 'remove') {
+      const targetUser = interaction.options.getUser('target');
+      const success = revokeFriend(targetUser.id);
+
+      if (success) {
+        return interaction.reply({
+          content: `✅ Berhasil mencabut izin akses teman untuk <@${targetUser.id}> (\`@${targetUser.username}\`). Pengguna kini kembali menjadi tamu biasa.`,
+          flags: 64
+        });
+      } else {
+        return interaction.reply({
+          content: `⚠️ Pengguna <@${targetUser.id}> tidak ditemukan dalam daftar Approved Friends saat ini.`,
+          flags: 64
+        });
+      }
+
+    } else if (subcommand === 'list') {
+      const list = getApprovedFriendsList();
+      if (!list.length) {
+        return interaction.reply({
+          content: '📋 Belum ada teman yang didaftarkan ke daftar Approved Friends. Gunakan `/friend add target:@User nama:Panggilan` untuk menambahkan!',
+          flags: 64
+        });
+      }
+
+      const formatted = list.map((f, i) => {
+        const statusBadge = f.isExhausted ? '⛔ `[KUOTA HABIS HARI INI]`' : '✅ `[AKTIF]`';
+        const dateStr = f.approvedAt ? new Date(f.approvedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
+        return `${i + 1}. **${f.customNickname}** (<@${f.userId}>) ${statusBadge}\n` +
+               `   • ⏱️ **Penggunaan Hari Ini**: \`${f.usedSeconds}s / ${MAX_DAILY_VOICE_SECONDS}s\` (Sisa: \`${f.remainingSeconds}s\`)\n` +
+               `   • ⏳ **Status Reset 24h**: \`${f.timeLeftStr}\`\n` +
+               `   • 📊 **Total Voice All-Time**: \`${f.totalSecondsAllTime}s\` | 📅 Di-ACC: \`${dateStr}\``;
+      }).join('\n\n');
+
+      const embed = new EmbedBuilder()
+        .setColor(0x8A2BE2)
+        .setTitle(`⭐ Direktori Approved Friends AZURA (${list.length} Teman)`)
+        .setDescription(
+          `Daftar teman yang di-ACC oleh Attila untuk interaksi Voice Channel (Batas: 2 Menit/24 Jam realtime):\n\n` +
+          formatted
+        )
+        .setFooter({ text: 'Gunakan /friend add untuk menambah atau /friend remove untuk mencabut' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], flags: 64 });
+
+    } else if (subcommand === 'reset') {
+      const targetUser = interaction.options.getUser('target');
+      const res = resetFriendVoiceQuota(targetUser.id);
+
+      if (res) {
+        return interaction.reply({
+          content: `🔄 **[RESET KUOTA BERHASIL]** Kuota harian voice untuk <@${targetUser.id}> (\`${res.customNickname}\`) telah direset menjadi **0s / 120s**!`,
+          flags: 64
+        });
+      } else {
+        return interaction.reply({
+          content: `⚠️ Pengguna <@${targetUser.id}> tidak terdaftar di whitelist Approved Friends.`,
           flags: 64
         });
       }

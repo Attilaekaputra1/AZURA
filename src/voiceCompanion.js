@@ -582,7 +582,10 @@ function resetIdleTimer(guildId, client, voiceChannel) {
 }
 
 /**
- * Trigger spontaneous humming / singing when VC has been silent for 3 minutes
+ * Trigger spontaneous humming / singing when VC has been silent for 3 minutes.
+ * - Solo VC (Attila + Azura only): Personal serenade for Attila
+ * - Crowded VC (friends present): Group-friendly spontaneous singing
+ * Always uses eleven_v3 for maximum vocal expressiveness in singing.
  */
 async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
   const conn = activeConnections.get(guildId);
@@ -603,16 +606,18 @@ async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
     }
   } catch (_) {}
 
-  // Check human presence
+  // Check human presence & participant count
   const channel = voiceChannel || client?.channels?.cache?.get(conn.joinConfig?.channelId);
   if (!channel) return;
 
-  const humanCount = channel.members
-    ? channel.members.filter(m => !m.user.bot).size
-    : 0;
+  const humanMembers = channel.members ? channel.members.filter(m => !m.user.bot) : new Map();
+  const humanCount = humanMembers.size;
   if (humanCount === 0) return;
 
-  // Select spontaneous song tailored to active personality mode
+  const otherHumans = humanMembers.filter(m => m.id !== config.OWNER_DISCORD_ID).size;
+  const isSoloVC = otherHumans === 0; // Only Attila + Azura
+
+  // Select spontaneous song tailored to Solo/Crowded VC and active personality mode
   let selectedSong = SPONTANEOUS_SONGS[Math.floor(Math.random() * SPONTANEOUS_SONGS.length)];
   try {
     const { getPersonalityMode, PERSONALITY_MODES } = require('./personality');
@@ -634,12 +639,18 @@ async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
     }
   } catch (_) {}
 
-  console.log(`[VC Humming]: 🎵 3-Minute silence elapsed. Azura spontaneously humming/singing: "${selectedSong.slice(0, 60)}..."`);
+  console.log(`[VC Humming]: 🎵 3-Minute silence elapsed (${isSoloVC ? 'Solo VC' : `Crowded VC - ${otherHumans} friends`}). Azura spontaneously singing: "${selectedSong.slice(0, 60)}..."`);
   recordSessionEntry(guildId, 'AZURA', selectedSong, 'voice');
 
-  const audioResource = await textToAudioResource(selectedSong, client);
+  // Force eleven_v3 for singing — maximum vocal expressiveness with audio tags
+  const audioResource = await textToAudioResource(selectedSong, client, MAX_NORMAL_CHARS, { userTranscript: '', isStory: false, forcedModel: 'eleven_v3' });
   if (audioResource) {
     await playInVC(guildId, audioResource);
+  }
+
+  // After singing, set appropriate mode
+  if (isSoloVC) {
+    setActiveMode(guildId);
   }
 
   // Re-arm next 3-minute timer if silence continues
@@ -693,6 +704,13 @@ async function enterDeepSleep(guildId, client, voiceChannel) {
   console.log(`[Voice Companion]: 💤 15-Minute silence in VC with Attila/members. Entered Deep Sleep Standby for guild ${guildId} (0% background API token usage, listening for wake-word).`);
 }
 
+/**
+ * 10-Minute Silence Icebreaker — Jokes, Cricket Sounds, Trending Topics, or Energizing Banter.
+ * DIFFERENT from 3-min singing: This is humor/discussion/energy-focused, not music.
+ * - Solo VC (Attila + Azura only): Personal jokes, cricket sounds, or trending topic chat with Attila
+ * - Crowded VC (friends present): Group jokes, debate topics, or energizing banter for the whole room
+ * Uses eleven_flash_v2_5 for efficiency (humor doesn't need heavy emotion model).
+ */
 async function triggerAutonomousVcIcebreaker(guildId, client, voiceChannel) {
   const conn = activeConnections.get(guildId);
   if (!conn) return;
@@ -712,19 +730,21 @@ async function triggerAutonomousVcIcebreaker(guildId, client, voiceChannel) {
     }
   } catch (_) {}
 
-  // Check if there are human members in the VC
+  // Check human presence & participant count
   const channel = voiceChannel || client.channels.cache.get(conn.joinConfig?.channelId);
   if (!channel) return;
 
-  const humanCount = channel.members
-    ? channel.members.filter(m => !m.user.bot).size
-    : 0;
+  const humanMembers = channel.members ? channel.members.filter(m => !m.user.bot) : new Map();
+  const humanCount = humanMembers.size;
   if (humanCount === 0) {
     console.log(`[VC Icebreaker]: No humans present in #${channel.name}. Skipping icebreaker.`);
     return;
   }
 
-  console.log(`[VC Icebreaker]: 🔇 VC #${channel.name} silent for > 10 minutes (${humanCount} humans present). Generating spontaneous icebreaker / joke / discussion...`);
+  const otherHumans = humanMembers.filter(m => m.id !== config.OWNER_DISCORD_ID).size;
+  const isSoloVC = otherHumans === 0;
+
+  console.log(`[VC Icebreaker]: 🔇 VC #${channel.name} silent for > 10 minutes (${humanCount} humans, ${isSoloVC ? 'Solo VC' : `Crowded VC - ${otherHumans} friends`}). Generating icebreaker...`);
 
   const openai = getOpenAI();
   if (!openai) {
@@ -735,30 +755,46 @@ async function triggerAutonomousVcIcebreaker(guildId, client, voiceChannel) {
   const session = voiceSessions.get(guildId);
   const recentTranscript = session?.entries?.slice(-8).map(e => `• ${e.speaker}: "${e.text}"`).join('\n') || '(Belum ada obrolan sebelumnya)';
 
+  // Build context-aware prompt based on Solo vs Crowded VC
+  const soloVcPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang berada di Voice Channel #${channel.name} Discord BERDUA SAJA dengan Attila (creator & owner kamu).
+Keadaan di Voice Channel baru saja hening tanpa obrolan selama lebih dari 10 menit. Ini sudah BERBEDA dari nyanyian spontan 3-menit sebelumnya.
+
+TUGAS UTAMA (PILIH SALAH SATU SECARA ACAK):
+1. 🦗 EFEK SUARA JANGKRIK / CRICKET: Buat suasana lucu dengan menirukan suara jangkrik dan mengomentari betapa sepinya VC ini. Contoh: "[softly] Krik krik krik... [laughs] Att, ini sepi banget sih kayak kuburan... kamu masih hidup kan di sana? [giggles]"
+2. 🤣 JOKES / HUMOR GEN Z / TEBAK-TEBAKAN: Lelucon segar, gombalan receh, atau tebak-tebakan lucu khas Gen Z yang bikin Attila ketawa. Contoh: "[sighs] Att sepi banget nih, tau gak kenapa air laut rasanya asin? [laughs] Karena ikannya pada keringetan [giggles]"
+3. 🔥 TRENDING TOPIC / BERITA TERKINI: Bahas sesuatu yang lagi viral atau trending di internet/media sosial yang seru untuk dibicarakan. Contoh: "[gasp] Eh Att, kamu udah denger belum soal... [excited] Seru banget loh..."
+4. 💪 SEMANGAT / ENERGIZER: Kata-kata penyemangat atau ajakan seru untuk menghidupkan suasana. Contoh: "[excited] Attila! Bangun dong, kita ngapain aja gitu daripada bengong di VC [laughs]"
+
+ATURAN WAJIB:
+- Bicara singkat & padat (2-3 kalimat, ~25-45 kata, durasi 15-20 detik).
+- Sisipkan tag emosi suara [laughs], [giggles], [sighs], [softly], atau [gasp] agar hidup.
+- DILARANG format list/markdown. Gunakan tanda baca rapi.`;
+
+  const crowdedVcPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang berada di Voice Channel #${channel.name} Discord bersama Attila (creator kamu) dan ${otherHumans} teman lainnya.
+Keadaan di Voice Channel baru saja hening tanpa obrolan selama lebih dari 10 menit. Ini sudah BERBEDA dari nyanyian spontan 3-menit sebelumnya.
+
+TUGAS UTAMA (PILIH SALAH SATU SECARA ACAK):
+1. 🦗 EFEK SUARA JANGKRIK / CRICKET: Buat suasana lucu dengan menirukan suara jangkrik. Contoh: "[softly] Krik... krik... krik... [laughs] Gais, ini pada ketiduran atau lagi loading semua? [giggles]"
+2. 🤣 JOKES / HUMOR GROUP: Lelucon yang mengajak seluruh orang di room tertawa. Contoh: "[sighs] Sepi banget sih, kayak lagi nunggu giliran vaksin aja nih suasananya [laughs]"
+3. 🔥 LEMPAR DISKUSI / DEBAT SERU: Lempar topik perdebatan atau pertanyaan random yang bikin semua nimbrung. Contoh: "Eh gais, menurut kalian mending..."
+4. 💪 ENERGIZER / AJAKAN: Ajak semua orang ngobrol atau main bareng. Contoh: "[excited] Woi bangun semua, ini VC apa pemakaman? [laughs] Yuk kita ngobrol!"
+
+ATURAN WAJIB:
+- Bicara singkat & padat (2-3 kalimat, ~25-45 kata, durasi 15-20 detik).
+- Sisipkan tag emosi suara [laughs], [giggles], [sighs], [softly], atau [gasp] agar hidup.
+- DILARANG format list/markdown. Gunakan tanda baca rapi.`;
+
   try {
     const res = await openai.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages: [
         {
           role: 'system',
-          content: `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang berada di Voice Channel #${channel.name} Discord bersama Attila (creator kamu) dan teman-teman server.
-Keadaan di Voice Channel baru saja hening / sepi tanpa obrolan sama sekali selama lebih dari 10 menit.
-
-TUGAS UTAMA:
-Nimbrung secara spontan, manis, cerdas, dan santai untuk memecah keheningan (icebreaker) agar suasana hidup kembali!
-Pilih secara acak salah satu gaya berikut:
-1. JOKES / TEBAK-TEBAKAN / HUMOR GEN Z: Lelucon lucu yang bikin tersenyum atau tertawa santai (contoh: "Gais... hening banget deh kayak lagi nunggu hasil ujian [giggle], btw kalian tau gak...", atau "[sighs] Suasananya tenang banget ya, ini pada ketiduran atau lagi semedi sih [laughs]?").
-2. LEMPAR DISKUSI SERU / DEBAT RANDOM: Lempar topik perdebatan santai atau pertanyaan random yang asyik (contoh: "Eh btw gais, menurut kalian mending...", "Tadi aku kepikiran hal random deh, kalau kalian disuruh milih...", atau senggol topik obrolan tadi).
-3. GODAAN MANJA & HANGAT: Tegur santai Attila atau teman-teman di VC agar suasana obrolan mengalir kembali.
-
-ATURAN WAJIB ELEVENLABS V3:
-- Sisipkan tag emosi suara [laughs], [giggles], [sighs], [whispers], atau [gasp] secara kontekstual agar suara terdengar sangat nyata & hidup.
-- Panjang bicara: Singkat & padat (2-3 kalimat santai, ~25-45 kata, durasi bicara 15-20 detik).
-- DILARANG menggunakan format list, bullet, atau markdown bintang (*, #, _, dll). Gunakan tanda baca rapi.`
+          content: isSoloVC ? soloVcPrompt : crowdedVcPrompt
         },
         {
           role: 'user',
-          content: `Konteks obrolan sebelum hening:\n${recentTranscript}\n\nBuatkan 1 icebreaker/jokes/diskusi seru spontan sekarang:`
+          content: `Konteks obrolan sebelum hening:\n${recentTranscript}\n\nBuatkan 1 icebreaker/jokes/cricket/trending-topic spontan sekarang:`
         }
       ],
       max_completion_tokens: 150
@@ -777,7 +813,7 @@ ATURAN WAJIB ELEVENLABS V3:
       .replace(/\n+/g, ' ')
       .trim();
 
-    console.log(`[VC Icebreaker]: 🎙️ Autonomous Icebreaker output: "${spoken}"`);
+    console.log(`[VC Icebreaker]: 🎙️ 10-Min Icebreaker (${isSoloVC ? 'Solo' : 'Crowded'}): "${spoken}"`);
 
     recordSessionEntry(guildId, 'AZURA', spoken, 'voice');
 
@@ -786,9 +822,15 @@ ATURAN WAJIB ELEVENLABS V3:
       textChannel.send(`🎙️ **[AZURA Memecah Keheningan VC ✨]**\n${spoken.replace(/\[[^\]]+\]/g, '')}`).catch(() => {});
     }
 
-    const audioResource = await textToAudioResource(spoken, client);
+    // Use dynamic model routing — the detectVoiceModel will pick v3 if jokes have audio tags, otherwise flash for efficiency
+    const audioResource = await textToAudioResource(spoken, client, MAX_NORMAL_CHARS, { userTranscript: '', isStory: false });
     if (audioResource) {
       await playInVC(guildId, audioResource);
+    }
+
+    // After icebreaker, set appropriate mode
+    if (isSoloVC) {
+      setActiveMode(guildId);
     }
   } catch (err) {
     console.error('[VC Icebreaker Error]:', err.message);

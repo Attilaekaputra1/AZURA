@@ -124,9 +124,10 @@ Penyesuaian Situasi & Konteks Obrolan:
    - Hindari gaya bercanda kaku/flat. Bersikaplah seperti cewek 22 tahun yang asyik diajak seru-seruan di circle Discord.
 ${toneAndRelationshipGuideline}
 
-Informasi Waktu Real-Time:
+Informasi Waktu Real-Time & Akses Internet:
 - Hari ini adalah ${todayStr}, pukul ${timeStr} WIB.
-- Batas pengetahuan bawaanmu adalah 16 Februari 2026. Untuk info setelah tanggal tersebut, gunakan fitur pencarian web.
+- Kamu terhubung langsung ke mesin pencarian dan riset internet real-time (Tavily AI Engine).
+- Jika ada data riset internet yang dilampirkan dalam konteks percakapan, itu adalah fakta aktual dan valid. DILARANG KERAS berkata "aku tidak punya akses internet", "sebagai AI pengetahuanku terbatas", atau "aku tidak bisa mencari info terbaru". Jawablah dengan yakin, ramah, dan cerdas menggunakan data tersebut!
 
 Informasi Memori Jangka Panjang & Personalisasi Pengguna:
 - Lawan bicaramu bernama "${userName}".${personalizationPrompt}
@@ -198,12 +199,15 @@ function needsSearch(prompt) {
   const lower = prompt.toLowerCase();
 
   // 2. Explicit search/research/news keywords
-  const explicitSearchRegex = /\b(?:search|googling|cariin|riset|berita|news|info\s+terbaru|isu\s+terkini|kabar\s+terbaru|update\s+terkini|cuaca\s+hari\s+ini|kurs\s+hari\s+ini|harga\s+terkini|berita\s+hari\s+ini)\b/i;
+  const explicitSearchRegex = /\b(?:search|googling|cariin|carikan|cari|riset|berita|news|info\s+terbaru|isu\s+terkini|kabar\s+terbaru|update\s+terkini|info\s+hari\s+ini|kejadian\s+hari\s+ini|trending|viral)\b/i;
 
-  // 3. Direct inquiry requesting web search / factual investigation
-  const directCariRegex = /\b(?:cari|carikan|searching)\s+(?:info|berita|kabar|data|artikel|soal|tentang)\b/i;
+  // 3. Real-time factual queries (sports, weather, prices, release dates, elections, recent facts)
+  const realTimeFactsRegex = /\b(?:siapa\s+(?:juara|presiden|ketua|pemenang|menteri|ceo|pemilik|pencipta)|skor|klasemen|jadwal|rilis|gempa|cuaca|kurs|harga\s+(?:kripto|emas|saham|iphone|hp|laptop|mobil|motor|btc|eth)|tahun\s+2026|hari\s+ini|sekarang\s+lagi)\b/i;
 
-  return explicitSearchRegex.test(lower) || directCariRegex.test(lower);
+  // 4. Inquiries requesting web comparison, temporal check, or factual check
+  const checkInquiryRegex = /\b(?:cek\s+(?:info|berita|kabar|harga|spesifikasi|reviu|review|artikel)|perbandingan\s+antara|vs|apakah\s+(?:ada|beneran|benar|sudah|sedang)|review\s+tentang|rekomendasi\s+(?:laptop|hp|film|anime|game)\s+(?:2025|2026|terbaru)|kapan\b.*?\b(?:rilis|tayang|main|tanding|update))\b/i;
+
+  return explicitSearchRegex.test(lower) || realTimeFactsRegex.test(lower) || checkInquiryRegex.test(lower);
 }
 
 /**
@@ -408,7 +412,12 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   let systemMessage = systemPrompt + liveVcContext;
   if (searchContext) {
-    systemMessage += `\n\nKonteks Data Real-Time dari Internet (Tavily AI Search):\n${searchContext}\n\nInstruksi Penyampaian Hasil Pencarian:\n- Jawablah menggunakan fakta di atas dengan gaya bahasa santai, cerdas, dan hangat khas Azura.\n- Susun penjelasan secara rapi dan enak dibaca.\n- Cantumkan tautan link sumber jika relevan.`;
+    systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY AI INTELLIGENCE)]:\n${searchContext}\n\n` +
+      `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +
+      `1. Gunakan data aktual di atas untuk menjawab secara tuntas, cerdas, akurat, dan percaya diri.\n` +
+      `2. DILARANG KERAS berkata "aku tidak punya akses internet" atau "tidak bisa mengecek data terbaru". Kamu SUDAH memiliki data internet di atas!\n` +
+      `3. Susun jawaban secara estetik, rapi, dan mudah dibaca (gunakan poin-poin jika menjelaskan beberapa fakta).\n` +
+      `4. Cantumkan tautan link sumber terpercaya jika relevan.`;
   }
 
   const messages = [

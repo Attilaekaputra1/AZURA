@@ -942,14 +942,20 @@ async function handleSlashCommand(interaction, startTime) {
 
     try {
       const { searchTavilyCard } = require('./tavily');
-      const cardResult = await searchTavilyCard(query, 'news', user.username);
+      const cardResult = await searchTavilyCard(query, 'general', user.username);
       if (typeof cardResult === 'object' && cardResult.embeds) {
         await interaction.editReply(cardResult);
       } else {
-        await interaction.editReply(cardResult);
+        const infoEmbed = new EmbedBuilder()
+          .setColor(0x2B82EA)
+          .setTitle(`🔍 Hasil Pencarian: ${query}`)
+          .setDescription(String(cardResult))
+          .setFooter({ text: 'AZURA Live Web Intelligence' })
+          .setTimestamp();
+        await interaction.editReply({ embeds: [infoEmbed] });
       }
     } catch (error) {
-      await interaction.editReply('gagal melakukan pencarian web. coba lagi nanti ya!');
+      await interaction.editReply('Gagal melakukan pencarian web. Coba lagi beberapa saat lagi ya!');
     }
 
   } else if (commandName === 'agent') {

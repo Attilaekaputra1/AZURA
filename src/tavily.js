@@ -4,7 +4,11 @@ const config = require('./config');
 
 const TAVILY_API_KEY = config.TAVILY_API_KEY || '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';
 
-// Anti-Judol / Anti-Gambling domain & keyword blacklists
+// ══════════════════════════════════════════════════════════════
+// ── STRICT MULTI-LAYER SAFETY & CONTENT FILTERS ──────────────
+// ══════════════════════════════════════════════════════════════
+
+// 1. Anti-Judol / Anti-Gambling Domains & Keywords
 const GAMBLING_DOMAINS = [
   'slot', 'judol', 'judi', 'togel', 'toto', 'casino', 'poker', 'domino', 'bet365',
   'sbobet', 'pragmatic', 'joker123', 'pg-soft', 'habanero', 'microgaming', 'spadegaming',
@@ -28,7 +32,26 @@ const GAMBLING_KEYWORDS = [
   '彩票', '中彩', '中奖', '博彩', '百家乐', '开奖', '投注', '娱乐城', '六合彩', '老虎机', '天天中', '威尼斯人', '实名', '棋牌', '皇冠', '外围'
 ];
 
-// Sacred / Sensitive Data Blacklist (Prevent scraping sacred credentials, private keys, leaked DBs, banking data)
+// 2. Anti-Adult / Anti-NSFW Domains & Keywords
+const ADULT_DOMAINS = [
+  'pornhub', 'xvideos', 'xnxx', 'onlyfans', 'redtube', 'youporn', 'brazzers',
+  'chaturbate', 'stripchat', 'rule34', 'hentai', 'jav', 'doujin', 'xhamster',
+  'spankbang', 'beeg', 'tnaflix', 'tube8', 'eporner', 'cam4'
+];
+
+const ADULT_KEYWORDS = [
+  'video bokep', 'nonton bokep', 'bokep indo', 'video porno', 'film dewasa',
+  'cerita dewasa', 'live sex', 'open bo', 'vcs bugil', 'jual konten dewasa',
+  'link bokep', 'download bokep', 'video colmek', 'video desah', 'bokep viral'
+];
+
+// 3. Anti-Malware / Anti-Scam / Fraud
+const MALWARE_KEYWORDS = [
+  'free robux generator', 'hack akun ig', 'hack akun fb', 'download cheat gratis',
+  'phishing link', 'ddos booter tool', 'keylogger free download', 'trojan builder'
+];
+
+// 4. Sacred & Sensitive Data Blacklist
 const SACRED_DATA_PATTERNS = [
   /\b(?:password|passwd|pin\s+atm|cvv|nomor\s+kartu\s+kredit|seed\s+phrase|recovery\s+phrase|private\s+key|secret\s+key|api_key|token\s+jwt|id_rsa)\b/i,
   /\b(?:database\s+leak|leaked\s+credentials|dump\s+password|hack\s+akun|doxxing|ktp\s+asli|nik\s+pribadi|kartu\s+keluarga)\b/i
@@ -42,8 +65,20 @@ function isSacredData(queryOrUrl) {
 
 function cleanSpamFromText(text) {
   if (!text || typeof text !== 'string') return '';
-  // Strip isolated Chinese/CJK SEO spam phrases often injected into hacked Indonesian websites
-  return text.replace(/[\u4e00-\u9fff]{2,}/g, '').replace(/\s+/g, ' ').trim();
+  return text
+    .replace(/[\u4e00-\u9fff]{2,}/g, '') // Strip CJK SEO spam
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Strip non-printable chars
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isHarmfulContent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const lower = text.toLowerCase();
+  if (GAMBLING_KEYWORDS.some(kw => lower.includes(kw))) return true;
+  if (ADULT_KEYWORDS.some(kw => lower.includes(kw))) return true;
+  if (MALWARE_KEYWORDS.some(kw => lower.includes(kw))) return true;
+  return false;
 }
 
 function filterSafeResults(results) {
@@ -53,16 +88,10 @@ function filterSafeResults(results) {
     const title = (r.title || '').toLowerCase();
     const content = (r.content || '').toLowerCase();
     const combined = `${url} ${title} ${content}`;
-    const hasBadDomain = GAMBLING_DOMAINS.some(d => url.includes(d));
-    if (hasBadDomain) {
-      console.log(`[Tavily Safety Filter]: BLOCKED gambling domain: ${r.url}`);
-      return false;
-    }
-    const hasBadKeyword = GAMBLING_KEYWORDS.some(kw => combined.includes(kw));
-    if (hasBadKeyword) {
-      console.log(`[Tavily Safety Filter]: BLOCKED gambling content: ${r.title}`);
-      return false;
-    }
+
+    if (GAMBLING_DOMAINS.some(d => url.includes(d))) return false;
+    if (ADULT_DOMAINS.some(d => url.includes(d))) return false;
+    if (isHarmfulContent(combined)) return false;
     return true;
   }).map(r => ({
     ...r,
@@ -71,11 +100,9 @@ function filterSafeResults(results) {
   }));
 }
 
-function containsGamblingContent(text) {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  return GAMBLING_KEYWORDS.some(kw => lower.includes(kw));
-}
+// ══════════════════════════════════════════════════════════════
+// ── HTTP API CALLER & CACHE ENGINE ────────────────────────────
+// ══════════════════════════════════════════════════════════════
 
 function tavilyApiCall(endpoint, payload) {
   return new Promise((resolve, reject) => {
@@ -105,7 +132,7 @@ function tavilyApiCall(endpoint, payload) {
       });
     });
     req.on('error', (err) => reject(err));
-    req.setTimeout(10000, () => {
+    req.setTimeout(12000, () => {
       req.destroy();
       reject(new Error('Waktu respon Tavily API habis.'));
     });
@@ -114,10 +141,10 @@ function tavilyApiCall(endpoint, payload) {
   });
 }
 
-// 10-Minute High-Speed In-Memory Cache (RAG / Web Search)
-const tavilyMemoryCache = new Map(); // key -> { data, timestamp }
-const TAVILY_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const MAX_CACHE_ENTRIES = 150;
+// 10-Minute High-Speed In-Memory Cache
+const tavilyMemoryCache = new Map();
+const TAVILY_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 200;
 
 function getCachedTavily(key) {
   const entry = tavilyMemoryCache.get(key);
@@ -130,9 +157,7 @@ function getCachedTavily(key) {
 }
 
 function setCachedTavily(key, data) {
-  if (!data || typeof data !== 'string' || data.length < 20 || data.startsWith('Gagal')) {
-    return; // Don't cache error states
-  }
+  if (!data) return;
   if (tavilyMemoryCache.size >= MAX_CACHE_ENTRIES) {
     const oldestKey = tavilyMemoryCache.keys().next().value;
     tavilyMemoryCache.delete(oldestKey);
@@ -140,13 +165,34 @@ function setCachedTavily(key, data) {
   tavilyMemoryCache.set(key, { data, timestamp: Date.now() });
 }
 
+/**
+ * Clean user prompt into an optimal search engine query
+ * @param {string} prompt 
+ * @returns {string}
+ */
+function cleanSearchQuery(prompt) {
+  if (!prompt || typeof prompt !== 'string') return '';
+  return prompt
+    .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong|coba|dong|plis|please)?\s*(?:cariin|carikan|cari|search|googling|info|berita|kabar|apa\s+itu|siapa\s+itu|gimana|bagaimana)\s+(?:tentang|soal|terbaru|terkini|mengenai)?\s*/i, '')
+    .replace(/[?!.]+$/, '')
+    .trim() || prompt.trim();
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── CORE SEARCH & RESEARCH METHODS ────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Perform live Tavily web search with multi-pass fallback
+ * @param {string} query 
+ * @param {string} [topicMode] 
+ * @returns {Promise<string>}
+ */
 async function searchTavily(query, topicMode = 'general') {
-  const cacheKey = `search:${topicMode}:${query.toLowerCase().trim()}`;
+  const cleanQ = cleanSearchQuery(query);
+  const cacheKey = `search:${topicMode}:${cleanQ.toLowerCase()}`;
   const cached = getCachedTavily(cacheKey);
-  if (cached) {
-    console.log(`[Tavily RAG Cache]: ⚡ Instant cache hit for "${query.slice(0, 40)}" (<1ms latency)`);
-    return cached;
-  }
+  if (cached) return cached;
 
   try {
     try {
@@ -154,67 +200,82 @@ async function searchTavily(query, topicMode = 'general') {
       recordDailyMetric('webSearches', 1);
     } catch (_) {}
 
-    const response = await tavilyApiCall('/search', {
-      query: query,
+    // Pass 1: Advanced search
+    let response = await tavilyApiCall('/search', {
+      query: cleanQ,
       topic: topicMode,
       search_depth: 'advanced',
       include_answer: true,
-      max_results: 3
+      max_results: 4
     });
 
-    let resultStr = '';
-    if (response.answer && !containsGamblingContent(response.answer)) {
-      resultStr += `💡 **Ringkasan Eksekutif (Tavily AI Intelligence):**\n${response.answer}\n\n`;
+    let safeResults = filterSafeResults(response.results);
+
+    // Pass 2 Fallback: If 0 safe results in news mode, retry general
+    if ((!safeResults || safeResults.length === 0) && topicMode === 'news') {
+      console.log(`[Tavily Search]: Pass 2 - Retrying query with general topic for "${cleanQ}"...`);
+      response = await tavilyApiCall('/search', {
+        query: cleanQ,
+        topic: 'general',
+        search_depth: 'advanced',
+        include_answer: true,
+        max_results: 4
+      });
+      safeResults = filterSafeResults(response.results);
     }
 
-    const safeResults = filterSafeResults(response.results);
+    let resultStr = '';
+    if (response.answer && !isHarmfulContent(response.answer)) {
+      resultStr += `💡 **Rangkuman Eksekutif Terkini (Bahasa Indonesia):**\n${response.answer}\n\n`;
+    }
+
     if (safeResults.length > 0) {
       const top3 = safeResults.slice(0, 3);
       const formattedResults = top3.map((r, idx) => {
         const date = r.published_date ? ` • 📅 ${r.published_date.slice(0, 10)}` : '';
-        const score = r.score ? ` • 🌟 Relevansi: ${(r.score * 100).toFixed(0)}%` : '';
-        const cleanSnippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 220);
-        return `**${idx + 1}. 📌 [${r.title}](${r.url})**${date}${score}\n   📝 *${cleanSnippet}...*`;
+        const cleanSnippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 200);
+        return `**${idx + 1}. 📌 [${r.title}](${r.url})**${date}\n   📝 *${cleanSnippet}...*`;
       }).join('\n\n');
 
-      resultStr += `🌐 **Top 3 Sumber Web Terverifikasi & Terpercaya:**\n\n${formattedResults}`;
+      resultStr += `🌐 **Sumber Web Terverifikasi:**\n\n${formattedResults}`;
     }
 
-    const finalResult = resultStr || 'Tidak ditemukan informasi spesifik dari web.';
+    const finalResult = resultStr || `Tidak ditemukan informasi terverifikasi di internet untuk query "${cleanQ}".`;
     setCachedTavily(cacheKey, finalResult);
     return finalResult;
   } catch (err) {
     console.error('[Tavily Search Error]:', err.message);
-    return 'Gagal melakukan pencarian web Tavily: ' + err.message;
+    return `Gagal melakukan pencarian web Tavily: ${err.message}`;
   }
 }
 
+/**
+ * Extract content from a direct URL
+ * @param {string} url 
+ * @returns {Promise<string>}
+ */
 async function extractTavilyUrl(url) {
   const cleanUrl = url.toLowerCase().trim();
   const cacheKey = `url:${cleanUrl}`;
   const cached = getCachedTavily(cacheKey);
-  if (cached) {
-    console.log(`[Tavily RAG Cache]: ⚡ Instant URL cache hit for "${cleanUrl.slice(0, 40)}" (<1ms latency)`);
-    return cached;
-  }
+  if (cached) return cached;
 
   try {
-    if (GAMBLING_DOMAINS.some(d => cleanUrl.includes(d))) {
-      console.log(`[Tavily Safety Filter]: BLOCKED extraction of gambling URL: ${url}`);
-      return 'URL tersebut terdeteksi sebagai situs yang tidak aman dan diblokir oleh sistem keamanan AZURA.';
+    if (GAMBLING_DOMAINS.some(d => cleanUrl.includes(d)) || ADULT_DOMAINS.some(d => cleanUrl.includes(d))) {
+      return 'URL tersebut terdeteksi sebagai situs yang berpotensi bahaya atau melanggar filter keamanan AZURA.';
     }
+
     console.log(`[Tavily Extract]: Reading URL: ${url}`);
     const response = await tavilyApiCall('/extract', { urls: [url] });
     if (response.results && response.results.length > 0) {
       const item = response.results[0];
-      const title = item.title || 'Artikel Web';
+      const title = item.title || 'Dokumen Web';
       const raw = item.raw_content ? cleanSpamFromText(item.raw_content) : '';
-      if (containsGamblingContent(raw) || containsGamblingContent(title)) {
-        console.log(`[Tavily Safety Filter]: BLOCKED gambling content in extracted article: ${title}`);
-        return 'Konten artikel tersebut terdeteksi mengandung unsur perjudian online dan diblokir oleh sistem keamanan AZURA.';
+      if (isHarmfulContent(raw) || isHarmfulContent(title)) {
+        return 'Konten halaman web tersebut diblokir oleh sistem keamanan AZURA.';
       }
-      
-      const cleanContent = raw ? raw.slice(0, 1500) : 'Gagal mengambil isi teks.';
+
+      const cleanContent = raw ? raw.slice(0, 1500) : 'Tidak ada konten teks yang dapat diekstrak.';
       const extractedText = `📄 **Ekstraksi Artikel Web (Tavily Intelligence):**\n` +
         `📌 **Judul:** ${title}\n` +
         `🔗 **URL:** ${url}\n\n` +
@@ -229,38 +290,20 @@ async function extractTavilyUrl(url) {
   }
 }
 
-async function processTavilyIntelligence(prompt) {
-  const urlMatch = prompt.match(/https?:\/\/[^\s]+/i);
-  if (urlMatch) {
-    const extractedUrl = urlMatch[0];
-    return await extractTavilyUrl(extractedUrl);
-  }
-  const lower = prompt.toLowerCase();
-  const newsKeywords = ['berita', 'news', 'terkini', 'politik', 'tren', 'kejadian', 'viral', 'kasus', 'peristiwa', 'isu'];
-  const isNews = newsKeywords.some(kw => lower.includes(kw));
-  if (isNews) {
-    console.log(`[Tavily Engine]: Executing News Search (topic: news, depth: advanced)...`);
-    return await searchTavily(prompt, 'news');
-  }
-  console.log(`[Tavily Engine]: Executing General Search (topic: general, depth: advanced)...`);
-  return await searchTavily(prompt, 'general');
-}
-
 /**
- * Searches Tavily and formats into a rich, compact Discord Embed with Thumbnail and Link Buttons.
- * Eliminates long scroll walls and makes news interactive and visually appealing.
- * @param {string} query
- * @param {string} topicMode
- * @param {string} userName
+ * Generate an aesthetic, modern Discord Embed Card with interactive Link Buttons
+ * @param {string} query 
+ * @param {string} [topicMode] 
+ * @param {string} [userName] 
  * @returns {Promise<{ embeds: EmbedBuilder[], components: ActionRowBuilder[] } | string>}
  */
 async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna') {
   try {
-    const cleanQuery = query.replace(/^(?:cariin|cari|search|googling|info|berita|kabar)\s+(?:tentang|soal|terbaru|terkini)?\s*/i, '').trim() || query;
-    
-    console.log(`[Tavily News Card]: Fetching advanced news card for query "${cleanQuery}"...`);
-    const response = await tavilyApiCall('/search', {
-      query: cleanQuery,
+    const cleanQ = cleanSearchQuery(query);
+    console.log(`[Tavily Card]: Generating aesthetic search card for "${cleanQ}"...`);
+
+    let response = await tavilyApiCall('/search', {
+      query: cleanQ,
       topic: topicMode,
       search_depth: 'advanced',
       include_answer: true,
@@ -268,16 +311,30 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
       max_results: 3
     });
 
-    const safeResults = filterSafeResults(response.results);
-    if (!safeResults || safeResults.length === 0) {
-      return `Maaf ${userName}, aku nggak nemu berita terverifikasi terkait "${cleanQuery}" di internet.`;
+    let safeResults = filterSafeResults(response.results);
+
+    // Fallback pass if 0 results
+    if ((!safeResults || safeResults.length === 0) && topicMode === 'news') {
+      response = await tavilyApiCall('/search', {
+        query: cleanQ,
+        topic: 'general',
+        search_depth: 'advanced',
+        include_answer: true,
+        include_images: true,
+        max_results: 3
+      });
+      safeResults = filterSafeResults(response.results);
     }
 
-    // Get valid thumbnail image if available, fallback to sleek news icon
+    if (!safeResults || safeResults.length === 0) {
+      return `Maaf ${userName}, aku belum menemukan data atau berita terverifikasi terkait **"${cleanQ}"** di internet saat ini.`;
+    }
+
+    // Thumbnail selection
     let thumbnailImage = null;
     if (response.images && Array.isArray(response.images)) {
       for (const imgUrl of response.images) {
-        if (typeof imgUrl === 'string' && imgUrl.startsWith('http') && !GAMBLING_DOMAINS.some(d => imgUrl.toLowerCase().includes(d))) {
+        if (typeof imgUrl === 'string' && imgUrl.startsWith('http') && !GAMBLING_DOMAINS.some(d => imgUrl.toLowerCase().includes(d)) && !ADULT_DOMAINS.some(d => imgUrl.toLowerCase().includes(d))) {
           thumbnailImage = imgUrl;
           break;
         }
@@ -291,50 +348,53 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
         }
       }
     }
-    // Sleek fallback news thumbnail if API returned no image
     if (!thumbnailImage) {
       thumbnailImage = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=400&auto=format&fit=crop&q=60';
     }
 
-    // High quality concise summary (under 300 chars to avoid long scrolls)
+    // Summary Text (Bahasa Indonesia)
     let summaryText = response.answer || '';
-    if (containsGamblingContent(summaryText)) summaryText = '';
-    if (summaryText.length > 280) {
-      summaryText = summaryText.slice(0, 280) + '...';
+    if (isHarmfulContent(summaryText)) summaryText = '';
+    if (summaryText.length > 350) {
+      summaryText = summaryText.slice(0, 350) + '...';
     }
 
     const embed = new EmbedBuilder()
-      .setTitle(`📰 Berita & Riset Terkini: ${cleanQuery.slice(0, 80)}`)
-      .setColor(0x2B82EA)
-      .setDescription(summaryText ? `💡 **Ringkasan Inti:**\n${summaryText}` : `Berikut rangkuman informasi terverifikasi dari internet:`)
-      .setFooter({ text: 'AZURA News Intelligence • Real-Time Web Data 2026' })
+      .setColor(0x2B82EA) // Royal Azure Blue
+      .setTitle(`📰 Riset & Berita Terkini: ${cleanQ.slice(0, 75)}`)
+      .setDescription(
+        summaryText
+          ? `💡 **Ringkasan Inti (Bahasa Indonesia):**\n${summaryText}`
+          : `Berikut hasil penelusuran fakta dan berita terverifikasi dari internet:`
+      )
+      .setFooter({ text: 'AZURA Live Intelligence • Real-Time Web 2026' })
       .setTimestamp();
 
     if (thumbnailImage) {
       embed.setThumbnail(thumbnailImage);
     }
 
-    // Add top 3 clean, structured fields
+    // Add Top 3 Sources
     safeResults.slice(0, 3).forEach((r, idx) => {
-      const title = r.title || `Artikel #${idx + 1}`;
-      const snippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 140);
-      const dateStr = r.published_date ? ` • 📅 ${r.published_date.slice(0, 16)}` : '';
-      
+      const title = r.title || `Sumber #${idx + 1}`;
+      const snippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 160);
+      const dateStr = r.published_date ? ` • 📅 \`${r.published_date.slice(0, 10)}\`` : '';
+
       embed.addFields({
-        name: `📌 ${idx + 1}. ${title.slice(0, 80)}`,
+        name: `📌 ${idx + 1}. ${title.slice(0, 85)}`,
         value: `${snippet}...${dateStr}`,
         inline: false
       });
     });
 
-    // Create interactive Link Buttons (one click to open source)
+    // Action Row Buttons (Source Links)
     const row = new ActionRowBuilder();
     safeResults.slice(0, 3).forEach((r, idx) => {
       if (r.url && r.url.startsWith('http')) {
         let label = `Sumber ${idx + 1}`;
         try {
           const domain = new URL(r.url).hostname.replace('www.', '');
-          label = domain.slice(0, 18);
+          label = domain.slice(0, 20);
         } catch (_) {}
 
         row.addComponents(
@@ -350,25 +410,22 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
     return { embeds: [embed], components };
   } catch (err) {
     console.error('[Tavily Card Error]:', err.message);
-    return `Gagal mengambil berita: ${err.message}`;
+    return `Gagal mengambil data pencarian: ${err.message}`;
   }
 }
 
 /**
- * Scrapes and extracts deep structured web data based on user input.
- * Supports URL scraping, technical documentation, tables, pricing, statistics, code, and specifications.
- * Enforces Sacred Data Shield to protect sensitive personal/system data.
- * @param {string} targetInput - Target query or URL
- * @param {string} dataGoal - Extraction focus (e.g., 'table', 'specs', 'pricing', 'general')
- * @returns {Promise<{ success: boolean, data: string, sources: Array<{ title: string, url: string }>, isBlocked?: boolean }>}
+ * Deep Data Scraper for complex research / table data
+ * @param {string} targetInput 
+ * @param {string} [dataGoal] 
+ * @returns {Promise<{ success: boolean, data: string, sources?: Array<{ title: string, url: string }>, isBlocked?: boolean }>}
  */
 async function scrapeWebData(targetInput, dataGoal = 'general') {
   if (isSacredData(targetInput)) {
-    console.log(`[Tavily Scraper]: 🛑 Blocked scraping attempt on SACRED DATA: "${targetInput}"`);
     return {
       success: false,
       isBlocked: true,
-      data: 'Permintaan scraping dibatalkan: Target pencarian mengandung pola "Data Sakral" (kredensial, kunci privat, PIN, token, atau data rahasia terlindungi) yang dilarang oleh protokol keamanan AZURA.'
+      data: 'Permintaan scraping dibatalkan: Target mengandung pola data rahasia/sensitif terlindungi yang dilarang oleh protokol keamanan AZURA.'
     };
   }
 
@@ -376,11 +433,10 @@ async function scrapeWebData(targetInput, dataGoal = 'general') {
   if (urlMatch) {
     const targetUrl = urlMatch[0];
     try {
-      console.log(`[Tavily Scraper]: 🕷️ Deep scraping direct URL: ${targetUrl}`);
       const res = await tavilyApiCall('/extract', { urls: [targetUrl] });
       if (res.results && res.results.length > 0) {
         const item = res.results[0];
-        const content = item.raw_content ? item.raw_content.slice(0, 6000) : 'Tidak ada konten teks yang dapat diekstrak.';
+        const content = item.raw_content ? cleanSpamFromText(item.raw_content).slice(0, 6000) : 'Tidak ada konten teks yang dapat diekstrak.';
         return {
           success: true,
           data: `📊 **Hasil Web Scraping Langsung (Tavily Deep Extract):**\n` +
@@ -391,38 +447,37 @@ async function scrapeWebData(targetInput, dataGoal = 'general') {
         };
       }
     } catch (err) {
-      console.warn('[Tavily Extract Scrape Error]:', err.message);
+      console.warn('[Tavily Scrape Extract Error]:', err.message);
     }
   }
 
-  // Multi-source deep scraping for queries
   try {
-    console.log(`[Tavily Scraper]: 🌐 Multi-source deep data scraping for: "${targetInput}" (Focus: ${dataGoal})`);
+    const cleanQ = cleanSearchQuery(targetInput);
     const searchRes = await tavilyApiCall('/search', {
-      query: targetInput,
+      query: cleanQ,
       search_depth: 'advanced',
       include_raw_content: true,
       include_answer: true,
-      max_results: 5
+      max_results: 4
     });
 
     const safeResults = filterSafeResults(searchRes.results);
     if (!safeResults || safeResults.length === 0) {
       return {
         success: false,
-        data: `Tidak ditemukan data web yang relevan untuk query: "${targetInput}".`
+        data: `Tidak ditemukan data web yang relevan untuk query: "${cleanQ}".`
       };
     }
 
     let structuredOutput = '';
     if (searchRes.answer) {
-      structuredOutput += `🧠 **Analisis & Ekstraksi Data Inti:**\n${searchRes.answer}\n\n`;
+      structuredOutput += `🧠 **Analisis & Ekstraksi Data Inti (Bahasa Indonesia):**\n${searchRes.answer}\n\n`;
     }
 
-    structuredOutput += `📊 **Data Mentah & Bukti dari ${safeResults.length} Sumber Terverifikasi:**\n\n`;
+    structuredOutput += `📊 **Rangkuman dari ${safeResults.length} Sumber Terverifikasi:**\n\n`;
     safeResults.forEach((r, i) => {
       const title = r.title || `Data #${i + 1}`;
-      const snippet = r.raw_content ? r.raw_content.slice(0, 1200) : r.content;
+      const snippet = r.raw_content ? cleanSpamFromText(r.raw_content).slice(0, 1000) : r.content;
       structuredOutput += `### [${i + 1}] ${title}\n🔗 ${r.url}\n${snippet}\n\n`;
     });
 
@@ -433,12 +488,24 @@ async function scrapeWebData(targetInput, dataGoal = 'general') {
       sources
     };
   } catch (err) {
-    console.error('[Tavily Deep Scrape Error]:', err.message);
+    console.error('[Tavily Scrape Error]:', err.message);
     return {
       success: false,
       data: `Gagal melakukan scraping data: ${err.message}`
     };
   }
+}
+
+async function processTavilyIntelligence(prompt) {
+  const urlMatch = prompt.match(/https?:\/\/[^\s]+/i);
+  if (urlMatch) {
+    return await extractTavilyUrl(urlMatch[0]);
+  }
+
+  const lower = prompt.toLowerCase();
+  const newsKeywords = ['berita', 'news', 'terkini', 'politik', 'tren', 'kejadian', 'viral', 'kasus', 'peristiwa', 'isu', 'hari ini'];
+  const isNews = newsKeywords.some(kw => lower.includes(kw));
+  return await searchTavily(prompt, isNews ? 'news' : 'general');
 }
 
 module.exports = {
@@ -448,5 +515,6 @@ module.exports = {
   extractTavilyUrl,
   scrapeWebData,
   isSacredData,
+  cleanSearchQuery,
   processTavilyIntelligence
 };

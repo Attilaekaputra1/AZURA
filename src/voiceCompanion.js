@@ -1503,7 +1503,16 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // 1. STRICT OWNER-PRESENCE GUARD: Approved friends can ONLY interact if Attila is in the VC!
+  // 1. Analyze Voice Intent & Wake-Word Position (Beginning / End / Middle)
+  const intentAnalysis = analyzeVoiceIntent(transcript);
+
+  // 2. STRICT SILENCE if 3rd-person reference (talking about Azura in passing)
+  if (intentAnalysis.isThirdPerson) {
+    console.log(`[Voice Pipeline]: 🤫 3rd-person reference detected in "${transcript}". Staying 100% silent.`);
+    return;
+  }
+
+  // 3. STRICT OWNER-PRESENCE GUARD: Approved friends can ONLY interact if Attila is in the VC!
   if (isFriend) {
     const isAttilaInVc = voiceChannel?.members ? voiceChannel.members.has(config.OWNER_DISCORD_ID) : false;
     if (!isAttilaInVc) {
@@ -1511,19 +1520,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
-    // 2. 2-MINUTE DAILY VOICE QUOTA GUARD (120 seconds max per 24h)
+    // 4. 2-MINUTE DAILY VOICE QUOTA GUARD (Tracks only Azura's spoken output, max 120s per 24h)
     const quotaCheck = checkFriendDailyVoiceQuota(userId);
     if (!quotaCheck.allowed) {
       console.log(`[Voice Pipeline]: ⛔ Approved Friend ${userId} daily 2-minute VC quota exhausted (${quotaCheck.usedSeconds}s / 120s). Locked until ${quotaCheck.resetAtStr} (in ${quotaCheck.timeLeftStr}).`);
       return;
     }
-  }
-
-  // 3. STRICT SILENCE if preceded by conjunction "si" (e.g. "si Azura", "si Ara", "si Zura", "si Ajur")
-  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(transcript);
-  if (isThirdPersonWithSi) {
-    console.log(`[Voice Pipeline]: 🤫 3rd-person "si Azura/Ajur" detected in "${transcript}". Staying 100% silent.`);
-    return;
   }
 
   // ── Fast Channel & Participant Detection Gate ──
@@ -1534,21 +1536,19 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   const isCrowdedVC = otherHumans > 0; // Total participants in room > 2 (Attila + Azura + other friends)
 
   if (isFriend) {
-    // Approved Friends in VC: Always require explicit wake-word so they don't accidentally trigger Azura while chatting with Attila
-    const hasWakeWord = isWakeWordInvoked(transcript);
-    if (!hasWakeWord) {
+    // Approved Friends in VC: Wake-word required at BEGINNING, END, or Middle Vocative
+    if (!intentAnalysis.hasWakeWord) {
       console.log(`[Voice Pipeline]: 🔇 Approved Friend (${userId}) spoke without wake-word in "${transcript}". Azura staying silent.`);
       return;
     }
-    console.log(`[Voice Pipeline]: 🔔 Approved Friend summoned Azura ("${transcript}"). Generating response...`);
+    console.log(`[Voice Pipeline]: 🔔 Approved Friend summoned Azura [Intent: ${intentAnalysis.category}, Pos: ${intentAnalysis.wakePosition}, Question: ${intentAnalysis.isQuestion}] -> "${transcript}". Generating response...`);
   } else if (isCrowdedVC) {
-    // Crowded VC with Attila + friends: Attila must use wake-word
-    const hasWakeWord = isWakeWordInvoked(transcript);
-    if (!hasWakeWord) {
-      console.log(`[Voice Pipeline]: 🔇 Crowded VC (${otherHumans} other friends present, total > 2) — no wake-word or direct question in "${transcript}". Azura staying silent.`);
+    // Crowded VC with Attila + friends: Attila must use wake-word at beginning or end
+    if (!intentAnalysis.hasWakeWord) {
+      console.log(`[Voice Pipeline]: 🔇 Crowded VC (${otherHumans} other friends present, total > 2) — no wake-word in "${transcript}". Azura staying silent.`);
       return;
     }
-    console.log(`[Voice Pipeline]: 🔔 Crowded VC — explicit summon/question detected from Attila ("${transcript}"). Responding...`);
+    console.log(`[Voice Pipeline]: 🔔 Crowded VC — explicit summon detected from Attila [Pos: ${intentAnalysis.wakePosition}] -> "${transcript}". Responding...`);
   } else {
     // Solo VC (Attila & Azura 1-on-1): Always active free-flow without wake-word
     console.log(`[Voice Pipeline]: 🗣️ Solo VC (1-on-1 with Attila) — Free-flowing natural conversation active. Listening & responding without wake-word.`);
@@ -1557,12 +1557,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── Step 4: General AI Voice Chat (Context-Aware Duration Engine) ──
   globalVoiceTelemetry.markTimestamp(turnId, 't4');
-  const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId);
+  const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId, intentAnalysis);
   globalVoiceTelemetry.markTimestamp(turnId, 't5');
 
     // Check if AI brain autonomously decided to leave VC (Owner Only)
     if (isOwner && (/\[ACTION:LEAVE_VC\]/i.test(spokenResponse) || /off duluan ya.*disuruh keluar/i.test(spokenResponse))) {
-      console.log('[Voice Pipeline]: 🚪 AI Brain triggered LEAVE_VC action!');
+      console.log('[Voice Pipeline]: 🚪 AI Brain triggered LEAVE_VC action by Owner!');
       const farewellSpoken = 'Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay!';
       const farewellText = 'Gais aku off dluan ya, babay';
 
@@ -1630,7 +1630,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     globalVoiceTelemetry.finishTurn(turnId, { status: 'COMPLETED' });
     console.log('[Voice Pipeline]: ✅ Done.');
 
-    // Record speech duration to friend's 24h voice quota
+    // Record speech duration to friend's 24h voice quota (ONLY Azura's spoken output duration counts)
     if (isFriend) {
       const spokenDurationSec = Math.max(1, Math.round(spoken.length / 15));
       await recordFriendVoiceUsage(userId, spokenDurationSec, client);
@@ -1657,64 +1657,132 @@ const WAKE_WORDS = new Set([
 ]);
 
 /**
- * Check if Azura wake-word was explicitly called by Attila:
+ * Comprehensive Voice Intent & Summon Analyzer:
+ * 1. Wake-Word Detection (Awal Kalimat, Akhir Kalimat, Direct Vocative)
+ * 2. Intent Categorization (Question vs Statement/Banter vs Command vs Direct Call)
+ * 3. 3rd-Person Filter (Strict silence if talking about Azura in 3rd person)
+ * @param {string} transcript
+ * @returns {{
+ *   hasWakeWord: boolean,
+ *   wakePosition: 'beginning' | 'end' | 'middle' | 'none',
+ *   isQuestion: boolean,
+ *   isCommand: boolean,
+ *   isBanter: boolean,
+ *   isThirdPerson: boolean,
+ *   category: 'QUESTION' | 'COMMAND' | 'BANTER' | 'CALL' | 'STATEMENT'
+ * }}
+ */
+function analyzeVoiceIntent(transcript) {
+  if (!transcript || typeof transcript !== 'string') {
+    return {
+      hasWakeWord: false,
+      wakePosition: 'none',
+      isQuestion: false,
+      isCommand: false,
+      isBanter: false,
+      isThirdPerson: false,
+      category: 'STATEMENT'
+    };
+  }
+
+  const raw = transcript.trim();
+  const clean = raw.toLowerCase().replace(/[.,!?;:'"()[\]]/g, ' ');
+  const words = clean.split(/\s+/).filter(Boolean);
+
+  // 1. Strict Silence on 3rd-person conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
+  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(clean);
+  const isPassiveThirdPerson = /\b(?:tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(clean);
+
+  if (isThirdPersonWithSi || isPassiveThirdPerson) {
+    return {
+      hasWakeWord: false,
+      wakePosition: 'none',
+      isQuestion: false,
+      isCommand: false,
+      isBanter: false,
+      isThirdPerson: true,
+      category: 'STATEMENT'
+    };
+  }
+
+  // 2. Wake-word position analysis
+  let hasWakeWord = false;
+  let wakePosition = 'none';
+
+  // A. Check BEGINNING (first 4 words)
+  const prefixLimit = Math.min(words.length, 4);
+  for (let i = 0; i < prefixLimit; i++) {
+    if (WAKE_WORDS.has(words[i]) || (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1]))) {
+      hasWakeWord = true;
+      wakePosition = 'beginning';
+      break;
+    }
+  }
+
+  // B. Check END (last 4 words)
+  if (!hasWakeWord) {
+    const suffixStart = Math.max(0, words.length - 4);
+    for (let i = suffixStart; i < words.length; i++) {
+      if (WAKE_WORDS.has(words[i]) || (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1]))) {
+        hasWakeWord = true;
+        wakePosition = 'end';
+        break;
+      }
+    }
+  }
+
+  // C. Check Middle Vocative / Direct Call directed at Azura
+  if (!hasWakeWord) {
+    const isDirectQuestionToAzura = /\b(?:gimana|apa|kenapa|tolong|coba|siapa|kapan|apakah|bisa\s+gak|boleh\s+gak|menurutmu|menurut\s+kamu|lagi\s+ngapain|sehat\s+kan|halo|hai|eh)\b.*?\b(?:azura|ara|zura|ajur|ajura)\b/i.test(clean);
+    if (isDirectQuestionToAzura) {
+      hasWakeWord = true;
+      wakePosition = 'middle';
+    }
+  }
+
+  // 3. Question Detection
+  const hasQuestionMark = raw.includes('?');
+  const questionWordsRegex = /\b(?:apa|kenapa|mengapa|bagaimana|gimana|siapa|kapan|dimana|kemana|dari\s+mana|apakah|bisa\s+gak|boleh\s+gak|tau\s+gak|tahu\s+gak|bener\s+gak|iya\s+gak|beneran|emang|menurutmu|menurut\s+kamu|lagi\s+ngapain|ada\s+apa|udah\s+belum|sudah\s+belum|kamu\s+tau|bisa\s+bantu)\b/i;
+  const questionSuffixRegex = /\b(?:ya\?|kah\?|dong\?|kan\?|sih\?|tuh\?|kah|kan)\b/i;
+  const isQuestion = hasQuestionMark || questionWordsRegex.test(clean) || questionSuffixRegex.test(clean);
+
+  // 4. Command Detection
+  const commandRegex = /\b(?:setel|putar|play|nyanyi|sing|cerita|dongeng|lelucon|jokes|krik|buka|search|cari|bantu|keluar|leave)\b/i;
+  const isCommand = commandRegex.test(clean);
+
+  // 5. Banter / Teasing Detection
+  const banterRegex = /\b(?:haha|wkwk|hehe|lucu|kocak|canda|jail|ledek|ngakak|garing|cie|sayang|ganteng|cantik|imut)\b/i;
+  const isBanter = banterRegex.test(clean);
+
+  let category = 'STATEMENT';
+  if (isCommand) category = 'COMMAND';
+  else if (isQuestion) category = 'QUESTION';
+  else if (isBanter) category = 'BANTER';
+  else if (hasWakeWord && words.length <= 3) category = 'CALL';
+
+  return {
+    hasWakeWord,
+    wakePosition,
+    isQuestion,
+    isCommand,
+    isBanter,
+    isThirdPerson: false,
+    category
+  };
+}
+
+/**
+ * Check if Azura wake-word was explicitly called:
  * - At the BEGINNING of the sentence (first 4 words)
  * - Or at the END of the sentence (last 4 words)
+ * - Or Middle direct vocative
  * - STRICT SILENCE if preceded by conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
  * @param {string} transcript
  * @returns {boolean}
  */
 function isWakeWordInvoked(transcript) {
-  if (!transcript || typeof transcript !== 'string') return false;
-  const clean = transcript.trim().toLowerCase().replace(/[.,!?;:'"()[\]]/g, ' ');
-
-  // 1. STRICT SILENCE on 3rd-person conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
-  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(clean);
-  if (isThirdPersonWithSi) {
-    return false;
-  }
-
-  // General passive 3rd-person reference (talking about Azura in passing)
-  const isPassiveThirdPerson = /\b(?:tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(clean);
-  if (isPassiveThirdPerson) {
-    return false;
-  }
-
-  const words = clean.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return false;
-
-  const friendGreetings = ['bro', 'cuy', 'cuk', 'ges', 'gais', 'guys', 'man', 'kalian', 'cok', 'lu'];
-  const firstWord = words[0];
-
-  // If starts with friend greeting, check if Azura is addressed in first 3 words
-  if (friendGreetings.includes(firstWord)) {
-    for (let i = 1; i < Math.min(words.length, 3); i++) {
-      if (WAKE_WORDS.has(words[i])) return true;
-    }
-    return false;
-  }
-
-  // 2. Check BEGINNING of sentence (first 4 words)
-  const prefixLimit = Math.min(words.length, 4);
-  for (let i = 0; i < prefixLimit; i++) {
-    if (WAKE_WORDS.has(words[i])) return true;
-    if (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1])) return true;
-  }
-
-  // 3. Check END of sentence (last 4 words)
-  const suffixStart = Math.max(0, words.length - 4);
-  for (let i = suffixStart; i < words.length; i++) {
-    if (WAKE_WORDS.has(words[i])) return true;
-    if (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1])) return true;
-  }
-
-  // 4. Check Middle Vocative / Direct Question directed at Azura
-  const isDirectQuestionToAzura = /\b(?:gimana|apa|kenapa|tolong|coba|siapa|kapan|apakah|bisa\s+gak|boleh\s+gak|menurutmu|menurut\s+kamu|lagi\s+ngapain|sehat\s+kan)\b.*?\b(?:azura|ara|zura|ajur|ajura)\b/i.test(clean);
-  if (isDirectQuestionToAzura) {
-    return true;
-  }
-
-  return false;
+  const intent = analyzeVoiceIntent(transcript);
+  return intent.hasWakeWord;
 }
 
 /**
@@ -1829,9 +1897,10 @@ const voiceChatHistories = new Map();
  * @param {string} transcript 
  * @param {string} userId 
  * @param {string} [guildId]
+ * @param {object} [intentAnalysis]
  * @returns {Promise<{ spoken: string, isStory: boolean }>}
  */
-async function generateVoiceAIResponse(transcript, userId, guildId = null) {
+async function generateVoiceAIResponse(transcript, userId, guildId = null, intentAnalysis = null) {
   const openai = getOpenAI();
   if (!openai) return { spoken: 'Iya Attila, ada apa?', isStory: false };
 
@@ -1898,12 +1967,29 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null) {
     } catch (_) {}
   }
 
+  let intentContext = '';
+  if (intentAnalysis) {
+    intentContext = `\n\n[ANALISIS INTENSI PERCAKAPAN]:
+- Kategori Intensi: ${intentAnalysis.category}
+- Jenis Kalimat: ${intentAnalysis.isQuestion ? 'PERTANYAAN (Wajib jawab pertanyaan ini secara jelas, tuntas, solutif, dan akrab)' : 'OBROLAN/BANTER/PERNYATAAN (Tanggapi secara santai, mengalir, dan menyenangkan)'}
+- Posisi Sapaan Nama: ${intentAnalysis.wakePosition === 'beginning' ? 'Di awal kalimat (Lawan bicara membuka pembicaraan dengan memanggilmu)' : intentAnalysis.wakePosition === 'end' ? 'Di akhir kalimat (Lawan bicara meminta pendapat/tanggapanmu di akhir kalimat)' : 'Di tengah/natural'}`;
+  }
+
+  let vcPermissionsContext = '';
+  if (!isOwner) {
+    vcPermissionsContext = `\n\n[ATURAN HAK AKSES KHUSUS TEMAN]:
+1. KESETARAAN FITUR: Lawan bicara (${speakerName}) adalah teman dekat Attila yang mendapatkan akses beta testing VC. Berikan 100% fitur kecerdasan, cerita, humor, dan emosi v3 ([laughs], [giggles], dll) yang sama persis seperti saat berbicara dengan Attila!
+2. BATASAN PERINTAH KELUAR/MASUK VC: Hanya Attila (Owner utama) yang berhak menyuruhmu keluar dari VC atau bergabung ke VC. Jika ${speakerName} memintamu keluar dari VC (misal: "Azura kamu keluar ya", "leave vc"), TOLAK secara manis dan ramah (misal: "Maaf ya ${speakerName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~") dan DILARANG mengeluarkan tag [ACTION:LEAVE_VC]!`;
+  }
+
   if (isStoryIntent) {
     systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) atau memberikan penjelasan mendalam langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
 Lawan bicara yang sedang berbicara denganmu: ${speakerName}
 ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
+${intentContext}
+${vcPermissionsContext}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (DURASI MAKSIMAL 5 MENIT):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ideal 3 - 5 MENIT, sekitar 450 - 750 kata). Mulai dari pengenalan/pembuka, perkembangan alur/konflik, klimaks, dan kesimpulan/penutup yang berkesan.
@@ -1918,6 +2004,8 @@ Lawan bicara saat ini: ${speakerName} (Gunakan sapaan/panggilan akrab ini secara
 ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
+${intentContext}
+${vcPermissionsContext}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 
@@ -1950,7 +2038,7 @@ Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags
 Jika lawan bicara mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti):
 - Buka LANGSUNG dengan tag emosi tarikan napas kaget [gasp] di awal kalimat!
 - Keluarkan reaksi kaget yang heboh, lucu, dan manja khas cewek Gen Z.` + liveRoomContext;
-    maxTokens = isOwner ? 450 : 180; // ~200-250 words for Owner (2 min) / ~60-80 words for friends (20-30s per turn)
+    maxTokens = isOwner ? 450 : 220; // ~200-250 words for Owner (2 min) / ~80-100 words for friends (25-30s per turn)
   }
 
   const messages = [

@@ -1,5 +1,5 @@
 const {
-  joinVoiceChannel, VoiceConnectionStatus, entersState,
+  joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState,
   EndBehaviorType, createAudioPlayer, createAudioResource,
   AudioPlayerStatus, StreamType
 } = require('@discordjs/voice');
@@ -420,6 +420,36 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
   }
 
   return null;
+}
+
+/**
+ * Safely wait for a VoiceConnection to be in the Ready state.
+ * Handles temporary Signalling, Connecting, and retries gracefully without AbortError.
+ * @param {import('@discordjs/voice').VoiceConnection} connection
+ * @param {number} timeoutMs
+ * @returns {Promise<import('@discordjs/voice').VoiceConnection>}
+ */
+async function waitForConnectionReady(connection, timeoutMs = 20_000) {
+  if (!connection) throw new Error('Voice connection is null');
+  if (connection.state.status === VoiceConnectionStatus.Ready) {
+    return connection;
+  }
+
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, timeoutMs);
+    return connection;
+  } catch (err) {
+    // If still in Connecting or Signalling state, give it an extra 10s buffer for Discord gateway
+    if (connection.state.status === VoiceConnectionStatus.Connecting || connection.state.status === VoiceConnectionStatus.Signalling) {
+      console.log('[Voice Gateway]: Voice handshake in progress, waiting additional 10s for VoiceConnectionStatus.Ready...');
+      await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+      return connection;
+    }
+    if (connection.state.status === VoiceConnectionStatus.Ready) {
+      return connection;
+    }
+    throw err;
+  }
 }
 
 // ============================================================
@@ -2021,6 +2051,14 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
         entries: []
       });
 
+      // Ensure any previous or lingering connection is cleanly destroyed before creating a new one
+      const existingDjsConn = getVoiceConnection(guildId);
+      if (existingDjsConn) {
+        try { existingDjsConn.destroy(); } catch (_) {}
+        await new Promise(r => setTimeout(r, 300));
+      }
+      activeConnections.delete(guildId);
+
       // Join with selfMute: false to greet immediately
       const connection = joinVoiceChannel({
         channelId: newChannel.id,
@@ -2030,7 +2068,7 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
         selfDeaf: false,
       });
 
-      await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+      await waitForConnectionReady(connection, 20_000);
       activeConnections.set(guildId, connection);
       console.log(`[Voice Companion]: Connected to "${newChannel.name}" in "${guild.name}".`);
 
@@ -2385,10 +2423,15 @@ async function joinAttilaVoiceChannel(client) {
   dismissedGuilds.delete(guildId);
   voiceChatHistories.delete(ownerId);
 
-  const existingConn = activeConnections.get(guildId);
-  if (existingConn) {
-    await cleanupGuild(guildId, client);
-  }
+  // Clean up any existing connection on Discord Gateway before instantiating new one
+  try {
+    const existingDjsConn = getVoiceConnection(guildId);
+    if (existingDjsConn) {
+      existingDjsConn.destroy();
+      await new Promise(r => setTimeout(r, 400));
+    }
+  } catch (_) {}
+  activeConnections.delete(guildId);
 
   try {
     voiceSessions.set(guildId, {
@@ -2406,7 +2449,7 @@ async function joinAttilaVoiceChannel(client) {
       selfDeaf: false,
     });
 
-    await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+    await waitForConnectionReady(connection, 20_000);
     activeConnections.set(guildId, connection);
 
     const player = createAudioPlayer();
@@ -2466,6 +2509,11 @@ async function joinAttilaVoiceChannel(client) {
     };
   } catch (err) {
     console.error('[Join VC Error]:', err.message);
+    try {
+      const failedConn = getVoiceConnection(guildId);
+      if (failedConn) failedConn.destroy();
+    } catch (_) {}
+    activeConnections.delete(guildId);
     return {
       success: false,
       message: `Gagal join ke VC: ${err.message}`

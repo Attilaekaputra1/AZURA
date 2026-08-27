@@ -42,8 +42,8 @@ const VOICE_COOLDOWN_MS = 500;        // 0.5s cooldown for regular members (0ms 
 const SILENCE_DURATION_MS = 850;      // 0.85s natural silence window (anti-truncation for human breathing & pauses)
 const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
-const MAX_NORMAL_CHARS = 1200;        // ~1.5 minutes of normal TTS speech (max 1m 30s)
-const MAX_STORY_CHARS = 3000;         // ~2-3 minutes of storytelling TTS speech (max 3 min)
+const MAX_NORMAL_CHARS = 2500;        // ~1.5 - 2 minutes of normal TTS speech
+const MAX_STORY_CHARS = 5500;         // ~5 minutes of maximum storytelling/long-form TTS speech (~750 words)
 const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes of silence -> Spontaneous humming/singing
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
 
@@ -235,10 +235,66 @@ function prepareNaturalTextForFallbackTts(raw) {
 }
 
 /**
- * Generate TTS audio and wrap it as a Discord AudioResource with Volume Booster & Natural Intonation.
- * Primary: ElevenLabs (Kak Ceria) — Fallback 1: OpenAI TTS-1-HD (nova) — Fallback 2: Edge TTS
+ * Detect the optimal ElevenLabs Model based on User Input Intention, Sentiment/Emotion, and Context
+ * 1. eleven_v3 (Flagship Expressive Model):
+ *    - Drama, high emotion, laughing, crying, screaming, singing, whispering, gasping, teasing, tongkrongan jokes, prank/jump-scare.
+ *    - Triggered whenever AI text contains audio tags ([laughs], [cries], etc.) OR user input has intense emotional markers.
+ * 2. eleven_multilingual_v2 (The Classic Long-Form):
+ *    - Long-form storytelling, fairy tales (dongeng), novels, historical chronologies, deep conceptual explanations up to 5 minutes.
+ *    - Maintains unwavering vocal stability from start to finish without drifting or pitch aberrations.
+ * 3. eleven_flash_v2_5 (The Speedster):
+ *    - Daily casual conversations, quick Q&A, bot commands, brief updates, status checks.
+ *    - Ultra-low latency response & massive credit quota savings.
+ * 
+ * @param {string} userTranscript 
+ * @param {string} aiSpokenText 
+ * @param {boolean} isStory 
+ * @returns {{ modelId: string, name: string, reason: string }}
  */
-async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CHARS) {
+function detectVoiceModel(userTranscript = '', aiSpokenText = '', isStory = false) {
+  const cleanInput = (userTranscript || '').toLowerCase();
+  const cleanOutput = (aiSpokenText || '').toLowerCase();
+
+  // 1. Check for Emotion Audio Tags or Drama in AI Response -> eleven_v3
+  const hasAudioEmotionTags = /\[(?:laughs|giggles|chuckles|snickers|wheezing|cries|sobbing|sniffs|tearing up|screams|shouts|yells|sings|singing|humming|melody|whispers|softly|sighs|groans|gasp|panicking|pouts|yawns|grunts|excited|cheering|amazed|awe)\]/i.test(aiSpokenText);
+  
+  // 2. Check for High Emotion, Jokes, Prank, Drama in User Input
+  const hasHighEmotionIntent = /\b(?:kaget|dor|teriak|jerit|nangis|sedih|hiks|ketawa|ngakak|lucu\s+banget|canda|jokes|lelucon|prank|hantu|kecoa|marah|kesal|panik|nyanyi|singing|lagu|sayang|bisik|ngambek|gemas|awikwok|wkwk|haha)\b/i.test(cleanInput);
+  const hasExpressiveExclamations = /[!]{2,}/.test(userTranscript) || /\b(?:hah|woi|astaga|ya\s*allah|omg|anjir|bjir|gila|waduh|buset)\b/i.test(cleanInput);
+
+  if (hasAudioEmotionTags || hasHighEmotionIntent || hasExpressiveExclamations) {
+    return {
+      modelId: 'eleven_v3',
+      name: 'ElevenLabs v3 (Flagship Model - Full Expressive Emotion & Audio Tags)',
+      reason: hasAudioEmotionTags ? 'audio_tags_detected' : 'high_emotional_sentiment'
+    };
+  }
+
+  // 3. Check for Long-Form Storytelling / Deep Conceptual Explanations up to 5 min -> eleven_multilingual_v2
+  const isLongNarrative = isStory || cleanOutput.length > 1400 || /\b(?:ceritakan|dongeng|kisah|alur|novel|cerita\s+panjang|jelaskan\s+(?:panjang|lengkap|detail|mendalam)|kronologi|sejarah)\b/i.test(cleanInput);
+  if (isLongNarrative) {
+    return {
+      modelId: 'eleven_multilingual_v2',
+      name: 'ElevenLabs Multilingual v2 (The Classic Long-Form - 5-Min Vocal Stability)',
+      reason: isStory ? 'storytelling_intent' : 'long_form_content'
+    };
+  }
+
+  // 4. Default: Casual everyday conversation, quick Q&A, bot commands -> eleven_flash_v2_5
+  return {
+    modelId: 'eleven_flash_v2_5',
+    name: 'ElevenLabs Flash v2.5 (The Speedster - Ultra-low Latency & Max Quota Saver)',
+    reason: 'casual_speedster_quota_saver'
+  };
+}
+
+/**
+ * Generate TTS audio and wrap it as a Discord AudioResource with Volume Booster & Natural Intonation.
+ * Primary: ElevenLabs (Kak Ceria - Dynamic Model Routing: Flash v2.5 / v3 / Multilingual v2)
+ * Fallback 1: Microsoft Edge Neural TTS (Indonesian Female Voice: Cute Gadis / Mature Siti)
+ * Fallback 2: OpenAI TTS-1-HD (Shimmer / Nova)
+ */
+async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CHARS, userContextOrOptions = null) {
   const clean = text
     .slice(0, maxChars)
     .replace(/<[^>]+>/g, '')
@@ -247,12 +303,29 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
     .trim();
   if (!clean) return null;
 
-  // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria with audio tags support & Quota Guard)
+  // Resolve options & context
+  let userTranscript = '';
+  let isStory = false;
+  let forcedModel = null;
+
+  if (typeof userContextOrOptions === 'string') {
+    userTranscript = userContextOrOptions;
+  } else if (userContextOrOptions && typeof userContextOrOptions === 'object') {
+    userTranscript = userContextOrOptions.userTranscript || '';
+    isStory = Boolean(userContextOrOptions.isStory);
+    forcedModel = userContextOrOptions.forcedModel || null;
+  }
+
+  // Dynamic ElevenLabs Model Detection (v3 vs Flash v2.5 vs Multilingual v2)
+  const detectedModel = forcedModel ? { modelId: forcedModel, name: forcedModel, reason: 'forced' } : detectVoiceModel(userTranscript, text, isStory);
+  const voiceId = config.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T'; // Always Kak Ceria
+
+  // 1. Primary: ElevenLabs (Kak Ceria - Dynamic Model)
   if (config.ELEVENLABS_API_KEY) {
     try {
-      console.log('[Voice TTS]: Generating audio via ElevenLabs v3 (Kak Ceria)...');
+      console.log(`[Voice TTS Engine]: 🎙️ Selected ${detectedModel.name} (Kak Ceria - ${voiceId}) [Reason: ${detectedModel.reason}] | Output: ${clean.length} chars...`);
       const { generateElevenLabsTTS } = require('./elevenlabs');
-      const audioBuffer = await generateElevenLabsTTS(clean, null, client);
+      const audioBuffer = await generateElevenLabsTTS(clean, voiceId, detectedModel.modelId, client);
       const resource = createAudioResource(Readable.from(audioBuffer), {
         inputType: StreamType.Arbitrary,
         inlineVolume: true
@@ -262,50 +335,46 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
       }
       return resource;
     } catch (elevenErr) {
-      console.warn('[Voice TTS Warning]: ElevenLabs failed, fast-switching to OpenAI TTS:', elevenErr.message);
+      console.warn(`[Voice TTS Warning]: ElevenLabs (${detectedModel.modelId}) failed (${elevenErr.message}). Switching to Indonesian Female Voice Fallback...`);
     }
   }
 
   // Convert audio tags into natural conversational Indonesian interjections for Fallback TTS
   const naturalFallbackText = prepareNaturalTextForFallbackTts(clean);
-  const vtuberMode = config.VTUBER_VOICE_MODE || 'openai_shimmer';
+  const fallbackVoiceChoice = config.INDONESIAN_FEMALE_FALLBACK_VOICE || 'gadis_cute';
 
-  // 2. Fallback 1: OpenAI TTS-1-HD (Shimmer = Soft Kawaii VTuber, Nova = Energetic Gen Z)
-  try {
-    const openai = getOpenAI();
-    if (openai && vtuberMode.startsWith('openai')) {
-      const selectedOpenAiVoice = vtuberMode === 'openai_nova' ? 'nova' : 'shimmer';
-      console.log(`[Voice TTS]: 🎀 Generating cute VTuber audio via OpenAI TTS-1-HD (${selectedOpenAiVoice} kawaii voice with 220% Volume Boost)...`);
-      const mp3 = await openai.audio.speech.create({
-        model: 'tts-1-hd',
-        voice: selectedOpenAiVoice,
-        input: naturalFallbackText,
-        speed: selectedOpenAiVoice === 'shimmer' ? 1.08 : 1.10 // Cute brisk intonation
-      });
-      const buf = Buffer.from(await mp3.arrayBuffer());
-      const resource = createAudioResource(Readable.from(buf), {
-        inputType: StreamType.Arbitrary,
-        inlineVolume: true
-      });
-      if (resource.volume) {
-        resource.volume.setVolume(2.2); // Loud & clear volume boost (220%)
-      }
-      return resource;
-    }
-  } catch (err) {
-    console.warn('[Voice TTS Warning]: OpenAI TTS failed, falling back to Edge TTS:', err.message);
-  }
-
-  // 3. Fallback 2: Microsoft Edge Neural TTS (Gadis Neural with +22Hz pitch modulation for Cute VTuber Voice)
+  // 2. Fallback 1: Microsoft Edge Neural TTS (Indonesian Female Voice: Cute Gadis / Mature Siti)
   const tempPath = path.join(TEMP_DIR, `vc_tts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp3`);
   try {
     const { EdgeTTS } = require('node-edge-tts');
-    console.log('[Voice TTS]: 🎀 Generating cute VTuber audio via EdgeTTS (Gadis Neural +22Hz Pitch Modulation)...');
+    let edgeVoice = 'id-ID-GadisNeural';
+    let edgePitch = '+0Hz';
+    let edgeRate = '+0%';
+    let voiceDesc = 'Natural Indonesian Female';
+
+    if (fallbackVoiceChoice === 'gadis_cute' || config.VTUBER_VOICE_MODE === 'edge_vtuber') {
+      edgeVoice = 'id-ID-GadisNeural';
+      edgePitch = '+20Hz';
+      edgeRate = '+10%';
+      voiceDesc = 'Cute Kawaii Gadis Neural (+20Hz Pitch)';
+    } else if (fallbackVoiceChoice === 'siti_mature') {
+      edgeVoice = 'id-ID-SitiNeural';
+      edgePitch = '+0Hz';
+      edgeRate = '+0%';
+      voiceDesc = 'Mature Warm Siti Neural (Indonesian Female)';
+    } else if (fallbackVoiceChoice === 'gadis_natural') {
+      edgeVoice = 'id-ID-GadisNeural';
+      edgePitch = '+0Hz';
+      edgeRate = '+0%';
+      voiceDesc = 'Natural Gadis Neural (Indonesian Female)';
+    }
+
+    console.log(`[Voice TTS Fallback]: 🎀 Generating audio via Microsoft Edge Neural TTS (${voiceDesc})...`);
     const tts = new EdgeTTS({
-      voice: 'id-ID-GadisNeural',
+      voice: edgeVoice,
       lang: 'id-ID',
-      pitch: '+22Hz', // Sweet, high-pitch anime girl tone
-      rate: '+12%',   // Natural energetic pacing
+      pitch: edgePitch,
+      rate: edgeRate,
       outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
     });
     await tts.ttsPromise(naturalFallbackText, tempPath);
@@ -316,14 +385,41 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
       inlineVolume: true
     });
     if (resource.volume) {
-      resource.volume.setVolume(2.0); // 200% volume boost
+      resource.volume.setVolume(2.2); // 220% loud & clear volume boost
     }
     return resource;
   } catch (edgeErr) {
-    console.error('[Voice TTS Fallback Error]: EdgeTTS failed:', edgeErr.message);
+    console.warn('[Voice TTS Fallback Warning]: EdgeTTS failed, attempting OpenAI TTS-1-HD:', edgeErr.message);
     if (fs.existsSync(tempPath)) fs.unlink(tempPath, () => {});
-    return null;
   }
+
+  // 3. Fallback 2: OpenAI TTS-1-HD (Shimmer / Nova)
+  try {
+    const openai = getOpenAI();
+    if (openai) {
+      const selectedOpenAiVoice = (config.VTUBER_VOICE_MODE === 'openai_nova' || fallbackVoiceChoice === 'openai_nova') ? 'nova' : 'shimmer';
+      console.log(`[Voice TTS Fallback]: 🎀 Generating audio via OpenAI TTS-1-HD (${selectedOpenAiVoice} female voice with 220% Volume Boost)...`);
+      const mp3 = await openai.audio.speech.create({
+        model: 'tts-1-hd',
+        voice: selectedOpenAiVoice,
+        input: naturalFallbackText,
+        speed: selectedOpenAiVoice === 'shimmer' ? 1.08 : 1.10
+      });
+      const buf = Buffer.from(await mp3.arrayBuffer());
+      const resource = createAudioResource(Readable.from(buf), {
+        inputType: StreamType.Arbitrary,
+        inlineVolume: true
+      });
+      if (resource.volume) {
+        resource.volume.setVolume(2.2); // 220% volume boost
+      }
+      return resource;
+    }
+  } catch (err) {
+    console.error('[Voice TTS Fallback Error]: All TTS providers failed:', err.message);
+  }
+
+  return null;
 }
 
 // ============================================================
@@ -1430,12 +1526,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       globalVoiceTelemetry.finishTurn(turnId, { status: 'EMPTY_RESPONSE' });
       return;
     }
-    console.log(`[Voice Pipeline]: 💬 Response (${isStory ? 'Storytelling ~2-3 menit' : 'Normal ~1 menit'}): "${spoken.slice(0, 80)}..."`);
+    console.log(`[Voice Pipeline]: 💬 Response (${isStory ? 'Storytelling/Long-Form ~3-5 menit' : 'Normal Obrolan ~1-2 menit'}): "${spoken.slice(0, 80)}..."`);
 
     recordSessionEntry(guildId, 'AZURA', spoken);
 
     globalVoiceTelemetry.markTimestamp(turnId, 't6');
-    const audioResource = await textToAudioResource(spoken, client, maxChars);
+    const audioResource = await textToAudioResource(spoken, client, maxChars, { userTranscript: transcript, isStory });
     globalVoiceTelemetry.markTimestamp(turnId, 't7');
     if (!audioResource) {
       console.error('[Voice Pipeline]: TTS generation failed.');
@@ -1712,19 +1808,19 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null) {
   }
 
   if (isStoryIntent) {
-    systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
+    systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) atau memberikan penjelasan mendalam langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
 Lawan bicara yang sedang berbicara denganmu: ${speakerName}
 ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 
-ATURAN KHUSUS STORYTELLING (DURASI 2 - 3 MENIT):
-1. DURASI & PANJANG CERITA: Bawakan cerita secara lengkap, memikat, dan terstruktur (pembuka, alur konflik/misteri/komedi, klimaks, dan penutup). Durasi bicara ideal sekitar 2 MENIT (maksimal 3 MENIT, sekitar 300-450 kata).
+ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (DURASI MAKSIMAL 5 MENIT):
+1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ideal 3 - 5 MENIT, sekitar 450 - 750 kata). Mulai dari pengenalan/pembuka, perkembangan alur/konflik, klimaks, dan kesimpulan/penutup yang berkesan.
 2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
-3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu agar cerita terasa hidup dan nyata!
+3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu jika ceritanya bertema drama/komedi!
 4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
-    maxTokens = 750; // ~450-500 words = ~2.5 - 3 minutes speech
+    maxTokens = 1200; // ~700-750 words = ~4.5 - 5 minutes speech
   } else {
     systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan ${isOwner ? 'Attila (panggilan: Att / Attila, creator & owner kamu)' : speakerName}.
 Lawan bicara saat ini: ${speakerName} (Gunakan sapaan/panggilan akrab ini secara natural).
@@ -1732,15 +1828,15 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 
-Kamu mengenali panggilan namamu seperti "Azura", "Ara", atau "Zura".
+Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 
 ATURAN PERINTAH KELUAR DARI VC:
 HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (misal: "Azura kamu keluar ya", "Ara leave vc sekarang"), jawablah dengan:
 "Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli makan", "uang keluar", "keluar bentar"), DILARANG KERAS memicu [ACTION:LEAVE_VC]! Jawablah topik tersebut secara santai dan natural.
 
-ATURAN WAJIB VOICE OBROLAN BIASA (DURASI MAKSIMAL 1.5 MENIT):
-1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara maksimal 1.5 MENIT, sekitar 2-4 kalimat santai to the point). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
+ATURAN WAJIB VOICE OBROLAN BIASA (DURASI 1 - 2 MENIT):
+1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara 1 - 2 MENIT, sekitar 2 - 4 kalimat santai padat to the point). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
 2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh memanggilnya dengan panggilan manis/akrab seperti "Attila", "kamu", "sayang", "Attila sayang", atau "siap ganteng".
 3. MULTILINGUAL VOICE: Jika lawan bicara berbicara dalam bahasa lain (English, Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
@@ -1764,7 +1860,7 @@ Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags
 Jika lawan bicara mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti):
 - Buka LANGSUNG dengan tag emosi tarikan napas kaget [gasp] di awal kalimat!
 - Keluarkan reaksi kaget yang heboh, lucu, dan manja khas cewek Gen Z.` + liveRoomContext;
-    maxTokens = 280; // ~150-180 words = ~1 - 1.5 minutes speech
+    maxTokens = 450; // ~200-250 words = ~1.5 - 2 minutes speech
   }
 
   const messages = [

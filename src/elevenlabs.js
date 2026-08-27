@@ -17,14 +17,53 @@ function openCircuitBreaker(reason, durationMs = 30 * 60 * 1000) {
   console.warn(`[ElevenLabs Circuit Breaker]: ⚡ Circuit OPEN for ${Math.round(durationMs / 60000)} mins. Instant-fallback active. Reason: ${reason}`);
 }
 
+const ELEVENLABS_MODELS = {
+  V3: 'eleven_v3',
+  FLASH: 'eleven_flash_v2_5',
+  MULTILINGUAL_V2: 'eleven_multilingual_v2'
+};
+
 /**
- * Generate MP3 audio buffer from text using ElevenLabs v3 API with Quota Guard & Circuit Breaker
+ * Get optimized voice settings per ElevenLabs model
+ * @param {string} modelId 
+ * @returns {object}
+ */
+function getModelVoiceSettings(modelId) {
+  switch (modelId) {
+    case ELEVENLABS_MODELS.FLASH:
+      return {
+        stability: 0.50,
+        similarity_boost: 0.75,
+        style: 0.0,
+        use_speaker_boost: true
+      };
+    case ELEVENLABS_MODELS.MULTILINGUAL_V2:
+      return {
+        stability: 0.65,
+        similarity_boost: 0.80,
+        style: 0.15,
+        use_speaker_boost: true
+      };
+    case ELEVENLABS_MODELS.V3:
+    default:
+      return {
+        stability: 0.38,
+        similarity_boost: 0.80,
+        style: 0.35,
+        use_speaker_boost: true
+      };
+  }
+}
+
+/**
+ * Generate MP3 audio buffer from text using ElevenLabs API with Dynamic Model Routing, Quota Guard & Circuit Breaker
  * @param {string} text 
- * @param {string} voiceId 
- * @param {import('discord.js').Client} client
+ * @param {string|null} voiceId 
+ * @param {string|null} modelId ('eleven_v3' | 'eleven_flash_v2_5' | 'eleven_multilingual_v2')
+ * @param {import('discord.js').Client|null} client
  * @returns {Promise<Buffer>}
  */
-function generateElevenLabsTTS(text, voiceId = null, client = null) {
+function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = null) {
   return new Promise((resolve, reject) => {
     const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
     if (!apiKey) {
@@ -36,17 +75,17 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
       return reject(new Error(`ElevenLabs Circuit Open: ${circuitBreakerReason}`));
     }
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
-    const selectedModel = config.ELEVENLABS_MODEL_ID || 'eleven_v3';
+    const selectedModel = modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH;
+    const voiceSettings = getModelVoiceSettings(selectedModel);
+
     const postData = JSON.stringify({
       text: text,
       model_id: selectedModel,
-      voice_settings: {
-        stability: 0.38,
-        similarity_boost: 0.80,
-        style: 0.35,
-        use_speaker_boost: true
-      }
+      voice_settings: voiceSettings
     });
+
+    // Dynamic timeout: 15s for short talk, up to 60s for long storytelling (~5 min)
+    const requestTimeout = Math.max(15000, Math.min(60000, text.length * 15));
 
     const req = https.request({
       hostname: 'api.elevenlabs.io',
@@ -58,7 +97,7 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
         'Accept': 'audio/mpeg',
         'Content-Length': Buffer.byteLength(postData)
       },
-      timeout: 10000
+      timeout: requestTimeout
     }, (res) => {
       if (res.statusCode !== 200) {
         let errBody = '';
@@ -67,7 +106,7 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
           if (res.statusCode === 401 || res.statusCode === 402 || res.statusCode === 429) {
             openCircuitBreaker(`ElevenLabs error ${res.statusCode}: ${errBody.slice(0, 100)}`, 30 * 60 * 1000);
           }
-          reject(new Error(`ElevenLabs API returned ${res.statusCode}: ${errBody}`));
+          reject(new Error(`ElevenLabs API returned ${res.statusCode} (model: ${selectedModel}): ${errBody}`));
         });
         return;
       }
@@ -84,7 +123,7 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
     req.on('error', (err) => reject(err));
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('ElevenLabs API request timed out'));
+      reject(new Error(`ElevenLabs API request timed out after ${Math.round(requestTimeout / 1000)}s`));
     });
 
     req.write(postData);
@@ -94,5 +133,7 @@ function generateElevenLabsTTS(text, voiceId = null, client = null) {
 
 module.exports = {
   generateElevenLabsTTS,
+  getModelVoiceSettings,
+  ELEVENLABS_MODELS,
   DEFAULT_VOICE_ID
 };

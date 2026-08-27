@@ -17,18 +17,12 @@ from openai import AsyncOpenAI
 logger = logging.getLogger("ElevenLabsV3Adapter")
 
 class CustomElevenLabsV3Adapter:
-    def __init__(self, eleven_key: str = None, openai_key: str = None, voice_id: str = "d15jrIAARvF899pDoC6T"):
+    def __init__(self, eleven_key: str = None, openai_key: str = None, voice_id: str = "d15jrIAARvF899pDoC6T", default_model: str = "eleven_flash_v2_5"):
         self.eleven_key = eleven_key or os.getenv("ELEVENLABS_API_KEY", "")
         self.openai_key = openai_key or os.getenv("OPENAI_API_KEY", "")
         self.voice_id = voice_id
-        self.model_id = "eleven_v3"
+        self.default_model = default_model
         self.endpoint = "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input"
-        self.voice_settings = {
-            "stability": 0.38,
-            "similarity_boost": 0.80,
-            "style": 0.35,
-            "use_speaker_boost": True
-        }
         self.generation_config = {
             "chunk_length_schedule": [120, 160, 250, 290]
         }
@@ -36,16 +30,27 @@ class CustomElevenLabsV3Adapter:
         self.cancelled_turns = set()
         self.openai_client = AsyncOpenAI(api_key=self.openai_key) if self.openai_key else None
 
+    def get_voice_settings_for_model(self, model_id: str):
+        if model_id == "eleven_flash_v2_5":
+            return { "stability": 0.50, "similarity_boost": 0.75, "style": 0.0, "use_speaker_boost": True }
+        elif model_id == "eleven_multilingual_v2":
+            return { "stability": 0.65, "similarity_boost": 0.80, "style": 0.15, "use_speaker_boost": True }
+        else: # eleven_v3
+            return { "stability": 0.38, "similarity_boost": 0.80, "style": 0.35, "use_speaker_boost": True }
+
     async def stream_dialogue(
         self,
         token_stream: AsyncGenerator[str, None],
-        turn_id: str
+        turn_id: str,
+        model_id: str = None
     ) -> AsyncGenerator[Dict, None]:
         """
-        Stream text tokens into ElevenLabs v3 WebSocket.
-        Yields dict with { "audio": bytes, "provider": "elevenlabs_v3" | "openai_nova", "turn_id": turn_id }
+        Stream text tokens into ElevenLabs WebSocket with Dynamic Model Routing (Flash v2.5 / v3 / Multilingual v2).
+        Yields dict with { "audio": bytes, "provider": str, "turn_id": turn_id }
         Guarantees EXACTLY ONE provider generates valid audio per turn.
         """
+        selected_model = model_id or self.default_model
+        voice_settings = self.get_voice_settings_for_model(selected_model)
         if turn_id in self.cancelled_turns:
             logger.info(f"[TTS Adapter]: Turn {turn_id} already cancelled before start.")
             return
@@ -69,13 +74,13 @@ class CustomElevenLabsV3Adapter:
                     # Handshake / Beginning of Stream (BOS)
                     bos = {
                         "voice_id": self.voice_id,
-                        "model_id": self.model_id,
-                        "voice_settings": self.voice_settings,
+                        "model_id": selected_model,
+                        "voice_settings": voice_settings,
                         "generation_config": self.generation_config,
                         "context_id": turn_id
                     }
                     await ws.send(json.dumps(bos))
-                    logger.info(f"[ElevenLabs v3 WS]: Connected & Handshake sent for turn {turn_id}")
+                    logger.info(f"[ElevenLabs WS]: Connected & Handshake sent for turn {turn_id} (Model: {selected_model})")
 
                     # Sender Task
                     async def sender():

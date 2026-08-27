@@ -17,6 +17,7 @@ const config = {
   VTUBER_VOICE_MODE: (process.env.VTUBER_VOICE_MODE || 'openai_shimmer').trim(),
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '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').trim(),
   DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_9874123650abcdef0123456789abcdef').trim(),
+  MASTER_SECURITY_PASSWORD: (process.env.MASTER_SECURITY_PASSWORD || 'AzuraSecurity2026!').trim(),
 
   // AI Model Configuration
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5.6-luna',

@@ -1,48 +1,34 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { readSecureJson, writeSecureJson } = require('./security');
 
-const PERMANENT_MEMORY_FILE = path.join(__dirname, '../data/permanent_summaries.json');
+const PERMANENT_MEMORY_FILE = path.join(__dirname, '../data/permanent_summaries.enc');
 const MAX_SUMMARIES_PER_CONTEXT = 100; // 100 summaries * 50 msgs = 5,000 messages!
 
 // In-memory cache for ultra-fast access
 let permanentMemoryCache = {};
 
 /**
- * Load permanent memory store from disk
+ * Load permanent memory store from encrypted disk
  */
 function loadPermanentMemory() {
   try {
-    const dataDir = path.dirname(PERMANENT_MEMORY_FILE);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    if (fs.existsSync(PERMANENT_MEMORY_FILE)) {
-      const raw = fs.readFileSync(PERMANENT_MEMORY_FILE, 'utf8');
-      permanentMemoryCache = JSON.parse(raw || '{}');
-    } else {
-      permanentMemoryCache = {};
-    }
+    permanentMemoryCache = readSecureJson(PERMANENT_MEMORY_FILE, {});
   } catch (err) {
-    console.error('[PermanentMemory Error]: Failed to load permanent_summaries.json:', err.message);
+    console.error('[PermanentMemory Error]: Failed to load secure permanent_summaries.enc:', err.message);
     permanentMemoryCache = {};
   }
 }
 
 /**
- * Save permanent memory store atomically to disk
+ * Save permanent memory store atomically to encrypted disk
  */
 function savePermanentMemory() {
   try {
-    const dataDir = path.dirname(PERMANENT_MEMORY_FILE);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    const tmpFile = `${PERMANENT_MEMORY_FILE}.tmp`;
-    fs.writeFileSync(tmpFile, JSON.stringify(permanentMemoryCache, null, 2), 'utf8');
-    fs.renameSync(tmpFile, PERMANENT_MEMORY_FILE);
+    writeSecureJson(PERMANENT_MEMORY_FILE, permanentMemoryCache);
   } catch (err) {
-    console.error('[PermanentMemory Error]: Failed to save permanent_summaries.json:', err.message);
+    console.error('[PermanentMemory Error]: Failed to save secure permanent_summaries.enc:', err.message);
   }
 }
 

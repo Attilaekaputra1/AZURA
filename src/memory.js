@@ -1,41 +1,37 @@
 const fs = require('fs');
 const path = require('path');
+const { readSecureJson, writeSecureJson, isSacredData } = require('./security');
 
-const MEMORY_FILE = path.join(__dirname, '..', 'data', 'user_profiles.json');
+const MEMORY_FILE = path.join(__dirname, '..', 'data', 'user_profiles.enc');
 
-// Ensure data directory and file exist
+// Ensure data directory exists
 const DATA_DIR = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-if (!fs.existsSync(MEMORY_FILE)) {
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify({}, null, 2), 'utf8');
-}
-
 /**
- * Read all user memories from disk
+ * Read all user memories from encrypted disk
  * @returns {Record<string, { name: string, facts: string[], updatedAt: string }>}
  */
 function loadMemories() {
   try {
-    const raw = fs.readFileSync(MEMORY_FILE, 'utf8');
-    return JSON.parse(raw || '{}');
+    return readSecureJson(MEMORY_FILE, {});
   } catch (err) {
-    console.error('[Memory Error]: Failed to read user_profiles.json:', err.message);
+    console.error('[Memory Error]: Failed to read secure user_profiles.enc:', err.message);
     return {};
   }
 }
 
 /**
- * Save user memories to disk
+ * Save user memories to encrypted disk
  * @param {Record<string, any>} data 
  */
 function saveMemories(data) {
   try {
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2), 'utf8');
+    writeSecureJson(MEMORY_FILE, data);
   } catch (err) {
-    console.error('[Memory Error]: Failed to write user_profiles.json:', err.message);
+    console.error('[Memory Error]: Failed to write secure user_profiles.enc:', err.message);
   }
 }
 
@@ -50,14 +46,21 @@ function getUserFacts(userId) {
 }
 
 /**
- * Add a new fact to a user's long-term memory
+ * Add a new fact to a user's long-term memory.
+ * Strictly filters out sacred/sensitive credentials (passwords, PINs, bank data, KTP/NIK).
  * @param {string} userId 
  * @param {string} fact 
- * @returns {boolean} True if added, false if duplicate
+ * @returns {{ success: boolean, blocked?: boolean, duplicate?: boolean }}
  */
 function addFact(userId, fact) {
   const cleanFact = fact.trim();
-  if (!cleanFact) return false;
+  if (!cleanFact) return { success: false };
+
+  // 🛡️ SECURITY GUARD: Block passwords, PINs, credentials, KTP/NIK
+  if (isSacredData(cleanFact)) {
+    console.warn(`[Memory Security Guard]: ⚠️ Blocked attempt to save sacred/confidential data for user ${userId}.`);
+    return { success: false, blocked: true };
+  }
 
   const memories = loadMemories();
   if (!memories[userId]) {
@@ -72,7 +75,7 @@ function addFact(userId, fact) {
 
   // Prevent duplicate facts (case insensitive check)
   const isDuplicate = userMem.facts.some(f => f.toLowerCase() === cleanFact.toLowerCase());
-  if (isDuplicate) return false;
+  if (isDuplicate) return { success: false, duplicate: true };
 
   userMem.facts.push(cleanFact);
   // Cap at max 20 key facts per user for maximum token efficiency
@@ -82,7 +85,7 @@ function addFact(userId, fact) {
 
   userMem.updatedAt = new Date().toISOString();
   saveMemories(memories);
-  return true;
+  return { success: true };
 }
 
 /**

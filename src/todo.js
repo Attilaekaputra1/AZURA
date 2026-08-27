@@ -10,8 +10,9 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { readSecureJson, writeSecureJson } = require('./security');
 
-const TODO_FILE_PATH = path.join(__dirname, '../data/todo_tasks.json');
+const TODO_FILE_PATH = path.join(__dirname, '../data/todo_tasks.enc');
 const VPS_PUBLIC_IP = process.env.VPS_IP || '203.175.10.163';
 const PORT = process.env.STREAM_PORT || 7860;
 const TODO_DASHBOARD_URL = `http://${VPS_PUBLIC_IP}:${PORT}/todo`;
@@ -22,17 +23,8 @@ let isLoaded = false;
 function loadTodos() {
   if (isLoaded) return;
   try {
-    const dir = path.dirname(TODO_FILE_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    if (fs.existsSync(TODO_FILE_PATH)) {
-      const data = fs.readFileSync(TODO_FILE_PATH, 'utf8');
-      todoCache = JSON.parse(data || '[]');
-      console.log(`[Todo Engine]: 📋 Loaded ${todoCache.length} tasks from disk.`);
-    } else {
-      todoCache = [];
-      saveTodos();
-    }
+    todoCache = readSecureJson(TODO_FILE_PATH, []);
+    console.log(`[Todo Engine]: 📋 Loaded ${todoCache.length} tasks from encrypted disk.`);
     isLoaded = true;
   } catch (err) {
     console.error('[Todo Engine Load Error]:', err.message);
@@ -53,11 +45,7 @@ function clearAllTodos() {
 
 function saveTodos() {
   try {
-    const dir = path.dirname(TODO_FILE_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${TODO_FILE_PATH}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(todoCache, null, 2), 'utf8');
-    fs.renameSync(tmp, TODO_FILE_PATH);
+    writeSecureJson(TODO_FILE_PATH, todoCache);
   } catch (err) {
     console.error('[Todo Engine Save Error]:', err.message);
   }

@@ -2,44 +2,40 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelect
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { readSecureJson, writeSecureJson } = require('./security');
 
-const SCHEDULED_DMS_FILE = path.join(__dirname, '..', 'data', 'scheduled_dms.json');
+const SCHEDULED_DMS_FILE = path.join(__dirname, '..', 'data', 'scheduled_dms.enc');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-if (!fs.existsSync(SCHEDULED_DMS_FILE)) {
-  fs.writeFileSync(SCHEDULED_DMS_FILE, JSON.stringify([], null, 2), 'utf8');
-}
-
 // Store pending DM requests in memory: key = pendingId -> { targetUser, targetMember, guildName, messageText, requesterId }
 const pendingDms = new Map();
 
 /**
- * Load scheduled DMs from disk
+ * Load scheduled DMs from encrypted disk
  * @returns {Array<{ id: string, targetUserId: string, targetUsername: string, displayName: string, guildName: string, messageText: string, requesterId: string, targetTime: number, createdAt: string }>}
  */
 function loadScheduledDms() {
   try {
-    const raw = fs.readFileSync(SCHEDULED_DMS_FILE, 'utf8');
-    return JSON.parse(raw || '[]');
+    return readSecureJson(SCHEDULED_DMS_FILE, []);
   } catch (err) {
-    console.error('[OwnerDM Error]: Failed to read scheduled_dms.json:', err.message);
+    console.error('[OwnerDM Error]: Failed to read secure scheduled_dms.enc:', err.message);
     return [];
   }
 }
 
 /**
- * Save scheduled DMs to disk
+ * Save scheduled DMs to encrypted disk
  * @param {Array<any>} list 
  */
 function saveScheduledDms(list) {
   try {
-    fs.writeFileSync(SCHEDULED_DMS_FILE, JSON.stringify(list, null, 2), 'utf8');
+    writeSecureJson(SCHEDULED_DMS_FILE, list);
   } catch (err) {
-    console.error('[OwnerDM Error]: Failed to write scheduled_dms.json:', err.message);
+    console.error('[OwnerDM Error]: Failed to write secure scheduled_dms.enc:', err.message);
   }
 }
 

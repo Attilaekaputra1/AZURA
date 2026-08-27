@@ -2,9 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 const config = require('./config');
+const { readSecureJson, writeSecureJson } = require('./security');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const APPROVED_FRIENDS_FILE = path.join(DATA_DIR, 'approved_friends.json');
+const APPROVED_FRIENDS_FILE = path.join(DATA_DIR, 'approved_friends.enc');
 const MAX_DAILY_VOICE_SECONDS = 120; // 2 minutes max per 24 hours per friend
 const RESET_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
@@ -16,34 +17,29 @@ if (!fs.existsSync(DATA_DIR)) {
 let approvedFriendsCache = new Map();
 
 /**
- * Load approved friends from disk
+ * Load approved friends from encrypted disk
  */
 function loadApprovedFriends() {
   try {
-    if (fs.existsSync(APPROVED_FRIENDS_FILE)) {
-      const raw = fs.readFileSync(APPROVED_FRIENDS_FILE, 'utf8');
-      const data = JSON.parse(raw || '{}');
-      approvedFriendsCache.clear();
-      for (const [uid, record] of Object.entries(data)) {
-        approvedFriendsCache.set(uid, record);
-      }
+    const data = readSecureJson(APPROVED_FRIENDS_FILE, {});
+    approvedFriendsCache.clear();
+    for (const [uid, record] of Object.entries(data)) {
+      approvedFriendsCache.set(uid, record);
     }
   } catch (err) {
-    console.error('[AccessControl Error]: Failed to read approved_friends.json:', err.message);
+    console.error('[AccessControl Error]: Failed to read secure approved_friends.enc:', err.message);
   }
 }
 
 /**
- * Save approved friends to disk atomically
+ * Save approved friends to encrypted disk atomically
  */
 function saveApprovedFriends() {
   try {
     const data = Object.fromEntries(approvedFriendsCache);
-    const tmp = `${APPROVED_FRIENDS_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-    fs.renameSync(tmp, APPROVED_FRIENDS_FILE);
+    writeSecureJson(APPROVED_FRIENDS_FILE, data);
   } catch (err) {
-    console.error('[AccessControl Error]: Failed to save approved_friends.json:', err.message);
+    console.error('[AccessControl Error]: Failed to save secure approved_friends.enc:', err.message);
   }
 }
 

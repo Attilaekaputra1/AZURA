@@ -2,10 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const config = require('./config');
+const { readSecureJson, writeSecureJson } = require('./security');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const QUOTA_FILE = path.join(DATA_DIR, 'voice_quota.json');
-const MEMBER_VC_QUOTA_FILE = path.join(DATA_DIR, 'member_vc_quota.json');
+const QUOTA_FILE = path.join(DATA_DIR, 'voice_quota.enc');
+const MEMBER_VC_QUOTA_FILE = path.join(DATA_DIR, 'member_vc_quota.enc');
 
 // Default monthly limit (40,000 characters as indicated by user dashboard)
 const DEFAULT_MONTHLY_LIMIT = 40000;
@@ -32,14 +33,12 @@ function getTodayKey() {
 function loadQuotaData() {
   const currentMonth = getCurrentMonthKey();
   try {
-    if (fs.existsSync(QUOTA_FILE)) {
-      const data = JSON.parse(fs.readFileSync(QUOTA_FILE, 'utf8'));
-      if (data.monthKey === currentMonth) {
-        return data;
-      }
+    const data = readSecureJson(QUOTA_FILE, null);
+    if (data && data.monthKey === currentMonth) {
+      return data;
     }
   } catch (err) {
-    console.error('[VoiceQuota Error]: Failed to read voice_quota.json:', err.message);
+    console.error('[VoiceQuota Error]: Failed to read secure voice_quota.enc:', err.message);
   }
 
   // New month or fresh initialization
@@ -58,23 +57,21 @@ function loadQuotaData() {
 function saveQuotaData(data) {
   try {
     data.updatedAt = new Date().toISOString();
-    fs.writeFileSync(QUOTA_FILE, JSON.stringify(data, null, 2), 'utf8');
+    writeSecureJson(QUOTA_FILE, data);
   } catch (err) {
-    console.error('[VoiceQuota Error]: Failed to save voice_quota.json:', err.message);
+    console.error('[VoiceQuota Error]: Failed to save secure voice_quota.enc:', err.message);
   }
 }
 
 function loadMemberVcQuota() {
   const today = getTodayKey();
   try {
-    if (fs.existsSync(MEMBER_VC_QUOTA_FILE)) {
-      const data = JSON.parse(fs.readFileSync(MEMBER_VC_QUOTA_FILE, 'utf8'));
-      if (data.dateKey === today) {
-        return data;
-      }
+    const data = readSecureJson(MEMBER_VC_QUOTA_FILE, null);
+    if (data && data.dateKey === today) {
+      return data;
     }
   } catch (err) {
-    console.error('[VoiceQuota Error]: Failed to read member_vc_quota.json:', err.message);
+    console.error('[VoiceQuota Error]: Failed to read secure member_vc_quota.enc:', err.message);
   }
 
   const fresh = {
@@ -87,9 +84,9 @@ function loadMemberVcQuota() {
 
 function saveMemberVcQuota(data) {
   try {
-    fs.writeFileSync(MEMBER_VC_QUOTA_FILE, JSON.stringify(data, null, 2), 'utf8');
+    writeSecureJson(MEMBER_VC_QUOTA_FILE, data);
   } catch (err) {
-    console.error('[VoiceQuota Error]: Failed to save member_vc_quota.json:', err.message);
+    console.error('[VoiceQuota Error]: Failed to save secure member_vc_quota.enc:', err.message);
   }
 }
 

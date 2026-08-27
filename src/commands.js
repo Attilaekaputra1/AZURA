@@ -11,6 +11,40 @@ const { getTopAnime, searchAnime, getAnimeRecommendations } = require('./media')
 const { handleSendDmCommand, handleListScheduledCommand } = require('./ownerDm');
 const { handleSendChannelCommand } = require('./sendChannel');
 const { generateAiImage, buildImageEmbed, checkImageQuota, recordImageGeneration } = require('./imageGen');
+const { verifyMasterPassword, createAuthSession, isAuthSessionActive, isSacredData } = require('./security');
+
+/**
+ * Check if the user has an active 15-min security session or provided a valid Master Password.
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction 
+ * @param {string|null} [passwordInput] 
+ * @returns {{ authorized: boolean, justUnlocked?: boolean, embed?: EmbedBuilder }}
+ */
+function checkMasterAuth(interaction, passwordInput = null) {
+  const userId = interaction.user.id;
+  if (isAuthSessionActive(userId)) {
+    return { authorized: true };
+  }
+  if (passwordInput && verifyMasterPassword(passwordInput)) {
+    createAuthSession(userId);
+    return { authorized: true, justUnlocked: true };
+  }
+
+  return {
+    authorized: false,
+    embed: new EmbedBuilder()
+      .setColor(0xED4245)
+      .setTitle('🔒 [AUTENTIKASI KEAMANAN TINGKAT TINGGI]')
+      .setDescription(
+        `Halo **${interaction.user.username}**!\n\n` +
+        `Fitur ini mengelola **data sensitif/krusial** dan dilindungi oleh sistem enkripsi & autentikasi berlapis.\n\n` +
+        `🔑 **Cara Membuka Akses (Sesi Aman 15 Menit):**\n` +
+        `Sertakan parameter \`password:<Master Password>\` saat menjalankan perintah.\n\n` +
+        `*💡 Setelah berhasil terverifikasi, kamu akan mendapatkan **Sesi Aman 15 Menit** sehingga tidak perlu memasukkan password lagi selama sesi aktif.*`
+      )
+      .setFooter({ text: 'AZURA Multi-Layer Security • AES-256-GCM' })
+      .setTimestamp()
+  };
+}
 
 // Definition of slash commands
 const commands = [
@@ -21,7 +55,8 @@ const commands = [
   new SlashCommandBuilder()
     .setName('scheduled')
     .setDescription('Lihat & kelola antrean DM yang sedang dijadwalkan (Khusus Owner - Hanya di DM)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption(opt => opt.setName('password').setDescription('Master Security Password (Opsional jika sesi 15m aktif)').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('reset')
@@ -70,6 +105,10 @@ const commands = [
     .addStringOption(option =>
       option.setName('id')
         .setDescription('ID ringkasan yang ingin dihapus spesifik (Contoh: sum_1787729179639)')
+        .setRequired(false))
+    .addStringOption(option =>
+      option.setName('password')
+        .setDescription('Master Security Password (untuk aksi audit/hapus jika sesi 15m belum aktif)')
         .setRequired(false)),
 
   new SlashCommandBuilder()
@@ -222,10 +261,12 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(sub =>
       sub.setName('stats')
-        .setDescription('Lihat statistik & rekap pengguna aktif di database terenkripsi'))
+        .setDescription('Lihat statistik & rekap pengguna aktif di database terenkripsi')
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password (opsional jika sesi aktif)').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('list')
-        .setDescription('Lihat daftar lengkap seluruh pengguna terdaftar beserta UID dan status kunci nama'))
+        .setDescription('Lihat daftar lengkap seluruh pengguna terdaftar beserta UID dan status kunci nama')
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password (opsional jika sesi aktif)').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('setname')
         .setDescription('Tetapkan atau ubah nama panggilan pengguna secara resmi & terkunci')
@@ -240,14 +281,16 @@ const commands = [
         .addBooleanOption(opt =>
           opt.setName('kunci')
             .setDescription('Kunci nama agar tidak bisa diubah oleh pengguna (Default: True)')
-            .setRequired(false)))
+            .setRequired(false))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('unlock')
         .setDescription('Buka kunci nama panggilan pengguna agar bisa mendaftar ulang')
         .addStringOption(opt =>
           opt.setName('target')
             .setDescription('User ID atau username pengguna')
-            .setRequired(true)))
+            .setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('ban')
         .setDescription('Hentikan & blokir seluruh akses respons pengguna (Blacklist Total)')
@@ -258,24 +301,28 @@ const commands = [
         .addStringOption(opt =>
           opt.setName('alasan')
             .setDescription('Alasan pemblokiran (misal: Pemalsuan nama, spam, abuse)')
-            .setRequired(false)))
+            .setRequired(false))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('unban')
         .setDescription('Buka kembali blokir akses pengguna (Hapus dari Blacklist)')
         .addStringOption(opt =>
           opt.setName('target')
             .setDescription('User ID atau username pengguna yang ingin dibuka blokirnya')
-            .setRequired(true)))
+            .setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('blacklist')
-        .setDescription('Lihat daftar seluruh pengguna yang sedang diblokir / diblacklist'))
+        .setDescription('Lihat daftar seluruh pengguna yang sedang diblokir / diblacklist')
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('view')
         .setDescription('Dekripsi dan lihat data profil lengkap pengguna tertentu')
         .addStringOption(opt =>
           opt.setName('target')
             .setDescription('User ID atau username pengguna yang ingin dilihat')
-            .setRequired(true)))
+            .setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('export')
         .setDescription('Ekspor seluruh database pengguna terenkripsi ke DM Owner')
@@ -286,7 +333,8 @@ const commands = [
             .addChoices(
               { name: '📄 JSON Format', value: 'json' },
               { name: '📊 CSV Spreadsheet Format', value: 'csv' }
-            ))),
+            ))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false))),
 
   new SlashCommandBuilder()
     .setName('roadmap')
@@ -304,21 +352,24 @@ const commands = [
               { name: '🎉 Selesai (Completed)', value: 'DONE' },
               { name: '❌ Ditolak (Rejected)', value: 'REJECTED' },
               { name: '🌐 Semua Status', value: 'ALL' }
-            )))
+            ))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('done')
         .setDescription('Tandai tugas selesai dieksekusi & otomatis kirim notifikasi kabar gembira ke user')
         .addStringOption(opt =>
           opt.setName('ticket')
             .setDescription('Ticket ID tugas (misal: ADV-7B3 atau REP-9A1)')
-            .setRequired(true)))
+            .setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('discuss')
         .setDescription('Minta analisis strategis & pertimbangan kritis AI untuk sebuah saran/bug')
         .addStringOption(opt =>
           opt.setName('ticket')
             .setDescription('Ticket ID tugas (misal: ADV-7B3 atau REP-9A1)')
-            .setRequired(true))),
+            .setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false))),
 
   new SlashCommandBuilder()
     .setName('personality')
@@ -393,18 +444,22 @@ const commands = [
       sub.setName('add')
         .setDescription('Beri akses eksklusif beta testing voice & kirim DM sambutan estetik')
         .addStringOption(opt => opt.setName('target').setDescription('Discord User ID teman (contoh: 1086593461454655588)').setRequired(true))
-        .addStringOption(opt => opt.setName('nama').setDescription('Nama panggilan akrab (opsional)').setRequired(false)))
+        .addStringOption(opt => opt.setName('nama').setDescription('Nama panggilan akrab (opsional)').setRequired(false))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('remove')
         .setDescription('Cabut izin akses teman')
-        .addStringOption(opt => opt.setName('target').setDescription('Discord User ID teman').setRequired(true)))
+        .addStringOption(opt => opt.setName('target').setDescription('Discord User ID teman').setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('list')
-        .setDescription('Lihat daftar seluruh teman yang di-ACC & sisa kuota hari ini'))
+        .setDescription('Lihat daftar seluruh teman yang di-ACC & sisa kuota hari ini')
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
     .addSubcommand(sub =>
       sub.setName('reset')
         .setDescription('Reset kuota suara harian teman menjadi 0/120s secara manual')
-        .addStringOption(opt => opt.setName('target').setDescription('Discord User ID teman').setRequired(true)))
+        .addStringOption(opt => opt.setName('target').setDescription('Discord User ID teman').setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
 ];
 
 const fs = require('fs');
@@ -642,22 +697,24 @@ async function handleSlashCommand(interaction, startTime) {
       });
     }
 
-    statusEmbed
-      .setFooter({ text: 'AZURA Real-Time Telemetry Engine • Live Verified' })
-      .setTimestamp();
-
-    await interaction.editReply({
-      embeds: [statusEmbed]
-    });
+    statusEmbed.setFooter({ text: 'AZURA Real-Time Telemetry Engine • Live Verified' }).setTimestamp();
+    await interaction.editReply({ embeds: [statusEmbed] });
 
   } else if (commandName === 'remindme') {
     const waktuStr = interaction.options.getString('waktu');
     const pesan = interaction.options.getString('pesan');
-
     const delayMs = parseTime(waktuStr);
+
     if (!delayMs) {
       return interaction.reply({
-        content: 'Format waktu salah! Gunakan contoh: `5m` (5 menit), `1h` (1 jam), atau `30s` (30 detik).',
+        content: '⚠️ Format waktu salah! Contoh yang benar: `5m` (5 menit), `1h` (1 jam), `30s` (30 detik).',
+        flags: 64
+      });
+    }
+
+    if (delayMs > 30 * 24 * 60 * 60 * 1000) {
+      return interaction.reply({
+        content: '⚠️ Waktu pengingat maksimal adalah 30 hari ke depan ya!',
         flags: 64
       });
     }
@@ -689,17 +746,46 @@ async function handleSlashCommand(interaction, startTime) {
   } else if (commandName === 'memory') {
     const aksi = interaction.options.getString('aksi');
     const faktaBaru = interaction.options.getString('fakta');
+    const passwordInput = interaction.options.getString('password');
 
+    const safetyBanner = `⚠️ **[PERINGATAN KEAMANAN & PRIVASI MEMORI]**\n` +
+      `*Dilarang keras memasukkan informasi penting atau krusial (seperti kata sandi, PIN ATM, nomor rekening, NIK/KTP, data rahasia). Hanya cantumkan informasi ringan seputar hobi, preferensi, atau obrolan santai.*`;
+
+    // 1. Handling New Fact Insertion with Sacred Data Protection
     if (faktaBaru) {
-      const added = addFact(user.id, faktaBaru);
-      if (added) {
+      if (isSacredData(faktaBaru)) {
+        const warnEmbed = new EmbedBuilder()
+          .setColor(0xED4245)
+          .setTitle('⛔ [PERINGATAN KEAMANAN: DATA SENSITIF TERDETEKSI]')
+          .setDescription(
+            `Fakta yang kamu masukkan **DITOLAK** karena mengandung indikasi informasi penting/krusial (kata sandi, PIN, NIK, kartu kredit, token API, atau data rahasia).\n\n` +
+            `${safetyBanner}`
+          )
+          .setFooter({ text: 'AZURA High-Security Guard • Privacy Shield' })
+          .setTimestamp();
+        return interaction.reply({ embeds: [warnEmbed], flags: 64 });
+      }
+
+      const res = addFact(user.id, faktaBaru);
+      if (res && res.success) {
+        const successEmbed = new EmbedBuilder()
+          .setColor(0x57F287)
+          .setTitle('🧠 Fakta Baru Berhasil Dicatat!')
+          .setDescription(
+            `AZURA bakal selalu ingat bahwa:\n👉 **"${faktaBaru}"**\n\n` +
+            `${safetyBanner}`
+          )
+          .setFooter({ text: 'AZURA Memory Engine' })
+          .setTimestamp();
+        return interaction.reply({ embeds: [successEmbed], flags: 64 });
+      } else if (res && res.blocked) {
         return interaction.reply({
-          content: `🧠 **Sip, fakta baru dicatat!** AZURA bakal selalu ingat bahwa: "${faktaBaru}"`,
+          content: `⛔ **Ditolak:** Fakta mengandung data rahasia atau kredensial sensitif.\n\n${safetyBanner}`,
           flags: 64
         });
       } else {
         return interaction.reply({
-          content: 'Fakta ini sudah tersimpan atau tidak valid.',
+          content: `Fakta ini sudah tersimpan sebelumnya atau tidak valid.\n\n${safetyBanner}`,
           flags: 64
         });
       }
@@ -712,12 +798,17 @@ async function handleSlashCommand(interaction, startTime) {
     const { getPermanentSummaries, MAX_SUMMARIES_PER_CONTEXT, deletePermanentSummaryById, auditPermanentMemories } = require('./permanentMemory');
     const deleteId = interaction.options.getString('id');
 
-    // 1. Delete specific summary by ID
+    // 2. Delete specific summary by ID (Protected)
     if (deleteId) {
+      const auth = checkMasterAuth(interaction, passwordInput);
+      if (!auth.authorized) {
+        return interaction.reply({ embeds: [auth.embed], flags: 64 });
+      }
+
       const isDeleted = deletePermanentSummaryById(contextKey, deleteId);
       if (isDeleted) {
         return interaction.reply({
-          content: `🗑️ **[HAPUS BERHASIL]** Ringkasan memori dengan ID \`${deleteId}\` telah berhasil dihapus dari penyimpanan permanen VPS!`,
+          content: `🗑️ **[HAPUS BERHASIL]** Ringkasan memori dengan ID \`${deleteId}\` telah berhasil dihapus dari penyimpanan terenkripsi VPS!\n\n${safetyBanner}`,
           flags: 64
         });
       } else {
@@ -728,27 +819,37 @@ async function handleSlashCommand(interaction, startTime) {
       }
     }
 
-    // 2. Full clear
+    // 3. Full clear (Protected)
     if (aksi === 'hapus') {
+      const auth = checkMasterAuth(interaction, passwordInput);
+      if (!auth.authorized) {
+        return interaction.reply({ embeds: [auth.embed], flags: 64 });
+      }
+
       clearUserMemory(user.id);
       try {
         const { clearPermanentSummaries } = require('./permanentMemory');
         clearPermanentSummaries(contextKey);
       } catch (_) {}
       return interaction.reply({
-        content: '🗑️ **Semua memori jangka panjang & ringkasan permanen tentang kamu sudah dibersihkan!**',
+        content: `🗑️ **Semua memori jangka panjang & ringkasan permanen tentang kamu sudah dibersihkan secara aman!**\n\n${safetyBanner}`,
         flags: 64
       });
     }
 
-    // 3. AI Memory Audit & Pruning Advisory
+    // 4. AI Memory Audit & Pruning Advisory (Protected)
     if (aksi === 'audit') {
+      const auth = checkMasterAuth(interaction, passwordInput);
+      if (!auth.authorized) {
+        return interaction.reply({ embeds: [auth.embed], flags: 64 });
+      }
+
       await interaction.deferReply({ flags: 64 });
       const auditResult = await auditPermanentMemories(contextKey);
 
       if (auditResult.total === 0) {
         return interaction.editReply({
-          content: '🧠 Belum ada ringkasan memori permanen yang tersimpan untuk diaudit di sesi ini.'
+          content: `🧠 Belum ada ringkasan memori permanen yang tersimpan untuk diaudit di sesi ini.\n\n${safetyBanner}`
         });
       }
 
@@ -771,6 +872,7 @@ async function handleSlashCommand(interaction, startTime) {
         .setColor(0x9B59B6)
         .setTitle(`🧠 AZURA AI Memory Audit & Rekomendasi Pembersihan`)
         .setDescription(
+          `${safetyBanner}\n\n` +
           `**Analisis Kritis AZURA:**\n${auditResult.advisoryText}` +
           itemsStr
         )
@@ -795,7 +897,7 @@ async function handleSlashCommand(interaction, startTime) {
       }
     }
 
-    // 4. Default: View Facts & Permanent Summaries
+    // 5. Default: View Facts & Permanent Summaries (With Safety Warning Banner)
     const facts = getUserFacts(user.id);
     const summaries = getPermanentSummaries(contextKey);
 
@@ -812,8 +914,11 @@ async function handleSlashCommand(interaction, startTime) {
 
     const embed = new EmbedBuilder()
       .setColor(0x00FFB2)
-      .setTitle(`🧠 Sistem Memori & Arsip Permanen AZURA`)
-      .setDescription(`AZURA menyimpan memori hierarkis (Fakta Kunci + Ringkasan Eksekutif Permanen hingga **5.000 Pesan**):`)
+      .setTitle(`🧠 Sistem Memori & Arsip Terenkripsi AZURA`)
+      .setDescription(
+        `${safetyBanner}\n\n` +
+        `AZURA menyimpan memori hierarkis (Fakta Kunci + Ringkasan Eksekutif Permanen hingga **5.000 Pesan**):`
+      )
       .addFields(
         {
           name: `📌 Fakta & Kebiasaan Kunci (${facts.length}/20)`,
@@ -1002,13 +1107,20 @@ async function handleSlashCommand(interaction, startTime) {
   } else if (commandName === 'report' || commandName === 'feedback') {
     const { handleFeedbackSlash } = require('./feedback');
     await handleFeedbackSlash(interaction);
-} else if (commandName === 'vault') {
+
+  } else if (commandName === 'vault') {
     const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
     if (!isOwner) {
       return interaction.reply({
         content: '🔒 **Akses Ditolak!** Fitur Encrypted Database Vault ini bersifat *Zero-Knowledge* dan hanya dapat didekripsi oleh Owner utama (Attila).',
         flags: 64
       });
+    }
+
+    const passwordInput = interaction.options.getString('password');
+    const auth = checkMasterAuth(interaction, passwordInput);
+    if (!auth.authorized) {
+      return interaction.reply({ embeds: [auth.embed], flags: 64 });
     }
 
     const { getVaultStats, getUserRecord, exportVaultData } = require('./vault');
@@ -1234,6 +1346,12 @@ async function handleSlashCommand(interaction, startTime) {
       });
     }
 
+    const passwordInput = interaction.options.getString('password');
+    const auth = checkMasterAuth(interaction, passwordInput);
+    if (!auth.authorized) {
+      return interaction.reply({ embeds: [auth.embed], flags: 64 });
+    }
+
     const {
       approveFriend,
       revokeFriend,
@@ -1366,6 +1484,12 @@ async function handleSlashCommand(interaction, startTime) {
         content: '🔒 **Akses Ditolak!** Fitur To-Do List & Manajemen Roadmap ini khusus untuk Owner (Attila).',
         flags: 64
       });
+    }
+
+    const passwordInput = interaction.options.getString('password');
+    const auth = checkMasterAuth(interaction, passwordInput);
+    if (!auth.authorized) {
+      return interaction.reply({ embeds: [auth.embed], flags: 64 });
     }
 
     const { getTodoList, handleFeedbackDone, consultAiOnFeedback } = require('./feedback');

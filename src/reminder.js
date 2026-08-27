@@ -1,9 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { readSecureJson, writeSecureJson } = require('./security');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const FILE_PATH = path.join(DATA_DIR, 'reminders.json');
+const FILE_PATH = path.join(DATA_DIR, 'reminders.enc');
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -12,10 +13,8 @@ if (!fs.existsSync(DATA_DIR)) {
 
 // Load initial reminders
 function loadReminders() {
-  if (!fs.existsSync(FILE_PATH)) return [];
   try {
-    const raw = fs.readFileSync(FILE_PATH, 'utf-8');
-    return JSON.parse(raw) || [];
+    return readSecureJson(FILE_PATH, []);
   } catch {
     return [];
   }
@@ -24,7 +23,7 @@ function loadReminders() {
 // Save reminders
 function saveReminders(reminders) {
   try {
-    fs.writeFileSync(FILE_PATH, JSON.stringify(reminders, null, 2));
+    writeSecureJson(FILE_PATH, reminders);
   } catch (err) {
     console.error('[AZURA Reminder Save Error]:', err.message);
   }

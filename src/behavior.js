@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { readSecureJson, writeSecureJson } = require('./security');
 
-const BEHAVIOR_FILE = path.join(__dirname, '../data/user_behaviors.json');
+const BEHAVIOR_FILE = path.join(__dirname, '../data/user_behaviors.enc');
 const MAX_BEHAVIOR_USERS = 20;
 const CAPACITY_ALERT_THRESHOLD = 15;
 
@@ -10,40 +11,25 @@ let behaviorCache = {};
 let lastAlertTimestamp = 0;
 
 /**
- * Load behavior profiles from disk
+ * Load behavior profiles from encrypted disk
  */
 function loadBehaviors() {
   try {
-    const dir = path.dirname(BEHAVIOR_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (fs.existsSync(BEHAVIOR_FILE)) {
-      const raw = fs.readFileSync(BEHAVIOR_FILE, 'utf8');
-      behaviorCache = JSON.parse(raw || '{}');
-    } else {
-      behaviorCache = {};
-    }
+    behaviorCache = readSecureJson(BEHAVIOR_FILE, {});
   } catch (err) {
-    console.error('[Behavior Error]: Failed to load user_behaviors.json:', err.message);
+    console.error('[Behavior Error]: Failed to load secure user_behaviors.enc:', err.message);
     behaviorCache = {};
   }
 }
 
 /**
- * Save behavior profiles to disk
+ * Save behavior profiles to encrypted disk
  */
 function saveBehaviors() {
   try {
-    const dir = path.dirname(BEHAVIOR_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tmp = `${BEHAVIOR_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(behaviorCache, null, 2), 'utf8');
-    fs.renameSync(tmp, BEHAVIOR_FILE);
+    writeSecureJson(BEHAVIOR_FILE, behaviorCache);
   } catch (err) {
-    console.error('[Behavior Error]: Failed to save user_behaviors.json:', err.message);
+    console.error('[Behavior Error]: Failed to save secure user_behaviors.enc:', err.message);
   }
 }
 

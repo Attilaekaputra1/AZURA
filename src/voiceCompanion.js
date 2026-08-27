@@ -258,15 +258,15 @@ function detectVoiceModel(userTranscript = '', aiSpokenText = '', isStory = fals
   // 1. Check for Emotion Audio Tags or Drama in AI Response -> eleven_v3
   const hasAudioEmotionTags = /\[(?:laughs|giggles|chuckles|snickers|wheezing|cries|sobbing|sniffs|tearing up|screams|shouts|yells|sings|singing|humming|melody|whispers|softly|sighs|groans|gasp|panicking|pouts|yawns|grunts|excited|cheering|amazed|awe)\]/i.test(aiSpokenText);
   
-  // 2. Check for High Emotion, Jokes, Prank, Drama in User Input
-  const hasHighEmotionIntent = /\b(?:kaget|dor|teriak|jerit|nangis|sedih|hiks|ketawa|ngakak|lucu\s+banget|canda|jokes|lelucon|prank|hantu|kecoa|marah|kesal|panik|nyanyi|singing|lagu|sayang|bisik|ngambek|gemas|awikwok|wkwk|haha)\b/i.test(cleanInput);
+  // 2. Check for High Emotion, Jokes, Humor, Cricket Sounds, Prank, Drama in User Input or AI Response
+  const hasHighEmotionIntent = /\b(?:kaget|dor|teriak|jerit|nangis|sedih|hiks|ketawa|ngakak|lucu|lucu\s+banget|canda|candaan|jokes|joke|lelucon|humor|lawak|lawakan|ngelawak|tebak\s*tebakan|tebakan|gombal|gombalan|krik|jangkrik|prank|hantu|kecoa|marah|kesal|panik|nyanyi|singing|lagu|sayang|bisik|ngambek|gemas|awikwok|wkwk|haha|hehe|hihi|gokil)\b/i.test(cleanInput) || /\b(?:krik\s*krik|jangkrik|tebak-tebakan|lelucon|jokes)\b/i.test(cleanOutput);
   const hasExpressiveExclamations = /[!]{2,}/.test(userTranscript) || /\b(?:hah|woi|astaga|ya\s*allah|omg|anjir|bjir|gila|waduh|buset)\b/i.test(cleanInput);
 
   if (hasAudioEmotionTags || hasHighEmotionIntent || hasExpressiveExclamations) {
     return {
       modelId: 'eleven_v3',
-      name: 'ElevenLabs v3 (Flagship Model - Full Expressive Emotion & Audio Tags)',
-      reason: hasAudioEmotionTags ? 'audio_tags_detected' : 'high_emotional_sentiment'
+      name: 'ElevenLabs v3 (Flagship Model - Full Expressive Emotion, Laughter & Audio Tags)',
+      reason: hasAudioEmotionTags ? 'audio_tags_detected' : 'high_emotional_or_jokes_sentiment'
     };
   }
 
@@ -822,8 +822,8 @@ ATURAN WAJIB:
       textChannel.send(`🎙️ **[AZURA Memecah Keheningan VC ✨]**\n${spoken.replace(/\[[^\]]+\]/g, '')}`).catch(() => {});
     }
 
-    // Use dynamic model routing — the detectVoiceModel will pick v3 if jokes have audio tags, otherwise flash for efficiency
-    const audioResource = await textToAudioResource(spoken, client, MAX_NORMAL_CHARS, { userTranscript: '', isStory: false });
+    // Force eleven_v3 for 10-Minute Icebreaker so jokes, laughter, cricket sounds, and lively banters are full of realistic emotions & audio tags
+    const audioResource = await textToAudioResource(spoken, client, MAX_NORMAL_CHARS, { userTranscript: '', isStory: false, forcedModel: 'eleven_v3' });
     if (audioResource) {
       await playInVC(guildId, audioResource);
     }

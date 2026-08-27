@@ -2153,24 +2153,41 @@ TUGAS:
 
 /**
  * Called on voiceStateUpdate. If Attila joins/leaves VC, AZURA follows.
+ * Even when approved friends have access, AZURA STRICTLY leaves when Attila leaves!
  */
 async function handleVoiceStateUpdate(oldState, newState, client) {
   const userId = newState.member?.id || oldState.member?.id;
-
-  // Only track the owner (Attila)
-  if (userId !== config.OWNER_DISCORD_ID) return;
-
   const guild = newState.guild || oldState.guild;
   const guildId = guild.id;
+
+  // If a non-owner updates voice state, verify if Attila is still in the active VC
+  if (userId !== config.OWNER_DISCORD_ID) {
+    if (activeConnections.has(guildId)) {
+      const conn = activeConnections.get(guildId);
+      const channelId = conn?.joinConfig?.channelId;
+      if (channelId) {
+        const channel = guild.channels.cache.get(channelId);
+        if (channel && channel.members) {
+          const isAttilaInChannel = channel.members.has(config.OWNER_DISCORD_ID);
+          if (!isAttilaInChannel) {
+            console.log(`[Voice Companion]: 🚪 Attila is not in VC "${channel.name}". AZURA strictly leaves (no staying behind without Attila).`);
+            await cleanupGuild(guildId, client);
+          }
+        }
+      }
+    }
+    return;
+  }
 
   const oldChannel = oldState.channel;
   const newChannel = newState.channel;
 
-  // Ignore if user stayed in the same channel (e.g. muted, unmuted, started speaking, streaming)
+  // Ignore if Attila stayed in the same channel (e.g. muted, unmuted, started speaking, streaming)
   if (oldChannel?.id === newChannel?.id) return;
 
   // === Attila LEFT a voice channel ===
   if (oldChannel && !newChannel) {
+    console.log(`[Voice Companion]: 🚪 Attila keluar dari VC "${oldChannel.name}". AZURA otomatis ikut keluar (tidak tinggal di room).`);
     await cleanupGuild(guildId, client);
     return;
   }

@@ -91,10 +91,14 @@ function formatCountdown(ms) {
   return parts.join(' ') || '1 Menit';
 }
 
+const EXHAUSTION_THRESHOLD_SECONDS = 8; // Sisa <= 8 detik dianggap habis & mulai 24h countdown
+
 /**
- * Check a friend's daily 2-minute voice quota in the 24-hour sliding window
+ * Check a friend's daily 2-minute voice quota.
+ * Countdown 24 JAM HANYA BERJALAN KETIKA KUOTA BENAR-BENAR HABIS (Sisa <= 8s).
+ * Selama kuota masih tersisa > 8s, countdown belum aktif.
  * @param {string} userId 
- * @returns {{ allowed: boolean, usedSeconds: number, remainingSeconds: number, maxDailySeconds: number, resetAt: number, timeLeftStr: string, resetAtStr: string }}
+ * @returns {{ allowed: boolean, usedSeconds: number, remainingSeconds: number, maxDailySeconds: number, isExhausted: boolean, resetAt: number|null, timeLeftStr: string, resetAtStr: string }}
  */
 function checkFriendDailyVoiceQuota(userId) {
   loadApprovedFriends();
@@ -105,7 +109,8 @@ function checkFriendDailyVoiceQuota(userId) {
       usedSeconds: 0,
       remainingSeconds: 0,
       maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
-      resetAt: Date.now(),
+      isExhausted: false,
+      resetAt: null,
       timeLeftStr: '0 Menit',
       resetAtStr: '-'
     };
@@ -113,39 +118,51 @@ function checkFriendDailyVoiceQuota(userId) {
 
   const now = Date.now();
   let quota = friend.quota || {
-    windowStart: now,
     usedSeconds: 0,
     maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+    exhaustedAt: null,
     warned80Sent: false,
     warned100Sent: false
   };
 
-  // Check if 24-hour reset window has elapsed
-  if (now - quota.windowStart >= RESET_WINDOW_MS) {
-    quota.windowStart = now;
+  // Check if 24-hour lockout cooldown has completed
+  if (quota.exhaustedAt && (now - quota.exhaustedAt >= RESET_WINDOW_MS)) {
     quota.usedSeconds = 0;
+    quota.exhaustedAt = null;
     quota.warned80Sent = false;
     quota.warned100Sent = false;
     friend.quota = quota;
     saveApprovedFriends();
-    console.log(`[Friend Quota Engine]: 🔄 24-Hour window expired for friend ${userId}. Quota reset to 0s/120s.`);
+    console.log(`[Friend Quota Engine]: 🔄 24-Hour cooldown completed for friend ${userId}. Quota reset to 0s/120s.`);
   }
-
-  const resetAt = quota.windowStart + RESET_WINDOW_MS;
-  const msLeft = Math.max(0, resetAt - now);
-  const timeLeftStr = formatCountdown(msLeft);
-  const resetDate = new Date(resetAt);
-  const resetAtStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
 
   const usedSeconds = Math.round(quota.usedSeconds || 0);
   const remainingSeconds = Math.max(0, MAX_DAILY_VOICE_SECONDS - usedSeconds);
-  const allowed = usedSeconds < MAX_DAILY_VOICE_SECONDS;
+  const isExhausted = (remainingSeconds <= EXHAUSTION_THRESHOLD_SECONDS) || (quota.exhaustedAt !== null);
+
+  let resetAt = null;
+  let resetAtStr = 'Belum Habis';
+  let timeLeftStr = `Tersisa ${remainingSeconds}s (Belum Countdown)`;
+
+  if (isExhausted) {
+    if (!quota.exhaustedAt) {
+      quota.exhaustedAt = now;
+      friend.quota = quota;
+      saveApprovedFriends();
+    }
+    resetAt = quota.exhaustedAt + RESET_WINDOW_MS;
+    const msLeft = Math.max(0, resetAt - now);
+    timeLeftStr = formatCountdown(msLeft);
+    const resetDate = new Date(resetAt);
+    resetAtStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+  }
 
   return {
-    allowed,
+    allowed: !isExhausted,
     usedSeconds,
     remainingSeconds,
     maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+    isExhausted,
     resetAt,
     timeLeftStr,
     resetAtStr
@@ -153,7 +170,7 @@ function checkFriendDailyVoiceQuota(userId) {
 }
 
 /**
- * Record speech duration usage for an approved friend and automatically send proactive DMs
+ * Record speech duration usage for an approved friend and automatically trigger countdown + proactive DMs
  * @param {string} userId 
  * @param {number} durationSeconds 
  * @param {import('discord.js').Client} [client] 
@@ -167,55 +184,69 @@ async function recordFriendVoiceUsage(userId, durationSeconds, client = null) {
   const now = Date.now();
   if (!friend.quota) {
     friend.quota = {
-      windowStart: now,
       usedSeconds: 0,
       maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+      exhaustedAt: null,
       warned80Sent: false,
       warned100Sent: false
     };
   }
 
-  // Check 24h reset
-  if (now - friend.quota.windowStart >= RESET_WINDOW_MS) {
-    friend.quota.windowStart = now;
+  // Check if previous 24h lockout has expired
+  if (friend.quota.exhaustedAt && (now - friend.quota.exhaustedAt >= RESET_WINDOW_MS)) {
     friend.quota.usedSeconds = 0;
+    friend.quota.exhaustedAt = null;
     friend.quota.warned80Sent = false;
     friend.quota.warned100Sent = false;
   }
 
-  // Increment usage
+  // Increment usage (only counts Azura's spoken output duration)
   friend.quota.usedSeconds = Math.min(MAX_DAILY_VOICE_SECONDS, (friend.quota.usedSeconds || 0) + durationSeconds);
   friend.totalVoiceSecondsAllTime = (friend.totalVoiceSecondsAllTime || 0) + durationSeconds;
   friend.lastSpokeAt = new Date().toISOString();
-  saveApprovedFriends();
 
   const used = Math.round(friend.quota.usedSeconds);
   const remaining = Math.max(0, MAX_DAILY_VOICE_SECONDS - used);
-  const resetAt = friend.quota.windowStart + RESET_WINDOW_MS;
-  const timeLeftStr = formatCountdown(Math.max(0, resetAt - now));
-  const resetDate = new Date(resetAt);
-  const resetTimeStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
 
   console.log(`[Friend Quota]: Friend "${friend.displayName}" (${userId}) used +${durationSeconds}s. Total today: ${used}s/120s. Remaining: ${remaining}s.`);
 
-  if (!client) return;
+  // 1. Check Exhaustion (remaining <= 8 seconds -> Start 24h countdown now!)
+  if (remaining <= EXHAUSTION_THRESHOLD_SECONDS) {
+    if (!friend.quota.exhaustedAt) {
+      friend.quota.exhaustedAt = now;
+    }
+    const resetAt = friend.quota.exhaustedAt + RESET_WINDOW_MS;
+    const timeLeftStr = formatCountdown(Math.max(0, resetAt - now));
+    const resetDate = new Date(resetAt);
+    const resetTimeStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
 
-  // 1. Proactive DM: 80% Warning (~96 seconds)
-  if (used >= 96 && used < 120 && !friend.quota.warned80Sent) {
-    friend.quota.warned80Sent = true;
-    saveApprovedFriends();
-    await sendQuota80WarningDM(userId, friend, used, remaining, client).catch(err => {
-      console.error('[Friend Quota DM Error]:', err.message);
-    });
+    console.log(`[Friend Quota]: ⛔ Friend "${friend.displayName}" (${userId}) quota exhausted (sisa <= 8s). 24h Countdown activated: reset in ${timeLeftStr}!`);
+
+    if (!friend.quota.warned100Sent) {
+      friend.quota.warned100Sent = true;
+      saveApprovedFriends();
+      if (client) {
+        await sendQuota100ExhaustedDM(userId, friend, timeLeftStr, resetTimeStr, client).catch(err => {
+          console.error('[Friend Quota DM Error]:', err.message);
+        });
+      }
+    } else {
+      saveApprovedFriends();
+    }
+    return;
   }
 
-  // 2. Proactive DM: 100% Exhaustion Warning (120 seconds)
-  if (used >= 120 && !friend.quota.warned100Sent) {
-    friend.quota.warned100Sent = true;
+  // 2. Proactive DM: 80% Warning (~96 seconds used, sisa > 8s)
+  if (used >= 96 && !friend.quota.warned80Sent) {
+    friend.quota.warned80Sent = true;
     saveApprovedFriends();
-    await sendQuota100ExhaustedDM(userId, friend, timeLeftStr, resetTimeStr, client).catch(err => {
-      console.error('[Friend Quota DM Error]:', err.message);
-    });
+    if (client) {
+      await sendQuota80WarningDM(userId, friend, used, remaining, client).catch(err => {
+        console.error('[Friend Quota DM Error]:', err.message);
+      });
+    }
+  } else {
+    saveApprovedFriends();
   }
 }
 
@@ -337,9 +368,9 @@ async function approveFriend(userId, username, displayName, customNickname = nul
     totalVoiceSecondsAllTime: existing?.totalVoiceSecondsAllTime || 0,
     lastSpokeAt: existing?.lastSpokeAt || null,
     quota: existing?.quota || {
-      windowStart: now,
       usedSeconds: 0,
       maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+      exhaustedAt: null,
       warned80Sent: false,
       warned100Sent: false
     }
@@ -385,9 +416,9 @@ function resetFriendVoiceQuota(userId) {
   const friend = approvedFriendsCache.get(userId);
   if (!friend) return null;
   friend.quota = {
-    windowStart: Date.now(),
     usedSeconds: 0,
     maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
+    exhaustedAt: null,
     warned80Sent: false,
     warned100Sent: false
   };
@@ -402,12 +433,25 @@ function getApprovedFriendsList() {
   loadApprovedFriends();
   const now = Date.now();
   return Array.from(approvedFriendsCache.values()).map(f => {
-    const quota = f.quota || { windowStart: now, usedSeconds: 0 };
-    const isExpired = (now - quota.windowStart >= RESET_WINDOW_MS);
-    const used = isExpired ? 0 : Math.round(quota.usedSeconds || 0);
+    const quota = f.quota || { usedSeconds: 0, exhaustedAt: null };
+
+    // Check if 24h lockout has expired
+    if (quota.exhaustedAt && (now - quota.exhaustedAt >= RESET_WINDOW_MS)) {
+      quota.usedSeconds = 0;
+      quota.exhaustedAt = null;
+      quota.warned80Sent = false;
+      quota.warned100Sent = false;
+    }
+
+    const used = Math.round(quota.usedSeconds || 0);
     const remaining = Math.max(0, MAX_DAILY_VOICE_SECONDS - used);
-    const resetAt = quota.windowStart + RESET_WINDOW_MS;
-    const timeLeftStr = isExpired ? 'Ready' : formatCountdown(Math.max(0, resetAt - now));
+    const isExhausted = (remaining <= EXHAUSTION_THRESHOLD_SECONDS) || (quota.exhaustedAt !== null);
+
+    let timeLeftStr = `Sisa ${remaining}s (Belum Countdown 24h)`;
+    if (isExhausted) {
+      const resetAt = (quota.exhaustedAt || now) + RESET_WINDOW_MS;
+      timeLeftStr = formatCountdown(Math.max(0, resetAt - now));
+    }
 
     return {
       userId: f.userId,
@@ -419,7 +463,7 @@ function getApprovedFriendsList() {
       remainingSeconds: remaining,
       totalSecondsAllTime: Math.round(f.totalVoiceSecondsAllTime || 0),
       timeLeftStr,
-      isExhausted: used >= MAX_DAILY_VOICE_SECONDS
+      isExhausted
     };
   });
 }

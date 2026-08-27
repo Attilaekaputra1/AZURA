@@ -1456,48 +1456,30 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // Count human members other than Attila and the bot
-  const otherHumans = voiceChannel?.members
-    ? voiceChannel.members.filter(m => !m.user.bot && m.id !== config.OWNER_DISCORD_ID).size
-    : 0;
-  const isCrowdedVC = otherHumans > 0;
-
-  const hasWakeWord = isWakeWordInvoked(transcript);
-  const currentMode = conversationMode.get(guildId) || { mode: 'PASSIVE', lastActiveAt: 0, turnCount: 0 };
+  // ── Step 3: Fast Channel & Participant Detection Gate ──
+  const humanMembers = voiceChannel?.members
+    ? voiceChannel.members.filter(m => !m.user.bot)
+    : new Map();
+  const otherHumans = humanMembers.filter(m => m.id !== config.OWNER_DISCORD_ID).size;
+  const isCrowdedVC = otherHumans > 0; // Total participants in room > 2 (Attila + Azura + other friends)
 
   if (isCrowdedVC) {
-    // ── CROWDED VC (≥ 1 Other Human in Room): STRICT SINGLE-TURN PUSH-TO-WAKE ──
-    // In a group VC, Attila is mostly talking to his friends.
-    // Azura MUST ONLY respond if explicitly summoned with wake-word in the prefix/suffix.
-    // She will respond exactly ONCE, then immediately return to PASSIVE & Mute.
+    // ── CROWDED VC (Total participants in VC > 2): SELECTIVE PUSH-TO-WAKE ──
+    // Attila is in a group VC talking with friends. Azura must stay silent unless explicitly addressed:
+    // 1. Wake word ("Azura", "Ara", "Zura", "Ajur", "Kak Azura", "Kak Ajur") at beginning or end of sentence
+    // 2. OR direct question / vocative addressed to Azura
+    const hasWakeWord = isWakeWordInvoked(transcript);
     if (!hasWakeWord) {
-      console.log(`[Voice Pipeline]: 🔇 Crowded VC (${otherHumans} friends present) — no wake-word in "${transcript}". Azura staying silent.`);
+      console.log(`[Voice Pipeline]: 🔇 Crowded VC (${otherHumans} other friends present, total > 2) — no wake-word or direct question in "${transcript}". Azura staying silent.`);
       return;
     }
-    console.log(`[Voice Pipeline]: 🔔 Crowded VC — explicit summon detected ("${transcript}"). Executing Single-Turn Response...`);
+    console.log(`[Voice Pipeline]: 🔔 Crowded VC — explicit summon/question detected ("${transcript}"). Responding...`);
   } else {
-    // ── SOLO VC (Only Attila & Azura): CONTINUOUS FLOWING CONVERSATION ──
-    if (currentMode.mode === 'PASSIVE') {
-      if (!hasWakeWord) {
-        console.log(`[Voice Pipeline]: 🔇 Solo VC (PASSIVE) — no wake-word in "${transcript}". Azura stays silent.`);
-        return;
-      }
-      console.log(`[Voice Pipeline]: 🔔 Solo VC — wake-word detected! Switching to ACTIVE mode.`);
-      setActiveMode(guildId);
-    } else {
-      // Already in ACTIVE mode in Solo VC
-      setActiveMode(guildId);
-
-      if (!hasWakeWord) {
-        const isForAzura = await checkIfDirectedAtAzura(transcript, guildId, userId);
-        if (!isForAzura) {
-          console.log(`[Voice Pipeline]: 🔇 Solo VC — GPT determined "${transcript}" is NOT for Azura. Returning to PASSIVE.`);
-          setPassiveMode(guildId);
-          return;
-        }
-        console.log(`[Voice Pipeline]: 💬 Solo VC — GPT confirmed "${transcript}" is a follow-up for Azura. Continuing ACTIVE.`);
-      }
-    }
+    // ── SOLO VC (Only Attila & Azura, Total participants = 2): ALWAYS ACTIVE FREE-FLOW ──
+    // In Solo VC, Attila and Azura are 1-on-1. Attila does NOT need to mention Azura's name!
+    // Azura naturally and continuously listens & responds to everything Attila says.
+    console.log(`[Voice Pipeline]: 🗣️ Solo VC (1-on-1 with Attila) — Free-flowing natural conversation active. Listening & responding without wake-word.`);
+    setActiveMode(guildId);
   }
 
   // ── Step 4: General AI Voice Chat (Context-Aware Duration Engine) ──
@@ -1697,13 +1679,7 @@ function setActiveMode(guildId) {
     turnCount: (conversationMode.get(guildId)?.turnCount || 0) + 1
   });
 
-  // Reset the auto-expire timer
   clearActiveExpireTimer(guildId);
-  const timer = setTimeout(() => {
-    console.log(`[Voice Companion]: 15s silence in ACTIVE mode. Auto-reverting to PASSIVE for guild ${guildId}.`);
-    setPassiveMode(guildId);
-  }, ACTIVE_EXPIRE_MS);
-  activeExpireTimers.set(guildId, timer);
 }
 
 function setPassiveMode(guildId) {
@@ -2177,9 +2153,16 @@ async function playGreeting(guildId, voiceChannel) {
     await playInVC(guildId, resource);
   }
 
-  // After greeting, immediately go PASSIVE — Azura waits to be called by name
-  setPassiveMode(guildId);
-  console.log(`[Voice Companion]: Greeting done. Now in PASSIVE mode — waiting for wake-word.`);
+  // After greeting:
+  // In Solo VC (1-on-1 with Attila), stay in ACTIVE mode for continuous free-flow conversation
+  // In Crowded VC (friends in room), stay in PASSIVE mode waiting for wake-word
+  if (otherCount === 0) {
+    setActiveMode(guildId);
+    console.log(`[Voice Companion]: Greeting done in Solo VC. Mode: ACTIVE (Free-flowing conversation ready).`);
+  } else {
+    setPassiveMode(guildId);
+    console.log(`[Voice Companion]: Greeting done in Crowded VC (${otherCount} friends). Mode: PASSIVE (Waiting for wake-word).`);
+  }
 }
 
 /**
@@ -2498,8 +2481,17 @@ async function joinAttilaVoiceChannel(client) {
       await playInVC(guildId, audioResource);
     }
 
-    // After greeting, go PASSIVE — wait for Attila to call by name
-    setPassiveMode(guildId);
+    const otherCount = targetVoiceChannel?.members
+      ? targetVoiceChannel.members.filter(m => !m.user.bot && m.id !== config.OWNER_DISCORD_ID).size
+      : 0;
+
+    if (otherCount === 0) {
+      setActiveMode(guildId);
+      console.log(`[Join VC Controller]: Solo VC detected. Mode: ACTIVE (Free-flowing conversation ready).`);
+    } else {
+      setPassiveMode(guildId);
+      console.log(`[Join VC Controller]: Crowded VC detected (${otherCount} friends). Mode: PASSIVE (Waiting for wake-word).`);
+    }
 
     resetIdleTimer(guildId, client, targetVoiceChannel);
 

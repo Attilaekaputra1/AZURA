@@ -416,8 +416,9 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +
       `1. Gunakan data aktual di atas untuk menjawab secara tuntas, cerdas, akurat, dan percaya diri.\n` +
       `2. DILARANG KERAS berkata "aku tidak punya akses internet" atau "tidak bisa mengecek data terbaru". Kamu SUDAH memiliki data internet di atas!\n` +
-      `3. Susun jawaban secara estetik, rapi, dan mudah dibaca (gunakan poin-poin jika menjelaskan beberapa fakta).\n` +
-      `4. Cantumkan tautan link sumber terpercaya jika relevan.`;
+      `3. Jika user melampirkan tautan link URL atau file dokumen, analisis isinya secara mendalam, jelaskan poin-poin krusialnya, dan diskusikan bersama lawan bicara secara asyik.\n` +
+      `4. Susun jawaban secara estetik, rapi, dan mudah dibaca (gunakan poin-poin jika menjelaskan beberapa fakta).\n` +
+      `5. Cantumkan tautan link sumber terpercaya jika relevan.`;
   }
 
   const messages = [

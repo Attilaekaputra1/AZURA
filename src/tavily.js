@@ -214,9 +214,10 @@ async function searchTavily(query, topicMode = 'general') {
       recordDailyMetric('webSearches', 1);
     } catch (_) {}
 
-    const isNews = topicMode === 'news' || /\b(?:hari\s+ini|terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
+    const isTodayQuery = /\b(?:hari\s+ini|today|sekarang|tadi|pagi\s+ini|siang\s+ini|sore\s+ini|malam\s+ini)\b/i.test(query);
+    const isNews = topicMode === 'news' || isTodayQuery || /\b(?:terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
 
-    // Pass 1: Advanced search with temporal freshness
+    // Pass 1: Advanced search with strict temporal freshness (1 day for today, 3 days max for news)
     const payload = {
       query: cleanQ,
       topic: isNews ? 'news' : topicMode,
@@ -224,8 +225,10 @@ async function searchTavily(query, topicMode = 'general') {
       include_answer: true,
       max_results: 4
     };
-    if (isNews) {
-      payload.days = 7;
+    if (isTodayQuery) {
+      payload.days = 1; // Strict 24-hour / Today only
+    } else if (isNews) {
+      payload.days = 3; // Strict 3-day max
     }
 
     let response = await tavilyApiCall('/search', payload);
@@ -271,10 +274,12 @@ async function searchTavily(query, topicMode = 'general') {
 
 /**
  * Extract content from a direct URL
- * @param {string} url 
+ * @param {string} rawUrl 
  * @returns {Promise<string>}
  */
-async function extractTavilyUrl(url) {
+async function extractTavilyUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return 'URL tidak valid.';
+  const url = rawUrl.trim().replace(/[.,!?;:)>\]"']+$/, '');
   const cleanUrl = url.toLowerCase().trim();
   const cacheKey = `url:${cleanUrl}`;
   const cached = getCachedTavily(cacheKey);
@@ -295,7 +300,7 @@ async function extractTavilyUrl(url) {
         return 'Konten halaman web tersebut diblokir oleh sistem keamanan AZURA.';
       }
 
-      const cleanContent = raw ? raw.slice(0, 1500) : 'Tidak ada konten teks yang dapat diekstrak.';
+      const cleanContent = raw ? raw.slice(0, 3000) : 'Tidak ada konten teks yang dapat diekstrak.';
       const extractedText = `📄 **Ekstraksi Artikel Web (Tavily Intelligence):**\n` +
         `📌 **Judul:** ${title}\n` +
         `🔗 **URL:** ${url}\n\n` +
@@ -322,7 +327,8 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
     const cleanQ = cleanSearchQuery(query);
     console.log(`[Tavily Card]: Generating aesthetic search card for "${cleanQ}"...`);
 
-    const isNews = topicMode === 'news' || /\b(?:hari\s+ini|terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
+    const isTodayQuery = /\b(?:hari\s+ini|today|sekarang|tadi|pagi\s+ini|siang\s+ini|sore\s+ini|malam\s+ini)\b/i.test(query);
+    const isNews = topicMode === 'news' || isTodayQuery || /\b(?:terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
 
     const payload = {
       query: cleanQ,
@@ -332,8 +338,10 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
       include_images: true,
       max_results: 3
     };
-    if (isNews) {
-      payload.days = 7;
+    if (isTodayQuery) {
+      payload.days = 1; // Strict Today only
+    } else if (isNews) {
+      payload.days = 3; // Strict 3 days max
     }
 
     let response = await tavilyApiCall('/search', payload);

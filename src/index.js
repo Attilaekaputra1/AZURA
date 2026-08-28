@@ -345,17 +345,34 @@ client.on('messageCreate', async (message) => {
     rawPrompt = rawPrompt.replace(/^(?:azura|ara|zura|ajur|ajura|asura|hei azura|hei ara|hei ajur|halo azura|halo ara|halo ajur|hai azura|hai ara|hai ajur)[,:\s]+/i, '').trim();
   }
 
-  // Extract audio attachments for Whisper STT
+  // Extract audio & text document attachments (Code files, Text, Logs, Json, CSV, etc.)
   let voicePrompt = '';
+  let attachmentTextPrompt = '';
   if (message.attachments.size > 0) {
     for (const att of message.attachments.values()) {
-      if (att.contentType && (att.contentType.startsWith('audio/') || att.name.endsWith('.ogg') || att.name.endsWith('.mp3') || att.name.endsWith('.wav'))) {
+      const lowerName = (att.name || '').toLowerCase();
+      const isAudio = att.contentType && (att.contentType.startsWith('audio/') || lowerName.endsWith('.ogg') || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav'));
+      const isImage = att.contentType && att.contentType.startsWith('image/');
+
+      if (isAudio) {
         const { transcribeAudioAttachment } = require('./stt');
         await message.channel.sendTyping().catch(() => {});
         const transcribedText = await transcribeAudioAttachment(att.url);
         if (transcribedText) {
           voicePrompt = `[Transkrip Suara]: "${transcribedText}"`;
           console.log(`[Whisper STT Transcribed]: ${transcribedText}`);
+        }
+      } else if (!isImage) {
+        try {
+          const res = await fetch(att.url);
+          if (res.ok) {
+            const textData = await res.text();
+            const cleanText = textData.slice(0, 10000);
+            attachmentTextPrompt += `\n\n[Isi Lampiran File: ${att.name}]:\n\`\`\`\n${cleanText}\n\`\`\``;
+            console.log(`[Attachment Reader]: Read ${cleanText.length} chars from ${att.name}`);
+          }
+        } catch (attErr) {
+          console.warn(`[Attachment Reader Warning]: Could not read ${att.name}:`, attErr.message);
         }
       }
     }
@@ -440,6 +457,9 @@ client.on('messageCreate', async (message) => {
 
   if (voicePrompt) {
     finalPrompt = finalPrompt ? `${finalPrompt}\n${voicePrompt}` : voicePrompt;
+  }
+  if (attachmentTextPrompt) {
+    finalPrompt = finalPrompt ? `${finalPrompt}\n${attachmentTextPrompt}` : attachmentTextPrompt;
   }
   if (visualContextPrompt) {
     finalPrompt = finalPrompt ? `${finalPrompt}\n${visualContextPrompt}` : visualContextPrompt;
@@ -548,7 +568,7 @@ client.on('messageCreate', async (message) => {
         }
       }
 
-      const isWebBrowse = userText.match(/(?:bukain|buka|kunjungi|browsing|cek)\s+(?:situs|website|web|link|halaman|url)\s*(.+)/i);
+      const isWebBrowse = userText.match(/(?:bukain|buka|kunjungi|browsing)\s+(?:browser\s+di\s+vc|layar\s+vc|sharescreen)\s*(.+)/i);
       if (isWebBrowse) {
         const targetUrl = isWebBrowse[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
         const { openWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');

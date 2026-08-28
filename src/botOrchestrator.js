@@ -53,22 +53,34 @@ loadBotStates();
  */
 function inferBotCategory(member) {
   const name = (member.displayName + ' ' + member.user.username).toLowerCase();
-  const roleNames = member.roles.cache.map(r => r.name.toLowerCase()).join(' ');
+  const roleNames = member.roles.cache
+    .filter(r => r.name.toLowerCase() !== 'bot ai' && r.name.toLowerCase() !== 'warna atmint')
+    .map(r => r.name.toLowerCase())
+    .join(' ');
   const combined = `${name} ${roleNames}`;
 
-  if (/\b(?:music|musik|song|lagu|sound|fredboat|rythm|groovy|hydra|tempo|jockie|chip|24\/7|besso|radio|voice)\b/i.test(combined)) {
+  // 1. Music & Audio
+  if (/\b(?:music|musik|song|lagu|sound|fredboat|rythm|groovy|hydra|tempo|jockie|chip|24\/7|besso|radio|voice|audio|dj|domba|kuda)\b/i.test(combined)) {
     return '🎵 Music & Audio';
   }
-  if (/\b(?:mod|moderation|security|guard|antiraid|carl|dyno|mee6|probot|wick|captcha|altident|automod|ban|kick)\b/i.test(combined)) {
+  // 2. Games & Hiburan
+  if (/\b(?:game|gaming|karuta|mudae|anigame|owo|dank|tatsu|poketwo|rpg|idle|casino|gacha|card|waifu|truth|dare|tod|kotoba|dice|witch|roller|flavi|pompoki|verniy|freestuff|free\s*stuff|lara|ayam)\b/i.test(combined)) {
+    return '🎮 Games & Hiburan';
+  }
+  // 3. Moderation & Security
+  if (/\b(?:mod|moderation|security|guard|antiraid|carl|dyno|mee6|probot|wick|captcha|altident|automod|ban|kick|honeypot|admin)\b/i.test(combined)) {
     return '🛡️ Moderasi & Keamanan';
   }
-  if (/\b(?:game|gaming|karuta|mudae|anigame|owo|dank|tatsu|poketwo|rpg|idle|casino|gacha|card|waifu)\b/i.test(combined)) {
-    return '🎮 Games & Ekonomi';
+  // 4. Social Feeds & Notifications
+  if (/\b(?:twitter|tweet|tweetshift|news|alert|pingcord|feed|notif|followup|discohook|webhook)\b/i.test(combined)) {
+    return '📡 Integrasi & Notifikasi';
   }
-  if (/\b(?:azura|ai|gpt|chatgpt|clyde|hermes|midjourney|tupperbox|pluralkit|assistant|gemini|claude)\b/i.test(combined)) {
+  // 5. AI & Smart Assistant
+  if (/\b(?:azura|ai|gpt|chatgpt|clyde|hermes|midjourney|tupperbox|pluralkit|assistant|gemini|claude|svarog|tts)\b/i.test(combined)) {
     return '🤖 AI & Smart Assistant';
   }
-  if (/\b(?:ticket|tiket|support|bantuan|stat|status|logger|log|giveaway|invite|role|reaction|counter|webhook)\b/i.test(combined)) {
+  // 6. Utility & Management
+  if (/\b(?:ticket|tiket|support|bantuan|stat|status|logger|log|giveaway|invite|role|reaction|counter|green-bot|kambing)\b/i.test(combined)) {
     return '⚙️ Utility & Management';
   }
   return '🔌 Integrasi & Tools';
@@ -91,12 +103,15 @@ async function scanGuildBots(guild, client) {
     members = guild.members.cache;
   }
 
-  const botMembers = members.filter(m => m.user.bot);
   const botList = [];
+  const botMembers = Array.from(members.values()).filter(m => m.user.bot);
 
-  for (const [id, member] of botMembers) {
-    // Skip Azura herself in the external bot scan list, or list as Primary Commander
-    const isSelf = (id === client?.user?.id);
+  for (const member of botMembers) {
+    const isSelf = member.id === client.user?.id;
+    const id = member.id;
+    const stateKey = `${guild.id}_${id}`;
+    const storedState = botHealthStates[stateKey];
+
     const category = isSelf ? '👑 Master AI Commander' : inferBotCategory(member);
 
     // Layer 1: Presence Detection (if presence intent is enabled)
@@ -107,6 +122,9 @@ async function scanGuildBots(guild, client) {
     const voiceState = guild.voiceStates.cache.get(id);
     const isInVoice = !!(voiceState && voiceState.channelId);
     const voiceChannelName = isInVoice ? guild.channels.cache.get(voiceState.channelId)?.name : null;
+
+    // Check specific known dead / offline tags (e.g. Penghuni Kos / ijurrr [/z])
+    const isKnownDead = id === '1323971334463819797' || /\[\/z\]|offline/i.test(member.user.username) || storedState?.status === 'offline';
 
     // Layer 3: Tri-Layer Health Status Assessment
     let healthStatus = '🟢 TERDAFTAR (Siap Pakai)';
@@ -119,6 +137,11 @@ async function scanGuildBots(guild, client) {
       healthColor = 0x57F287;
       statusEmoji = '👑';
       isOnline = true;
+    } else if (isKnownDead || isExplicitlyOffline) {
+      healthStatus = '🔴 OFFLINE / MATI';
+      healthColor = 0xED4245;
+      statusEmoji = '🔴';
+      isOnline = false;
     } else if (isInVoice) {
       healthStatus = `🔊 AKTIF (Tersambung di VC #${voiceChannelName || 'Voice'})`;
       healthColor = 0x57F287;
@@ -139,11 +162,6 @@ async function scanGuildBots(guild, client) {
       healthColor = 0xEB459E;
       statusEmoji = '🟣';
       isOnline = true;
-    } else if (isExplicitlyOffline) {
-      healthStatus = '🔴 OFFLINE / MATI';
-      healthColor = 0xED4245;
-      statusEmoji = '🔴';
-      isOnline = false;
     } else {
       // Standard registered bot status (Ready to receive commands)
       healthStatus = '🟢 TERDAFTAR (Siap Menerima Perintah)';
@@ -319,12 +337,16 @@ async function buildBotStatusEmbed(guild, client, isDm = false, filterCategory =
     );
   }
 
-  // Component 3: Refresh Button
+  // Component 3: Refresh & Cancel Buttons
   const actionRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`btn_orch_refresh_${guild.id}`)
       .setLabel('🔄 Segarkan Status')
-      .setStyle(ButtonStyle.Secondary)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('btn_orch_cancel')
+      .setLabel('❌ Tutup Menu')
+      .setStyle(ButtonStyle.Danger)
   );
 
   components.push(actionRow);
@@ -405,13 +427,21 @@ async function buildBotDetailEmbed(guild, bot, client) {
   const buttonRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`btn_orch_modal_${guild.id}_${bot.id}`)
-      .setLabel(`✏️ Ketik Perintah Bebas`)
+      .setLabel(`✏️ Ketik Bebas`)
       .setStyle(ButtonStyle.Primary)
       .setDisabled(!bot.isOnline),
     new ButtonBuilder()
+      .setCustomId(`btn_orch_toggle_status_${guild.id}_${bot.id}`)
+      .setLabel(bot.isOnline ? '🔴 Set Offline/Mati' : '🟢 Set Online/Aktif')
+      .setStyle(bot.isOnline ? ButtonStyle.Secondary : ButtonStyle.Success),
+    new ButtonBuilder()
       .setCustomId(`btn_orch_back_${guild.id}`)
-      .setLabel('🔙 Kembali ke Daftar Bot')
-      .setStyle(ButtonStyle.Secondary)
+      .setLabel('🔙 Kembali')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('btn_orch_cancel')
+      .setLabel('❌ Tutup')
+      .setStyle(ButtonStyle.Danger)
   );
 
   components.push(buttonRow);
@@ -696,6 +726,48 @@ async function handleBotOrchestratorSelectMenu(interaction) {
 async function handleBotOrchestratorButton(interaction) {
   const { customId } = interaction;
   const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+
+  if (customId === 'btn_orch_cancel') {
+    try {
+      await interaction.message.delete().catch(() => {
+        return interaction.update({ content: '🔒 *Menu orkestrator bot telah ditutup.*', embeds: [], components: [] });
+      });
+    } catch (_) {
+      return interaction.update({ content: '🔒 *Menu orkestrator bot telah ditutup.*', embeds: [], components: [] });
+    }
+    return;
+  }
+
+  if (customId.startsWith('btn_orch_toggle_status_')) {
+    if (!isOwner) {
+      return interaction.reply({ content: '❌ Hanya Owner (Attila) yang dapat mengubah status kesehatan bot.', flags: 64 });
+    }
+    const parts = customId.split('_');
+    const guildId = parts[4];
+    const botId = parts[5];
+    const stateKey = `${guildId}_${botId}`;
+
+    const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
+    const currentStatus = botHealthStates[stateKey]?.status || 'online';
+    const newStatus = (currentStatus === 'offline') ? 'online' : 'offline';
+
+    botHealthStates[stateKey] = {
+      botId,
+      guildId,
+      status: newStatus,
+      lastChecked: Date.now()
+    };
+    saveBotStates();
+
+    await interaction.deferUpdate();
+    const bots = await scanGuildBots(targetGuild, interaction.client);
+    const targetBot = bots.find(b => b.id === botId);
+    if (targetBot) {
+      const { embed, components } = await buildBotDetailEmbed(targetGuild, targetBot, interaction.client);
+      return interaction.editReply({ embeds: [embed], components });
+    }
+    return;
+  }
 
   if (customId.startsWith('btn_orch_refresh_') || customId.startsWith('btn_orch_back_')) {
     const guildId = customId.replace('btn_orch_refresh_', '').replace('btn_orch_back_', '');

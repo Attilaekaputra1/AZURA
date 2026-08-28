@@ -987,6 +987,20 @@ client.on('interactionCreate', async (interaction) => {
     const { handleSendDmSelectMenu } = require('./ownerDm');
     const { handleHelpSelectMenu } = require('./commands');
     const { handleSendChannelSelectMenu, handleSendChannelGuildSelectMenu } = require('./sendChannel');
+
+    // Handle Memory Scope Select Menu Dropdown (Private vs Public vs Priority vs Audit)
+    if (interaction.customId.startsWith('mem_scope_select:')) {
+      const parts = interaction.customId.split(':');
+      const targetUserId = parts[1];
+      const targetGuildId = parts[2] === 'dm' ? null : parts[2];
+      const targetChannelId = parts[3];
+      const selectedScope = interaction.values[0] || 'private';
+
+      const { buildMemoryEmbedAndDropdown } = require('./memory');
+      const { embed, row } = buildMemoryEmbedAndDropdown(targetUserId, targetGuildId, targetChannelId, selectedScope);
+      return interaction.update({ embeds: [embed], components: [row] });
+    }
+
     if (interaction.customId === 'help_category_select') {
       return handleHelpSelectMenu(interaction);
     }

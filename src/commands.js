@@ -5,7 +5,7 @@ const budgetGuard = require('./budget');
 const { addReminder } = require('./reminder');
 const { askAzura } = require('./azura');
 const { generateVoiceNote } = require('./tts');
-const { getUserFacts, clearUserMemory, addFact } = require('./memory');
+const { getUserFacts, clearUserMemory, addFact, buildMemoryEmbedAndDropdown } = require('./memory');
 const { getCryptoPrice, getExchangeRate } = require('./finance');
 const { getTopAnime, searchAnime, getAnimeRecommendations } = require('./media');
 const { handleSendDmCommand, handleListScheduledCommand } = require('./ownerDm');
@@ -88,15 +88,24 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('memory')
-    .setDescription('Melihat, mengaudit relevansi, atau mengelola memori jangka panjang AZURA')
+    .setDescription('Kelola sistem memori AI hierarkis AZURA (Fakta Kunci & Ringkasan Permanen)')
     .addStringOption(option =>
       option.setName('aksi')
-        .setDescription('Pilih aksi memori')
+        .setDescription('Pilih aksi memori yang ingin dijalankan')
         .setRequired(false)
         .addChoices(
-          { name: '📋 Lihat Fakta & Arsip Ringkasan', value: 'lihat' },
+          { name: '👀 Lihat Memori (Dropdown Scope Selector)', value: 'lihat' },
+          { name: '➕ Tambah Fakta Baru', value: 'tambah' },
           { name: '🧠 Audit AI & Rekomendasi Pembersihan', value: 'audit' },
-          { name: '🗑️ Hapus Semua Memori', value: 'hapus' }
+          { name: '🗑️ Hapus Memori', value: 'hapus' }
+        ))
+    .addStringOption(option =>
+      option.setName('lingkup')
+        .setDescription('Pilih Lingkup Memori: Privat (Personal/DM) atau Publik (Server)')
+        .setRequired(false)
+        .addChoices(
+          { name: '🔒 Privat (Personal / DM Khusus Kamu)', value: 'private' },
+          { name: '🌐 Publik (Server Bersama)', value: 'public' }
         ))
     .addStringOption(option =>
       option.setName('fakta')
@@ -793,13 +802,14 @@ async function handleSlashCommand(interaction, startTime) {
 
   } else if (commandName === 'memory') {
     const aksi = interaction.options.getString('aksi');
+    const lingkup = interaction.options.getString('lingkup') || 'private';
     const faktaBaru = interaction.options.getString('fakta');
     const passwordInput = interaction.options.getString('password');
 
     const safetyBanner = `⚠️ **[PERINGATAN KEAMANAN & PRIVASI MEMORI]**\n` +
       `*Dilarang keras memasukkan informasi penting atau krusial (seperti kata sandi, PIN ATM, nomor rekening, NIK/KTP, data rahasia). Hanya cantumkan informasi ringan seputar hobi, preferensi, atau obrolan santai.*`;
 
-    // 1. Handling New Fact Insertion with Sacred Data Protection
+    // 1. Handling New Fact Insertion with Sacred Data Protection & Scope
     if (faktaBaru) {
       if (isSacredData(faktaBaru)) {
         const warnEmbed = new EmbedBuilder()
@@ -814,13 +824,15 @@ async function handleSlashCommand(interaction, startTime) {
         return interaction.reply({ embeds: [warnEmbed], flags: 64 });
       }
 
-      const res = addFact(user.id, faktaBaru);
+      const res = addFact(user.id, faktaBaru, lingkup, interaction.guildId);
       if (res && res.success) {
+        const isPub = res.scope === 'public';
         const successEmbed = new EmbedBuilder()
           .setColor(0x57F287)
-          .setTitle('🧠 Fakta Baru Berhasil Dicatat!')
+          .setTitle(`🧠 Fakta Baru Dicatat (${isPub ? '🌐 Publik Server' : '🔒 Privat Personal'})!`)
           .setDescription(
             `AZURA bakal selalu ingat bahwa:\n👉 **"${faktaBaru}"**\n\n` +
+            `📂 **Lingkup Memori:** \`${isPub ? '🌐 Publik Server (Terekam untuk server ini)' : '🔒 Privat (Khusus obrolan personal kamu & Azura)'}\`\n\n` +
             `${safetyBanner}`
           )
           .setFooter({ text: 'AZURA Memory Engine' })
@@ -874,13 +886,13 @@ async function handleSlashCommand(interaction, startTime) {
         return interaction.reply({ embeds: [auth.embed], flags: 64 });
       }
 
-      clearUserMemory(user.id);
+      clearUserMemory(user.id, lingkup, interaction.guildId);
       try {
         const { clearPermanentSummaries } = require('./permanentMemory');
         clearPermanentSummaries(contextKey);
       } catch (_) {}
       return interaction.reply({
-        content: `🗑️ **Semua memori jangka panjang & ringkasan permanen tentang kamu sudah dibersihkan secara aman!**\n\n${safetyBanner}`,
+        content: `🗑️ **Semua memori (${lingkup === 'public' ? 'Publik Server' : 'Privat Personal'}) tentang kamu sudah dibersihkan secara aman!**\n\n${safetyBanner}`,
         flags: 64
       });
     }
@@ -945,45 +957,15 @@ async function handleSlashCommand(interaction, startTime) {
       }
     }
 
-    // 5. Default: View Facts & Permanent Summaries (With Safety Warning Banner)
-    const facts = getUserFacts(user.id);
-    const summaries = getPermanentSummaries(contextKey);
+    // 5. Default: View Facts & Permanent Summaries with Interactive Scope Dropdown Menu
+    const { embed, row } = buildMemoryEmbedAndDropdown(
+      user.id,
+      interaction.guildId,
+      interaction.channelId,
+      lingkup || 'private'
+    );
 
-    const factsList = facts.length > 0
-      ? facts.map((f, i) => `${i + 1}. ${f}`).join('\n')
-      : '*(Belum ada fakta khusus yang tersimpan)*';
-
-    const summariesList = summaries.length > 0
-      ? summaries.slice(0, 5).map((s, i) => {
-          const pTag = s.isPriority ? ' ⭐ `[Prioritas]`' : '';
-          return `**${i + 1}. ${s.title}** (\`${s.id}\` - ${s.dateFormatted})${pTag}\n📝 *${s.summary}*`;
-        }).join('\n\n')
-      : '*(Belum ada ringkasan sesi yang dipermanenkan)*';
-
-    const embed = new EmbedBuilder()
-      .setColor(0x00FFB2)
-      .setTitle(`🧠 Sistem Memori & Arsip Terenkripsi AZURA`)
-      .setDescription(
-        `${safetyBanner}\n\n` +
-        `AZURA menyimpan memori hierarkis (Fakta Kunci + Ringkasan Eksekutif Permanen hingga **5.000 Pesan**):`
-      )
-      .addFields(
-        {
-          name: `📌 Fakta & Kebiasaan Kunci (${facts.length}/20)`,
-          value: factsList,
-          inline: false
-        },
-        {
-          name: `💾 Arsip Sesi Percakapan Permanen (${summaries.length}/${MAX_SUMMARIES_PER_CONTEXT} Summary Keys)`,
-          value: summariesList,
-          inline: false
-        }
-      )
-      .setFooter({ text: 'Gunakan /memory aksi:audit untuk konsultasi relevansi memori dengan AZURA' })
-      .setTimestamp();
-
-    return interaction.reply({ embeds: [embed], flags: 64 });
-
+    return interaction.reply({ embeds: [embed], components: [row], flags: 64 });
   } else if (commandName === 'search') {
     const query = interaction.options.getString('query');
     await interaction.deferReply();

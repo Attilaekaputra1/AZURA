@@ -333,16 +333,23 @@ async function buildBotStatusEmbed(guild, client, isDm = false, filterCategory =
 }
 
 /**
- * Build a detailed card for a single selected bot
+ * Build a detailed card for a single selected bot with an interactive command dropdown
  * @param {import('discord.js').Guild} guild 
  * @param {object} bot 
  * @param {import('discord.js').Client} client 
- * @returns {{ embed: EmbedBuilder, components: Array<ActionRowBuilder> }}
+ * @returns {Promise<{ embed: EmbedBuilder, components: Array<ActionRowBuilder> }>}
  */
-function buildBotDetailEmbed(guild, bot, client) {
+async function buildBotDetailEmbed(guild, bot, client) {
+  const { getBotCommands } = require('./botKnowledge');
+  const commands = await getBotCommands(bot);
+
+  const commandListText = commands.length > 0
+    ? commands.map(c => `${c.emoji || '⚡'} **\`${c.label}\`** — ${c.description}`).join('\n')
+    : 'Tidak ada template perintah khusus.';
+
   const embed = new EmbedBuilder()
     .setColor(bot.isOnline ? 0x57F287 : 0xED4245)
-    .setTitle(`${bot.statusEmoji} [DETAIL BOT] • ${bot.displayName}`)
+    .setTitle(`${bot.statusEmoji} [DETAIL BOT & PERINTAH] • ${bot.displayName}`)
     .setDescription(
       `🤖 **Profil & Status Aplikasi:**\n` +
       `• **Nama Tampilan:** ${bot.displayName}\n` +
@@ -351,10 +358,12 @@ function buildBotDetailEmbed(guild, bot, client) {
       `• **Status Kesehatan:** ${bot.statusEmoji} **${bot.healthStatus}**\n` +
       `• **Server Asal:** **${guild.name}**\n` +
       `• **Roles:** ${bot.roles.length > 0 ? bot.roles.map(r => `\`${r}\``).join(', ') : '*Tidak ada role khusus*'}\n\n` +
-      `💡 *Gunakan tombol di bawah untuk langsung mengirimkan perintah teks ke bot ini!*`
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📋 **Fitur & Perintah Cepat Siap Pakai:**\n${commandListText}\n\n` +
+      `💡 *Pilih perintah langsung dari dropdown di bawah, atau klik tombol untuk mengetik kustom!*`
     )
     .setFooter({
-      text: `AZURA Master Bot Orchestrator • Server: ${guild.name}`,
+      text: `AZURA Master Bot Orchestrator • Auto-Learner Active`,
       iconURL: client?.user?.displayAvatarURL()
     })
     .setTimestamp();
@@ -363,10 +372,40 @@ function buildBotDetailEmbed(guild, bot, client) {
     embed.setThumbnail(bot.avatar);
   }
 
-  const row = new ActionRowBuilder().addComponents(
+  const components = [];
+
+  // Dropdown Menu: Quick Command Preset Selector
+  if (commands.length > 0 && bot.isOnline) {
+    const cmdOptions = commands.map(c => ({
+      label: c.label.slice(0, 100),
+      value: `orch_cmd_${guild.id}_${bot.id}_${Buffer.from(c.command).toString('base64url')}`,
+      description: c.description.slice(0, 50),
+      emoji: c.emoji || '⚡'
+    }));
+
+    // Add custom text input option
+    cmdOptions.push({
+      label: '✏️ Ketik Perintah Kustom Sendiri...',
+      value: `orch_custom_${guild.id}_${bot.id}`,
+      description: 'Ketik perintah bebas via formulir pop-up',
+      emoji: '✏️'
+    });
+
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`select_orch_cmd_${guild.id}_${bot.id}`)
+          .setPlaceholder(`⚡ Pilih & Jalankan Perintah ke @${bot.displayName}...`)
+          .addOptions(cmdOptions.slice(0, 25))
+      )
+    );
+  }
+
+  // Action Row Buttons
+  const buttonRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`btn_orch_modal_${guild.id}_${bot.id}`)
-      .setLabel(`⚡ Kirim Perintah ke ${bot.displayName.slice(0, 30)}`)
+      .setLabel(`✏️ Ketik Perintah Bebas`)
       .setStyle(ButtonStyle.Primary)
       .setDisabled(!bot.isOnline),
     new ButtonBuilder()
@@ -375,7 +414,9 @@ function buildBotDetailEmbed(guild, bot, client) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return { embed, components: [row] };
+  components.push(buttonRow);
+
+  return { embed, components };
 }
 
 /**
@@ -585,8 +626,67 @@ async function handleBotOrchestratorSelectMenu(interaction) {
     }
 
     await interaction.deferUpdate();
-    const { embed, components } = buildBotDetailEmbed(targetGuild, targetBot, interaction.client);
+    const { embed, components } = await buildBotDetailEmbed(targetGuild, targetBot, interaction.client);
     return interaction.editReply({ embeds: [embed], components });
+
+  } else if (customId.startsWith('select_orch_cmd_')) {
+    const selectedVal = values[0];
+    if (selectedVal.startsWith('orch_custom_')) {
+      const parts = selectedVal.split('_');
+      const guildId = parts[2];
+      const botId = parts[3];
+
+      const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
+      const bots = await scanGuildBots(targetGuild, interaction.client);
+      const targetBot = bots.find(b => b.id === botId);
+      const botName = targetBot ? targetBot.displayName : 'Bot';
+
+      const modal = new ModalBuilder()
+        .setCustomId(`modal_orch_dispatch:${guildId}:${botId}`)
+        .setTitle(`Operasikan @${botName}`.slice(0, 45));
+
+      const commandInput = new TextInputBuilder()
+        .setCustomId('bot_cmd_text')
+        .setLabel(`Perintah Teks ke @${botName}`.slice(0, 45))
+        .setPlaceholder('Contoh: !play lofi, $daily, .rank, $marry')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(300);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(commandInput));
+      return interaction.showModal(modal);
+
+    } else if (selectedVal.startsWith('orch_cmd_')) {
+      const parts = selectedVal.split('_');
+      const guildId = parts[2];
+      const botId = parts[3];
+      const b64Cmd = parts[4];
+      const commandText = Buffer.from(b64Cmd, 'base64url').toString('utf8');
+
+      const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
+      if (!targetGuild) {
+        return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
+      }
+
+      let targetChannel = interaction.channel;
+      if (!targetChannel || !targetChannel.isTextBased?.() || !interaction.guild) {
+        targetChannel = targetGuild.channels.cache.find(c =>
+          c.isTextBased?.() && c.permissionsFor(targetGuild.members.me)?.has(PermissionFlagsBits.SendMessages)
+        );
+      }
+
+      if (!targetChannel) {
+        return interaction.reply({
+          content: '❌ Tidak dapat menemukan text channel yang sesuai di server tersebut untuk mengirimkan perintah.',
+          flags: 64
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: false });
+      const res = await operateBot(targetGuild, targetChannel, botId, commandText, interaction.user, isOwner);
+      return interaction.editReply({ content: res.message });
+    }
+  }
   }
 }
 

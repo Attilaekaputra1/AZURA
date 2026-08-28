@@ -88,6 +88,25 @@ client.once(Events.ClientReady, async () => {
   }, 3000);
 });
 
+// Realtime Autonomous Bot Learner: when a new bot joins a server, Azura immediately analyzes & learns its commands
+client.on('guildMemberAdd', async (member) => {
+  if (member.user.bot) {
+    try {
+      console.log(`[Bot Orchestrator Realtime]: 🤖 New bot "${member.displayName}" (@${member.user.tag}) joined "${member.guild.name}". Learning its commands...`);
+      const { analyzeAndLearnBot } = require('./botKnowledge');
+      await analyzeAndLearnBot({
+        id: member.id,
+        username: member.user.username,
+        displayName: member.displayName,
+        roles: member.roles.cache.map(r => r.name),
+        category: 'Newly Joined App'
+      });
+    } catch (err) {
+      console.error('[Bot Realtime Learner Error]:', err.message);
+    }
+  }
+});
+
 // Track passive 3rd-person mentions across channels (Requires 3 mentions within 5 mins before chiming in)
 const thirdPersonTracker = new Map(); // channelId -> { count: number, lastTime: number, messages: string[] }
 

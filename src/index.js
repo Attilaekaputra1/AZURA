@@ -109,6 +109,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // Track passive 3rd-person mentions across channels (Requires 3 mentions within 5 mins before chiming in)
 const thirdPersonTracker = new Map(); // channelId -> { count: number, lastTime: number, messages: string[] }
+const unregisteredPromptedUsers = new Set(); // userId -> track users who have received the registration prompt
 
 // Main Message Handler (Handles both new messages and edited messages)
 async function handleIncomingMessage(message, isEdit = false) {
@@ -160,6 +161,7 @@ async function handleIncomingMessage(message, isEdit = false) {
 
   if (nameActionResult) {
     if (nameActionResult.status === 'FIRST_REGISTRATION') {
+      unregisteredPromptedUsers.delete(message.author.id);
       // Notify Owner (Attila) in DM immediately
       if (config.OWNER_DISCORD_ID) {
         const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
@@ -261,6 +263,12 @@ async function handleIncomingMessage(message, isEdit = false) {
   if (!hasRegisteredName) {
     const isDirectedAtAzura = isDM || isMentioned || startsWithName || endsWithName || vocativeName || isReplyToBot;
     if (isDirectedAtAzura) {
+      // If user was ALREADY prompted before and ignored it, remain completely silent until they register!
+      if (unregisteredPromptedUsers.has(message.author.id)) {
+        return; // Silent ignore until they reply with their name/initial
+      }
+
+      unregisteredPromptedUsers.add(message.author.id);
       const regPrompt =
         `✨ **[Kenalan Dulu Yuk!]**\n\n` +
         `Halo <@${message.author.id}>! 👋 Biar obrolan kita lebih akrab dan personal, mau dipanggil apa nih sama AZURA? ✨\n\n` +

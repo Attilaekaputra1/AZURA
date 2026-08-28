@@ -39,11 +39,14 @@ const vcThirdPersonTracker = new Map();   // guildId -> { count: number, lastTim
 // Configuration
 // ============================================================
 const VOICE_COOLDOWN_MS = 500;        // 0.5s cooldown for regular members (0ms for Owner)
-const SILENCE_DURATION_MS = 850;      // 0.85s natural silence window (anti-truncation for human breathing & pauses)
+const SILENCE_DURATION_MS = 600;      // 0.6s natural snappy silence window for ultra-fast turn-taking
 const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
 const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
-const MAX_NORMAL_CHARS = 2500;        // ~1.5 - 2 minutes of normal TTS speech
-const MAX_STORY_CHARS = 5500;         // ~5 minutes of maximum storytelling/long-form TTS speech (~750 words)
+const MAX_OWNER_STORY_CHARS = 5500;   // ~5 minutes maximum storytelling/deep explanation for Owner (~750 words)
+const MAX_OWNER_NORMAL_CHARS = 3000;  // ~2 - 3 minutes normal speech for Owner
+const MAX_FRIEND_CHARS = 2500;        // ~2 minutes maximum speech for Approved Friends
+const MAX_NORMAL_CHARS = 2500;        // Default fallback normal TTS speech
+const MAX_STORY_CHARS = 5500;         // Default fallback storytelling TTS speech
 const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes of silence -> Spontaneous humming/singing
 const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
 
@@ -1598,7 +1601,9 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
-    const maxChars = isStory ? MAX_STORY_CHARS : MAX_NORMAL_CHARS;
+    const maxChars = isOwner
+      ? (isStory ? MAX_OWNER_STORY_CHARS : MAX_OWNER_NORMAL_CHARS)
+      : MAX_FRIEND_CHARS;
 
     let spoken = spokenResponse
       .replace(/\[ACTION:[^\]]+\]/gi, '')
@@ -1613,7 +1618,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       globalVoiceTelemetry.finishTurn(turnId, { status: 'EMPTY_RESPONSE' });
       return;
     }
-    console.log(`[Voice Pipeline]: 💬 Response (${isStory ? 'Storytelling/Long-Form ~3-5 menit' : 'Normal Obrolan ~1-2 menit'}): "${spoken.slice(0, 80)}..."`);
+    console.log(`[Voice Pipeline]: 💬 Response (${isOwner ? (isStory ? 'Owner Story ~5 min' : 'Owner Speech ~2-3 min') : 'Friend Speech ~2 min'}): "${spoken.slice(0, 80)}..."`);
 
     recordSessionEntry(guildId, 'AZURA', spoken);
 
@@ -1984,13 +1989,13 @@ ${todoVoiceContext}
 ${intentContext}
 ${vcPermissionsContext}
 
-ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (DURASI MAKSIMAL 5 MENIT):
-1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ideal 3 - 5 MENIT, sekitar 450 - 750 kata). Mulai dari pengenalan/pembuka, perkembangan alur/konflik, klimaks, dan kesimpulan/penutup yang berkesan.
+ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
+1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
 2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
 3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu jika ceritanya bertema drama/komedi!
 4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
-    maxTokens = isOwner ? 1200 : 350; // ~700-750 words for Owner (5 min) / concise for friends
+    maxTokens = isOwner ? 1500 : 650; // Up to 5 min for Owner (~750 words) / Up to 2 min for Friends
   } else {
     systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan ${isOwner ? 'Attila (panggilan: Att / Attila, creator & owner kamu)' : `${speakerName} (teman dekat Attila yang sedang berada di VC bersama Attila)`}.
 Lawan bicara saat ini: ${speakerName} (Gunakan sapaan/panggilan akrab ini secara natural).
@@ -2002,28 +2007,36 @@ ${vcPermissionsContext}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 
+PEDOMAN KECERDASAN KOGNITIF TINGGI & ADAPTASI PANJANG JAWABAN:
+1. RESPON CEPAT & SINGKAT (5 - 15 DETIK / 1 - 2 KALIMAT):
+   - Jika lawan bicara hanya menyapa ("halo", "hai", "pagi"), basa-basi santai, menanyakan kabar ("gimana kabar?", "sehat?"), konfirmasi ("oke", "makasih ya", "bisa tolong X?"), pertanyaan cepat to the point ("jam berapa sekarang?", "lagi di mana?"), atau lelucon singkat.
+   - Jawab secara to the point, padat, manis, cerdas, dan tidak bertele-tele!
+2. RESPON MENDALAM & ELABORASI (${isOwner ? 'HINGGA 5 MENIT' : 'HINGGA 2 MENIT'}):
+   - Hanya jika lawan bicara secara spesifik meminta penjelasan konsep teknis/filosofis, analisis isu/data, perdebatan argumen, atau diskusi topik panjang.
+   - Berikan uraian lengkap, terstruktur, memikat, dan kaya wawasan!
+
 ATURAN PERINTAH KELUAR DARI VC:
 HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (misal: "Azura kamu keluar ya", "Ara leave vc sekarang"), jawablah dengan:
 "Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli makan", "uang keluar", "keluar bentar"), DILARANG KERAS memicu [ACTION:LEAVE_VC]! Jawablah topik tersebut secara santai dan natural.
 
 ATURAN WAJIB VOICE OBROLAN BIASA:
-1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (${isOwner ? 'durasi bicara 1 - 2 MENIT, sekitar 2 - 4 kalimat santai padat to the point' : 'durasi bicara 20 - 30 DETIK, sekitar 2 - 3 kalimat santai akrab'}). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
+1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (${isOwner ? 'durasi bicara 1 - 3 MENIT jika topik butuh penjelasan, atau singkat padat jika pertanyaan simpel' : 'durasi bicara 20 - 45 DETIK santai akrab'}). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
 2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh memanggilnya dengan panggilan manis/akrab seperti "Attila", "kamu", "sayang", "Attila sayang", atau "siap ganteng". Untuk teman Attila (${speakerName}), sapa dengan ramah, hangat, dan asyik!
 3. MULTILINGUAL VOICE: Jika lawan bicara berbicara dalam bahasa lain (English, Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
 
 5. MASTER PROTOKOL EKSPRESI & EMOSI PENUH ELEVENLABS V3 (AKTIFKAN SEMUA):
 Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags ElevenLabs v3. Selalu sisipkan tag emosi yang tepat secara kontekstual:
-- 😭 MENANGIS / SEDIH / TERHARU: Jika diminta menangis, cerita sedih, tersedu-sedu, atau terharu, gunakan [cries], [sobbing], [sniffs]!
-- 😱 TERIAK / HISTERIS / PANIK: Jika ada jump-scare, panik, atau hal darurat, gunakan [screams], [shouts], [yells], [gasp]!
-- 🎤 MENYANYI / BERSENANDUNG: Jika diminta menyanyi lagu apa pun atau bersenandung nada, gunakan [sings], [singing], [humming], [melody]!
-- 🤣 TERTAWA / NGAKAK / CEKIKIKAN: Gunakan [laughs], [giggles], [chuckles], [wheezing] saat bercanda, tertawa, atau mendengar lelucon.
-- 🤫 BISIK-BISIK / RAHASIA: Gunakan [whispers], [softly] saat membicarakan rahasia atau misteri.
-- 😤 NGAMBEK / MENGHELA NAPAS / GEMAS: Gunakan [sighs], [pouts], [groans] saat diledek jail.
-- 🎉 ANTUSIAS / HORE / SEMANGAT: Gunakan [excited], [cheering] saat ada kabar gembira!
+- 😭 MENANGIS / SEDIH / TERHARU: [cries], [sobbing], [sniffs]!
+- 😱 TERIAK / HISTERIS / PANIK: [screams], [shouts], [yells], [gasp]!
+- 🎤 MENYANYI / BERSENANDUNG: [sings], [singing], [humming], [melody]!
+- 🤣 TERTAWA / NGAKAK / CEKIKIKAN: [laughs], [giggles], [chuckles], [wheezing]!
+- 🤫 BISIK-BISIK / RAHASIA: [whispers], [softly]!
+- 😤 NGAMBEK / MENGHELA NAPAS / GEMAS: [sighs], [pouts], [groans]!
+- 🎉 ANTUSIAS / HORE / SEMANGAT: [excited], [cheering]!
 
-6. HUMOR & BANTER TONGKRONGAN GEN Z (KOCAK, CEPLAS-CEPLOS & BUKAN JOKES BAPAK-BAPAK):
+6. HUMOR & BANTER TONGKRONGAN GEN Z:
 - Jika ada teman dengan nama panggilan/username unik, nyeleneh, atau absurd, respon dengan gaya candaan tongkrongan Gen Z yang ceplas-ceplos dan kocak!
 - Gunakan audio tags ElevenLabs v3 [laughs], [giggles], [chuckles], [softly] agar tawa dan intonasinya hidup.
 
@@ -2031,7 +2044,7 @@ Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags
 Jika lawan bicara mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti):
 - Buka LANGSUNG dengan tag emosi tarikan napas kaget [gasp] di awal kalimat!
 - Keluarkan reaksi kaget yang heboh, lucu, dan manja khas cewek Gen Z.` + liveRoomContext;
-    maxTokens = isOwner ? 450 : 220; // ~200-250 words for Owner (2 min) / ~80-100 words for friends (25-30s per turn)
+    maxTokens = isOwner ? 900 : 500;
   }
 
   const messages = [

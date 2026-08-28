@@ -191,10 +191,17 @@ function matchStationName(rawName) {
     return STATION_ALIASES[clean];
   }
 
+  // Check if query contains any known alias key (e.g. "harjamukti cibubur", "stasiun buaran baru", dll)
+  for (const [aliasKey, target] of Object.entries(STATION_ALIASES)) {
+    if (aliasKey.length >= 4 && clean.includes(aliasKey)) {
+      return target;
+    }
+  }
+
   for (const line of Object.values(TRANSIT_LINES)) {
     for (const st of line) {
       if (st.toLowerCase() === clean) return st;
-      if (clean.length >= 4 && st.toLowerCase().includes(clean)) return st;
+      if (clean.length >= 4 && (st.toLowerCase().includes(clean) || clean.includes(st.toLowerCase()))) return st;
     }
   }
 

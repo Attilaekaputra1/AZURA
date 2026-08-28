@@ -483,12 +483,12 @@ const commands = [
       sub.setName('schedule')
         .setDescription('Atur jadwal tidur otomatis dengan fase mengantuk 1 jam sebelumnya')
         .addStringOption(opt => opt.setName('waktu_tidur').setDescription('Waktu tidur WIB (contoh: 20:00, 8 malam, 21.30, atau 1h)').setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true))
         .addStringOption(opt => opt.setName('waktu_bangun').setDescription('Waktu bangun WIB (contoh: 06:00, opsional)').setRequired(false))
         .addStringOption(opt => opt.setName('tipe').setDescription('Tipe jadwal').setRequired(false).addChoices(
           { name: '⏳ Sekali (Hari Ini Saja)', value: 'once' },
           { name: '🔁 Setiap Hari (Rutin)', value: 'daily' }
-        ))
-        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
+        )))
     .addSubcommand(sub =>
       sub.setName('cancel_schedule')
         .setDescription('Batalkan jadwal tidur otomatis yang sedang aktif')

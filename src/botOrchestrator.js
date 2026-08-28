@@ -95,37 +95,45 @@ async function scanGuildBots(guild, client) {
     const isSelf = (id === client?.user?.id);
     const category = isSelf ? '👑 Master AI Commander' : inferBotCategory(member);
 
-    // Layer 1: Presence Detection
+    // Layer 1: Presence Detection (if presence intent is enabled)
     const presenceStatus = member.presence?.status || 'offline';
     const isOnline = presenceStatus !== 'offline';
 
-    // Layer 2: Recent Activity Check (Check recent channels)
-    let lastActiveTime = null;
-    let lastActiveChannel = null;
+    // Layer 2: Voice Channel Active Connection Check
+    const voiceState = guild.voiceStates.cache.get(id);
+    const isInVoice = !!(voiceState && voiceState.channelId);
+    const voiceChannelName = isInVoice ? guild.channels.cache.get(voiceState.channelId)?.name : null;
 
     // Layer 3: Tri-Layer Health Status Assessment
-    let healthStatus = '🔴 OFFLINE / MATI';
-    let healthColor = 0xED4245; // Red
-    let statusEmoji = '🔴';
+    let healthStatus = '🟢 TERDAFTAR (Siap Pakai)';
+    let healthColor = 0x57F287; // Green
+    let statusEmoji = '🟢';
 
     if (isSelf) {
-      healthStatus = '🟢 AKTIF (Online & Siap Tempur)';
-      healthColor = 0x57F287; // Green
+      healthStatus = '👑 AKTIF (Master AI Commander)';
+      healthColor = 0x57F287;
       statusEmoji = '👑';
-    } else if (isOnline) {
-      if (presenceStatus === 'online') {
-        healthStatus = '🟢 AKTIF & SEHAT';
-        healthColor = 0x57F287; // Green
-        statusEmoji = '🟢';
-      } else if (presenceStatus === 'idle') {
-        healthStatus = '🟡 STANDBY / IDLE';
-        healthColor = 0xFEE75C; // Yellow
-        statusEmoji = '🟡';
-      } else if (presenceStatus === 'dnd') {
-        healthStatus = '🟣 JANGAN GANGGU (DND)';
-        healthColor = 0xEB459E; // Purple
-        statusEmoji = '🟣';
-      }
+    } else if (isInVoice) {
+      healthStatus = `🟢 AKTIF (Tersambung di VC #${voiceChannelName || 'Voice'})`;
+      healthColor = 0x57F287;
+      statusEmoji = '🔊';
+    } else if (presenceStatus === 'online') {
+      healthStatus = '🟢 AKTIF & SEHAT';
+      healthColor = 0x57F287;
+      statusEmoji = '🟢';
+    } else if (presenceStatus === 'idle') {
+      healthStatus = '🟡 STANDBY / IDLE';
+      healthColor = 0xFEE75C;
+      statusEmoji = '🟡';
+    } else if (presenceStatus === 'dnd') {
+      healthStatus = '🟣 DND (Aktif)';
+      healthColor = 0xEB459E;
+      statusEmoji = '🟣';
+    } else {
+      // Standard registered bot status
+      healthStatus = '🟢 TERDAFTAR (Siap Menerima Perintah)';
+      healthColor = 0x5865F2;
+      statusEmoji = '🟢';
     }
 
     botList.push({

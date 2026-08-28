@@ -535,11 +535,10 @@ function buildInfographicEmbed(topic, userName, result, researchSummary, sources
       `💡 **Ringkasan Inti & Key Points (Tavily AI Intelligence):**\n${researchSummary.slice(0, 900)}\n\n` +
       `🎨 **Visualisasi Infografis:** *Gambar visual berhasil digenerate berdasarkan data riset terbaru!*`
     )
-    .setImage('attachment://infographic.png')
     .setFooter({
-      text: quotaInfo.isOwner
+      text: quotaInfo?.isOwner
         ? '👑 Unlimited Owner Access • Autonomous Research & Visual Engine'
-        : `⚡ Kuota Server: ${quotaInfo.remainingToday}/${DAILY_LIMIT_PER_SERVER} tersisa • Reset 00:00 WIB`
+        : `⚡ Kuota Server: ${quotaInfo?.remainingToday || 0}/${DAILY_LIMIT_PER_SERVER} tersisa • Reset 00:00 WIB`
     })
     .setTimestamp();
 
@@ -548,7 +547,12 @@ function buildInfographicEmbed(topic, userName, result, researchSummary, sources
     embed.addFields({ name: '🌐 Sumber Terverifikasi', value: sourceLinks || 'Tavily Web Search', inline: false });
   }
 
-  const attachment = new AttachmentBuilder(result.buffer, { name: 'infographic.png' });
+  const files = [];
+  if (result && result.buffer) {
+    embed.setImage('attachment://infographic.png');
+    files.push(new AttachmentBuilder(result.buffer, { name: 'infographic.png' }));
+  }
+
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`img_regen_${Date.now()}`)
@@ -559,7 +563,7 @@ function buildInfographicEmbed(topic, userName, result, researchSummary, sources
 
   return {
     embeds: [embed],
-    files: [attachment],
+    files,
     components: [row]
   };
 }
@@ -583,7 +587,15 @@ async function processImageIntelligence(prompt, userName = 'Pengguna', guildId =
     }
   }
 
-  let cleanPrompt = prompt.trim().replace(/\s+(?:dong|deh|ya|plis|pls|please|kan|coba)$/i, '').trim();
+  // Extract actual user command by stripping reply/system context prefixes
+  let userActualText = prompt
+    .replace(/\[Konteks\s+[^\]]+\]:\s*"[^"]*"\s*/gi, '')
+    .replace(/\[Isi\s+Lampiran\s+[^\]]+\]:\s*```[\s\S]*?```/gi, '')
+    .replace(/\[Transkrip\s+Suara\]:\s*"[^"]*"/gi, '')
+    .replace(/\[Catatan\s+Konteks\s+[^\]]+\]:\s*/gi, '')
+    .trim();
+
+  let cleanPrompt = userActualText.replace(/\s+(?:dong|deh|ya|plis|pls|please|kan|coba)$/i, '').trim();
   const lower = cleanPrompt.toLowerCase();
 
   // ── NON-VISUAL / PURE TEXT INTENT SHIELD ──
@@ -591,7 +603,7 @@ async function processImageIntelligence(prompt, userName = 'Pengguna', guildId =
   const explicitVisualKeywords = [
     'gambar', 'image', 'foto', 'photo', 'wallpaper', 'lukisan', 'painting', 'artwork',
     'fanart', 'infografis', 'infografik', 'infographic', 'poster', 'ilustrasi', 'illustration',
-    'visualisasi', 'visual', 'banner', 'logo', 'karikatur', 'komik', 'diagram visual', 'sketsa'
+    'visualisasi', 'banner', 'logo', 'karikatur', 'komik', 'diagram visual', 'sketsa'
   ];
 
   const hasExplicitVisual = explicitVisualKeywords.some(kw => lower.includes(kw));
@@ -600,18 +612,20 @@ async function processImageIntelligence(prompt, userName = 'Pengguna', guildId =
     'code', 'koding', 'script', 'database', 'sql', 'sqlite', 'rencana', 'plan', 'jadwal',
     'ringkasan', 'summary', 'artikel', 'essay', 'cerita', 'story', 'tabel', 'query',
     'fungsi', 'backend', 'frontend', 'analisis', 'teks', 'pesan', 'surat', 'puisi',
-    'lirik', 'resep', 'makalah', 'soal', 'jawaban', 'dokumen', 'rumus'
+    'lirik', 'resep', 'makalah', 'soal', 'jawaban', 'dokumen', 'rumus', 'seperti apa', 'kayak gimana'
   ];
 
   const hasNonVisualOnly = nonVisualKeywords.some(kw => lower.includes(kw)) && !hasExplicitVisual;
-  if (hasNonVisualOnly) {
+  if (hasNonVisualOnly || !hasExplicitVisual) {
     return { isImageRequest: false }; // Let normal LLM answer the text request!
   }
 
   // ── MULTI-STEP RESEARCH & VISUAL / INFOGRAPHIC PIPELINE ──
+  // MUST have explicit command to CREATE/GENERATE an infographic/poster/visual
+  const hasVisualGenCommand = /\b(?:buatkan|buatin|bikinin|bikin|generate|buat|render|draw|lukiskan|desainkan)\s+(?:sebuah\s+|suatu\s+)?(?:infografis|infografik|infographic|poster|visualisasi|gambar|ilustrasi)\b/i.test(lower);
   const isResearchAndVisual = (
     (lower.includes('search') || lower.includes('cari') || lower.includes('riset') || lower.includes('googling') || lower.includes('info') || lower.includes('berita')) &&
-    (lower.includes('infografis') || lower.includes('infografik') || lower.includes('infographic') || lower.includes('poster') || lower.includes('visualisasikan') || lower.includes('visual') || (lower.includes('gambar') && (lower.includes('buat') || lower.includes('bikin'))))
+    hasVisualGenCommand
   );
 
   if (isResearchAndVisual) {

@@ -214,17 +214,34 @@ async function buildBotStatusEmbed(guild, client, isDm = false, filterCategory =
     embed.setThumbnail(guild.iconURL({ dynamic: true }));
   }
 
-  // Add fields per category
+  // Add fields per category (Safely chunked to never exceed Discord 1024 character limit per field)
   for (const [catName, catBots] of Object.entries(categories)) {
-    const listStr = catBots.map(b => {
-      const roleStr = b.roles.length > 0 ? ` [${b.roles.slice(0, 2).join(', ')}]` : '';
-      return `${b.statusEmoji} **${b.displayName}** (\`@${b.username}\`)${roleStr} — *${b.healthStatus}*`;
-    }).join('\n');
+    const chunks = [];
+    let currentChunk = [];
+    let currentLen = 0;
 
-    embed.addFields({
-      name: `${catName} (${catBots.length})`,
-      value: listStr || 'Tidak ada bot dalam kategori ini.',
-      inline: false
+    for (const b of catBots) {
+      const roleStr = b.roles.length > 0 ? ` [${b.roles.slice(0, 2).join(', ')}]` : '';
+      const line = `${b.statusEmoji} **${b.displayName}** (\`@${b.username}\`)${roleStr} — *${b.healthStatus}*`;
+      if (currentLen + line.length + 1 > 900 || currentChunk.length >= 8) {
+        chunks.push(currentChunk.join('\n'));
+        currentChunk = [line];
+        currentLen = line.length;
+      } else {
+        currentChunk.push(line);
+        currentLen += line.length + 1;
+      }
+    }
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk.join('\n'));
+    }
+
+    chunks.forEach((chunkStr, idx) => {
+      embed.addFields({
+        name: chunks.length > 1 ? `${catName} (Bagian ${idx + 1} - ${catBots.length} Bot)` : `${catName} (${catBots.length})`,
+        value: chunkStr || 'Tidak ada bot dalam kategori ini.',
+        inline: false
+      });
     });
   }
 

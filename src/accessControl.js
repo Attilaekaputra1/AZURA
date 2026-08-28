@@ -134,13 +134,14 @@ function checkFriendDailyVoiceQuota(userId) {
 
   const usedSeconds = Math.round(quota.usedSeconds || 0);
   const remainingSeconds = Math.max(0, MAX_DAILY_VOICE_SECONDS - usedSeconds);
-  const isExhausted = (remainingSeconds <= EXHAUSTION_THRESHOLD_SECONDS) || (quota.exhaustedAt !== null);
+  const shouldExhaust = remainingSeconds <= EXHAUSTION_THRESHOLD_SECONDS;
 
+  let isExhausted = false;
   let resetAt = null;
   let resetAtStr = 'Belum Habis';
   let timeLeftStr = `Tersisa ${remainingSeconds}s (Belum Countdown)`;
 
-  if (isExhausted) {
+  if (shouldExhaust) {
     if (!quota.exhaustedAt) {
       quota.exhaustedAt = now;
       friend.quota = quota;
@@ -151,6 +152,14 @@ function checkFriendDailyVoiceQuota(userId) {
     timeLeftStr = formatCountdown(msLeft);
     const resetDate = new Date(resetAt);
     resetAtStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+    isExhausted = true;
+  } else {
+    // If quota is still available (> 8s), ensure exhaustedAt is null so countdown is NOT active
+    if (quota.exhaustedAt) {
+      quota.exhaustedAt = null;
+      friend.quota = quota;
+      saveApprovedFriends();
+    }
   }
 
   return {

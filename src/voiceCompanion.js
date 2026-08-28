@@ -1024,7 +1024,9 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
     if (WHISPER_HALLUCINATIONS.has(normalized) || normalized.length < 4) return;
 
     const member = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
-    const callerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
+    const { getUserCallingName } = require('./vault');
+    const rawCallerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
+    const callerName = getUserCallingName(userId, rawCallerName);
 
     console.log(`[Voice Pipeline]: Member "${callerName}" (${userId}) said in VC: "${transcript}"`);
 
@@ -1939,19 +1941,10 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   let maxTokens = 250;
 
   // Get speaker identity & alias
-  let speakerName = isOwner ? 'Attila (panggil Att / Attila)' : 'Teman';
+  let speakerName = isOwner ? 'Attila' : 'Teman';
   try {
-    const { getApprovedFriend } = require('./accessControl');
-    const friendRec = getApprovedFriend(userId);
-    if (friendRec) {
-      speakerName = friendRec.customNickname || friendRec.displayName;
-    } else {
-      const { getUserRecord } = require('./vault');
-      const uRec = getUserRecord(userId);
-      if (uRec && uRec.knownRealName) {
-        speakerName = uRec.knownRealName;
-      }
-    }
+    const { getUserCallingName } = require('./vault');
+    speakerName = getUserCallingName(userId, isOwner ? 'Attila' : 'Teman');
   } catch (_) {}
 
   // Contextual To-Do integration for Voice Channel

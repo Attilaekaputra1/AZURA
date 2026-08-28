@@ -101,14 +101,15 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot || message.mentions.everyone) return;
 
   // 0. Security Guard: Absolute Zero Response for Blacklisted / Banned Users
-  const { isUserBanned, recordUserInteraction, getUserRecord } = require('./vault');
+  const { isUserBanned, recordUserInteraction, getUserRecord, getUserCallingName } = require('./vault');
   if (isUserBanned(message.author.id)) {
     console.log(`[Security Guard]: 🛑 Ignored message from BLACKLISTED user @${message.author.tag} (${message.author.id})`);
     return; // Completely stop/block response!
   }
 
   const isDM = !message.guild;
-  const userName = message.member?.displayName || message.author.displayName || message.author.username;
+  const rawDisplayName = message.member?.displayName || message.author.displayName || message.author.username;
+  const userName = getUserCallingName(message.author.id, rawDisplayName);
   const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
   const guildId = message.guild?.id || null;
 

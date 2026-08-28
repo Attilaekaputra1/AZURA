@@ -939,6 +939,52 @@ function exportVaultData(format = 'json') {
   }, null, 2);
 }
 
+/**
+ * Resolve the authoritative calling name / nickname for a user.
+ * Prioritizes:
+ * 1. Owner special lock: 'Attila'
+ * 2. Approved Friends custom nickname from accessControl
+ * 3. Vault knownRealName (registered / set by Owner)
+ * 4. User Behavior nickname
+ * 5. Fallback display name / username
+ * @param {string} userId 
+ * @param {string} [fallbackDisplayName='Pengguna'] 
+ * @returns {string}
+ */
+function getUserCallingName(userId, fallbackDisplayName = 'Pengguna') {
+  if (!userId) return fallbackDisplayName || 'Pengguna';
+  
+  if (config.OWNER_DISCORD_ID && userId === config.OWNER_DISCORD_ID) {
+    return 'Attila';
+  }
+
+  // 1. Check Approved Friends custom nickname
+  try {
+    const { getApprovedFriend } = require('./accessControl');
+    const friend = getApprovedFriend(userId);
+    if (friend && friend.customNickname && friend.customNickname.trim()) {
+      return friend.customNickname.trim();
+    }
+  } catch (_) {}
+
+  // 2. Check Vault registered knownRealName
+  const user = getUserRecord(userId);
+  if (user && user.knownRealName && user.knownRealName.trim()) {
+    return user.knownRealName.trim();
+  }
+
+  // 3. Check User Behavior profile
+  try {
+    const { getUserBehavior } = require('./behavior');
+    const beh = getUserBehavior(userId);
+    if (beh && beh.nickname && !beh.nickname.toLowerCase().startsWith('user_') && beh.nickname.trim()) {
+      return beh.nickname.trim();
+    }
+  } catch (_) {}
+
+  return fallbackDisplayName || 'Pengguna';
+}
+
 module.exports = {
   loadVault,
   saveVault,
@@ -949,6 +995,7 @@ module.exports = {
   getRelationshipTier,
   getVaultStats,
   getUserRecord,
+  getUserCallingName,
   exportVaultData,
   encryptPayload,
   decryptPayload,

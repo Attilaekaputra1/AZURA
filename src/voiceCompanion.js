@@ -38,7 +38,7 @@ const vcThirdPersonTracker = new Map();   // guildId -> { count: number, lastTim
 // Configuration
 // ============================================================
 const VOICE_COOLDOWN_MS = 500;        // 0.5s cooldown for regular members (0ms for Owner)
-const SILENCE_DURATION_MS = 600;      // 0.6s natural snappy silence window for ultra-fast turn-taking
+const SILENCE_DURATION_MS = 500;      // 0.5s natural snappy silence window for ultra-fast turn-taking
 const MAX_OWNER_STORY_CHARS = 5500;   // ~5 minutes maximum storytelling/deep explanation for Owner (~750 words)
 const MAX_OWNER_NORMAL_CHARS = 3000;  // ~2 - 3 minutes normal speech for Owner
 const MAX_FRIEND_CHARS = 2500;        // ~2 minutes maximum speech for Approved Friends

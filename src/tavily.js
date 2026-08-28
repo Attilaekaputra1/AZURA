@@ -208,16 +208,16 @@ const INTERNATIONAL_NEWS_DOMAINS = [
 /**
  * Detect whether query targets Indonesian National vs International news
  * @param {string} query 
+ * @param {string} [rawPrompt]
  * @returns {'national' | 'international' | 'general'}
  */
-function detectNewsScope(query) {
-  const q = (query || '').toLowerCase();
-  const isInternational = /\b(?:internasional|international|global|dunia|world|luar\s+negeri|amerika|us|usa|eropa|timur\s+tengah|rusia|ukraina|china|tiongkok|jepang|palestina|gaza|israel|iran|inggris|uk|prancis|jerman|korea)\b/i.test(q);
-  const isNational = /\b(?:indonesia|nasional|nusantara|jakarta|jabar|jateng|jatim|bali|sumatera|kalimantan|sulawesi|papua|jokowi|prabowo|gibran|dpr|kpk|rupiah|ikn|kemhan|tni|polri|kemenkeu|bumn|pilkada|pemilu|mpr|mk|berita\s+hari\s+ini|berita\s+terkini|berita\s+terbaru)\b/i.test(q);
+function detectNewsScope(query, rawPrompt = '') {
+  const combined = `${query || ''} ${rawPrompt || ''}`.toLowerCase();
+  const isInternational = /\b(?:internasional|international|global|dunia|world|luar\s+negeri|amerika|us|usa|eropa|timur\s+tengah|rusia|ukraina|china|tiongkok|jepang|palestina|gaza|israel|iran|inggris|uk|prancis|jerman|korea)\b/i.test(combined);
 
   if (isInternational) return 'international';
-  if (isNational) return 'national';
-  return 'general';
+  // Default all Indonesian news/topics to Indonesian National Portals (Dewan Pers / Google News ID)
+  return 'national';
 }
 
 /**
@@ -321,35 +321,42 @@ function cleanSearchQuery(prompt) {
 async function ensureIndonesianSummary(text, query, results = []) {
   if (!text && (!results || results.length === 0)) return '';
 
-  const isEnglish = text && /^[A-Za-z0-9\s,.'":;!?-]+$/.test(text.slice(0, 80)) && /\b(?:the|is|are|was|were|has|have|in|on|at|by|with|from|to|for|of|and|but)\b/i.test(text);
+  // Check if text has English words
+  const englishMatches = (text || '').match(/\b(?:the|is|are|was|were|has|have|had|in|on|at|by|with|from|to|for|of|and|but|that|this|which|today|news|report|includes|updates|demonstration|government|plant|owned|tests)\b/gi) || [];
+  const isEnglish = englishMatches.length >= 2;
 
-  if (!isEnglish && text && text.trim().length > 20) {
+  if (!isEnglish && text && text.trim().length > 35) {
     return text.trim();
   }
 
-  // Fast translation / summarization via OpenAI
+  // Fast synthesis & translation via OpenAI gpt-5.6-luna
   try {
     const { OpenAI } = require('openai');
     const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
-    const contextContent = text || results.map(r => `${r.title}: ${r.content}`).join('\n');
+    const contextContent = (text ? `Rangkuman Mentah: ${text}\n\n` : '') + (results || []).slice(0, 3).map((r, i) => `Sumber ${i + 1} (${r.title}): ${r.content}`).join('\n');
+
     const comp = await openai.chat.completions.create({
       model: config.OPENAI_MODEL || 'gpt-5.6-luna',
       messages: [
         {
           role: 'system',
-          content: 'Kamu adalah jurnalis berita AZURA. Rangkum inti berita berikut ke dalam 2-3 kalimat Bahasa Indonesia yang sangat fasih, akurat, informatif, dan mudah dipahami.'
+          content: 'Kamu adalah jurnalis berita AZURA. Rangkum inti berita berikut ke dalam 2-3 kalimat Bahasa Indonesia yang sangat fasih, aktual, informatif, dan mudah dipahami. WAJIB 100% BAHASA INDONESIA, DILARANG KERAS menggunakan bahasa Inggris.'
         },
         {
           role: 'user',
-          content: `Topik: "${query}"\n\nData Berita:\n${contextContent.slice(0, 1200)}`
+          content: `Topik: "${query}"\n\nData Berita:\n${contextContent.slice(0, 1500)}`
         }
       ],
-      max_completion_tokens: 150
+      max_completion_tokens: 200
     });
-    return comp.choices[0]?.message?.content?.trim() || text;
-  } catch (_) {
-    return text;
+
+    const translated = comp.choices[0]?.message?.content?.trim();
+    if (translated) return translated;
+  } catch (err) {
+    console.error('[ensureIndonesianSummary Error]:', err.message);
   }
+
+  return text || '';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -765,5 +772,7 @@ module.exports = {
   isSacredData,
   cleanSearchQuery,
   processTavilyIntelligence,
-  filterSafeResults
+  filterSafeResults,
+  ensureIndonesianSummary,
+  detectNewsScope
 };

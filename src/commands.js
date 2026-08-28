@@ -1398,17 +1398,21 @@ async function handleSlashCommand(interaction, startTime) {
           interaction.client
         );
 
+        const nameSourceNote = record.isSelfRegistered
+          ? `*(Otomatis menggunakan nama yang didaftarkan sendiri oleh member)*`
+          : `*(Diset oleh Attila)*`;
+
         const embed = new EmbedBuilder()
           .setColor(0x57F287) // Green success
           .setTitle('✨ [AKSES TEMAN BERHASIL DIBERIKAN]')
           .setDescription(
             `Pengguna <@${targetId}> (\`UID: ${targetId}\` | \`@${username}\`) telah resmi di-ACC sebagai **Approved Friend**! 🎉\n\n` +
-            `• 🏷️ **Nama Panggilan Resmi**: **${record.customNickname}**\n` +
+            `• 🏷️ **Nama Panggilan**: **${record.customNickname}** ${nameSourceNote}\n` +
             `• 🎙️ **Batas Kuota Voice**: \`${MAX_DAILY_VOICE_SECONDS} detik (2 menit output bicara AZURA) per 24 jam realtime\`\n` +
             `• 👑 **Aturan Khusus**: Hanya aktif saat **Attila** berada di Voice Channel yang sama.\n` +
             `• 📩 **Onboarding DM**: ${fetchedUser ? `Azura telah otomatis mengirimkan DM sambutan estetik ke <@${targetId}>!` : `*(User ID valid terdaftar, DM terkirim otomatis saat online)*`}`
           )
-          .setFooter({ text: 'AZURA Approved Friends Engine' })
+          .setFooter({ text: 'AZURA Approved Friends Engine • Smart Name Binding' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [embed] });

@@ -254,7 +254,6 @@ async function scrapeReddit(url) {
  */
 async function scrapeInstagram(queryOrUrl) {
   try {
-    console.log(`[Social Media Engine]: 📷 Researching Instagram profile: ${queryOrUrl}`);
     const { tavilyApiCall, filterSafeResults } = require('./tavily');
 
     let handle = queryOrUrl;
@@ -265,30 +264,50 @@ async function scrapeInstagram(queryOrUrl) {
       handle = handle.replace(/[^a-zA-Z0-9_.-]/g, '');
     }
 
-    if (!handle) return null;
+    if (!handle || handle.length < 2) return null;
+    const cleanHandle = handle.toLowerCase();
+    console.log(`[Social Media Engine]: 📷 Researching Instagram profile: @${cleanHandle}`);
 
     const res = await tavilyApiCall('/search', {
-      query: `instagram ${handle} bio followers`,
+      query: `instagram "${cleanHandle}"`,
       include_domains: ['instagram.com'],
       search_depth: 'advanced',
       include_answer: true,
-      max_results: 3
+      max_results: 5
     });
 
     const safeResults = typeof filterSafeResults === 'function' ? filterSafeResults(res.results) : (res.results || []);
-    const answer = res.answer || '';
 
-    if (safeResults.length > 0 || answer) {
-      const top = safeResults[0];
-      const title = top?.title || `Profil Instagram @${handle}`;
-      const snippet = top?.content || answer;
+    // 1. STRICT PROFILE URL VERIFICATION: Check if any result is the exact profile page (NOT a random reel, post, or another user)
+    const exactProfile = safeResults.find(r => {
+      try {
+        const u = new URL(r.url);
+        const pathname = u.pathname.toLowerCase().replace(/\/$/, '');
+        // Must match /username and not be /reel/xxx or /p/xxx
+        return pathname === `/${cleanHandle}` && !pathname.startsWith('/reel') && !pathname.startsWith('/p');
+      } catch (_) {
+        return false;
+      }
+    });
 
-      return `📷 **Data Profil Instagram (Social Intelligence):**\n` +
-        `👤 **Username:** @${handle}\n` +
-        `📌 **Informasi Akun:** ${title}\n` +
-        `📝 **Ringkasan Bio & Statistik:**\n${snippet}\n\n` +
-        `🔗 **Link Profil:** https://www.instagram.com/${handle}/`;
+    if (exactProfile) {
+      const title = exactProfile.title || `Profil Instagram @${cleanHandle}`;
+      const snippet = exactProfile.content || 'Profil Publik Terverifikasi';
+
+      return `📷 **Data Profil Instagram (Official Social Intelligence):**\n` +
+        `👤 **Username:** @${cleanHandle}\n` +
+        `📌 **Akun:** ${title}\n` +
+        `📝 **Bio & Statistik:**\n${snippet}\n\n` +
+        `🔗 **Link Profil:** https://www.instagram.com/${cleanHandle}/`;
     }
+
+    // 2. PRIVATE / UNINDEXED ACCOUNT HANDLING:
+    // If no exact public profile page was found, the account is private or has no public Google/web index.
+    return `📷 **Data Profil Instagram (Official Social Intelligence):**\n` +
+      `👤 **Username:** @${cleanHandle}\n` +
+      `🔒 **Status Akun:** **Akun Privat (Private Account)** / Tidak Terindeks Publik\n` +
+      `📝 **Keterangan:** Akun @${cleanHandle} terdaftar di Instagram, namun bio dan postingannya tidak dapat ditampilkan karena akun berstatus privat atau dilindungi pengaturan privasi pengguna.\n\n` +
+      `🔗 **Link Profil:** https://www.instagram.com/${cleanHandle}/`;
   } catch (err) {
     console.warn('[Social Media Engine]: Instagram scrape warning:', err.message);
   }

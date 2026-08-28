@@ -105,6 +105,26 @@ const WHISPER_HALLUCINATIONS = new Set([
   'itu'
 ]);
 
+const WHISPER_HALLUCINATION_PATTERNS = [
+  /terima\s+kasih\s+(?:telah|sudah|banyak\s+telah|banyak\s+sudah)?\s*(?:menonton|menyaksikan)/i,
+  /terima\s+kasih\s+telah\s+menonton\s+video/i,
+  /jangan\s+lupa\s+(?:like|comment|share|subscribe)/i,
+  /subtitles?\s+(?:by|oleh)/i,
+  /amara\.org/i,
+  /transcribed?\s+by/i,
+  /translated?\s+by/i,
+  /sampai\s+jumpa\s+(?:lagi|di\s+video)/i,
+  /video\s+selanjutnya/i
+];
+
+function isWhisperHallucination(transcript) {
+  if (!transcript || typeof transcript !== 'string') return true;
+  const clean = transcript.toLowerCase().replace(/[.,!?;:'"()\[\]]+/g, ' ').trim();
+  if (clean.length < 2) return true;
+  if (WHISPER_HALLUCINATIONS.has(clean)) return true;
+  return WHISPER_HALLUCINATION_PATTERNS.some(pattern => pattern.test(clean));
+}
+
 // Spontaneous singing & humming library for 3-minute silence in VC (natural rhythm & real song melody)
 const SPONTANEOUS_SONGS = [
   // 1. Lagu Ikonik & Populer (Sesuai nada asli)
@@ -1012,9 +1032,14 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
     // Energy Gate: reject quiet noise
     const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
     let sumSquares = 0;
-    for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+    let peak = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const absVal = Math.abs(samples[i]);
+      if (absVal > peak) peak = absVal;
+      sumSquares += samples[i] * samples[i];
+    }
     const rms = Math.sqrt(sumSquares / samples.length);
-    if (rms < 300) return;
+    if (rms < 340 || peak < 1000) return;
 
     voiceCooldowns.set(userId, Date.now());
 
@@ -1023,8 +1048,7 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
     if (!transcript || transcript.length < 2) return;
 
     // Hallucination filter
-    const normalized = transcript.toLowerCase().replace(/[.,!?]+/g, '').trim();
-    if (WHISPER_HALLUCINATIONS.has(normalized) || normalized.length < 4) return;
+    if (isWhisperHallucination(transcript) || transcript.length < 3) return;
 
     const member = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
     const { getUserCallingName } = require('./vault');
@@ -1136,7 +1160,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   const isOwner = userId === config.OWNER_DISCORD_ID;
 
-  // ── Energy Gate: Calculate RMS & Peak Amplitude to strictly reject breathing, wind, & fan noise ──
+  // ── Strict Energy Gate: Calculate RMS & Peak Amplitude to strictly reject breathing, wind, & fan noise ──
   const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
   let sumSquares = 0;
   let peak = 0;
@@ -1147,8 +1171,14 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
   const rms = Math.sqrt(sumSquares / samples.length);
 
-  // Strict Energy Gate: reject quiet background noise or air blow
-  const minRms = isOwner ? 180 : 320;
+  // Strict Energy Gate: silently discard quiet background noise, breathing, or fan noise (NEVER send silence to Whisper)
+  const minRms = isOwner ? 200 : 340;
+  const minPeak = isOwner ? 700 : 1000;
+  if (rms < minRms || peak < minPeak) {
+    // Pure silence, mic gating, or faint background hum -> skip Whisper API entirely to prevent hallucinations
+    return;
+  }
+
   // ── Telemetry & Feature Flag Router (Phase 1) ──
   const { globalVoiceTelemetry } = require('./voiceTelemetry');
   const { globalPipecatBridge } = require('./pipecatBridge');
@@ -1179,8 +1209,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   const normalizedTranscript = transcript.toLowerCase().replace(/[.,!?;:'"()\[\]]+/g, ' ').trim();
   const words = normalizedTranscript.split(/\s+/).filter(Boolean);
 
-  if (WHISPER_HALLUCINATIONS.has(normalizedTranscript) || (words.length <= 1 && WHISPER_HALLUCINATIONS.has(words[0]))) {
-    console.log(`[Voice Pipeline]: 🚫 Whisper hallucination rejected: "${transcript}". Ignoring.`);
+  if (isWhisperHallucination(transcript) || WHISPER_HALLUCINATIONS.has(normalizedTranscript) || (words.length <= 1 && WHISPER_HALLUCINATIONS.has(words[0]))) {
+    // Silently drop hallucination (no console clutter)
     return;
   }
 

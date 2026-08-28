@@ -268,7 +268,8 @@ async function scrapeInstagram(queryOrUrl) {
     if (!handle) return null;
 
     const res = await tavilyApiCall('/search', {
-      query: `site:instagram.com/${handle} profile bio followers`,
+      query: `instagram ${handle} bio followers`,
+      include_domains: ['instagram.com'],
       search_depth: 'advanced',
       include_answer: true,
       max_results: 3

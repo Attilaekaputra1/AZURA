@@ -132,7 +132,7 @@ function tavilyApiCall(endpoint, payload) {
       });
     });
     req.on('error', (err) => reject(err));
-    req.setTimeout(12000, () => {
+    req.setTimeout(18000, () => {
       req.destroy();
       reject(new Error('Waktu respon Tavily API habis.'));
     });

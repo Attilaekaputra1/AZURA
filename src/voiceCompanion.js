@@ -396,7 +396,7 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
     }
     return resource;
   } catch (edgeErr) {
-    console.warn('[Voice TTS Fallback Warning]: EdgeTTS failed, attempting OpenAI TTS-1-HD:', edgeErr.message);
+    console.warn('[Voice TTS Fallback Warning]: EdgeTTS failed, attempting OpenAI TTS-1-HD:', edgeErr?.message || String(edgeErr));
     if (fs.existsSync(tempPath)) fs.unlink(tempPath, () => {});
   }
 

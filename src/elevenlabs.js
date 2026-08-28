@@ -75,7 +75,10 @@ function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = nu
       return reject(new Error(`ElevenLabs Circuit Open: ${circuitBreakerReason}`));
     }
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
-    const selectedModel = modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH;
+    let selectedModel = modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH;
+    if (!selectedModel || selectedModel === 'auto' || !Object.values(ELEVENLABS_MODELS).includes(selectedModel)) {
+      selectedModel = ELEVENLABS_MODELS.FLASH;
+    }
     const voiceSettings = getModelVoiceSettings(selectedModel);
 
     const postData = JSON.stringify({

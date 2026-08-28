@@ -518,17 +518,14 @@ async function registerSlashCommands(client) {
     );
     console.log(`[AZURA]: Global Slash commands (${commandBody.length} perintah) berhasil terdaftar!`);
 
-    // 2. Also register directly to all active Guilds for INSTANT 0-second availability in Discord UI
+    // 2. Clean up legacy guild-specific commands to prevent duplicate command UI in servers
     if (client && client.guilds && client.guilds.cache.size > 0) {
       for (const guildId of client.guilds.cache.keys()) {
         await rest.put(
           Routes.applicationGuildCommands(config.DISCORD_CLIENT_ID, guildId),
-          { body: commandBody }
-        ).catch(err => {
-          console.warn(`[AZURA Warning]: Gagal mendaftarkan guild commands di guild ${guildId}:`, err.message);
-        });
+          { body: [] }
+        ).catch(() => {});
       }
-      console.log(`[AZURA]: Guild Slash commands instan berhasil disinkronkan ke ${client.guilds.cache.size} server!`);
     }
   } catch (error) {
     console.error('[AZURA Error]: Gagal mendaftarkan slash commands:', error.message || error);
@@ -946,10 +943,11 @@ async function handleSlashCommand(interaction, startTime) {
       if (typeof cardResult === 'object' && cardResult.embeds) {
         await interaction.editReply(cardResult);
       } else {
+        const safeDesc = String(cardResult || '');
         const infoEmbed = new EmbedBuilder()
           .setColor(0x2B82EA)
           .setTitle(`🔍 Hasil Pencarian: ${query}`)
-          .setDescription(String(cardResult))
+          .setDescription(safeDesc.length > 3950 ? safeDesc.slice(0, 3950) + '...' : safeDesc)
           .setFooter({ text: 'AZURA Live Web Intelligence' })
           .setTimestamp();
         await interaction.editReply({ embeds: [infoEmbed] });
@@ -1453,13 +1451,11 @@ async function handleSlashCommand(interaction, startTime) {
                `   • 📊 **Total Voice All-Time**: \`${f.totalSecondsAllTime}s\` | 📅 Di-ACC: \`${dateStr}\``;
       }).join('\n\n');
 
+      const rawDesc = `Daftar teman yang di-ACC oleh Attila untuk interaksi Voice Channel (Batas: 2 Menit output AZURA / 24 Jam realtime):\n\n` + formatted;
       const embed = new EmbedBuilder()
         .setColor(0x8A2BE2)
         .setTitle(`⭐ Direktori Approved Friends AZURA (${list.length} Teman)`)
-        .setDescription(
-          `Daftar teman yang di-ACC oleh Attila untuk interaksi Voice Channel (Batas: 2 Menit output AZURA / 24 Jam realtime):\n\n` +
-          formatted
-        )
+        .setDescription(rawDesc.length > 3950 ? rawDesc.slice(0, 3950) + '...' : rawDesc)
         .setFooter({ text: 'Gunakan /friend add untuk menambah atau /friend remove untuk mencabut' })
         .setTimestamp();
 

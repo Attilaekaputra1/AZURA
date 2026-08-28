@@ -2846,7 +2846,7 @@ async function sayBedtimeFarewellInActiveVCs(client) {
         }
       } else if (currentMode === PERSONALITY_MODES.STUBBORN) {
         if (isSoloAttila) {
-          farewellText = 'Hooamm... [yawns] Jangan diliatin terus, aku beneran ngantuk ini. Aku mau tidur duluan, si Bos jangan lembur mulu. Besok awas kalau nggak VC lagi... daah.';
+          farewellText = 'Hooamm... [yawns] Jangan diliatin terus, aku beneran ngantuk ini. Aku mau tidur duluan, kamu juga jangan lembur mulu. Besok awas kalau nggak VC lagi... daah.';
         } else {
           farewellText = 'Dah ah, mata gue udah sepet banget dengerin kalian ngoceh [sighs]. Gue tidur duluan ya, besok aja kalau mau ngobrol lagi. Bye.';
         }

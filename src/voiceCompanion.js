@@ -1981,6 +1981,15 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
 3. BATASAN PERINTAH KELUAR/MASUK VC: Hanya Attila (Owner utama) yang berhak menyuruhmu keluar dari VC atau bergabung ke VC. Jika ${speakerName} memintamu keluar dari VC (misal: "Azura kamu keluar ya", "leave vc"), TOLAK secara manis dan ramah (misal: "Maaf ya ${speakerName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~") dan DILARANG mengeluarkan tag [ACTION:LEAVE_VC]!`;
   }
 
+  let routeVoiceContext = '';
+  try {
+    const { interceptRouteAndDistance } = require('./routeEngine');
+    const routeData = await interceptRouteAndDistance(transcript);
+    if (routeData) {
+      routeVoiceContext = `\n\n[DATA RUTE & JARAK TERVERIFIKASI]:\n${routeData}\nSampaikan estimasi jarak & waktu tempuh di atas dengan jelas, akurat, dan alami lewat suara.`;
+    }
+  } catch (_) {}
+
   let drowsyVoicePrompt = '';
   try {
     const { isDrowsyPhase, getDrowsyPrompt } = require('./sleepMode');
@@ -1996,7 +2005,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${drowsyVoicePrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
@@ -2012,7 +2021,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${drowsyVoicePrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 

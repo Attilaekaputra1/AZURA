@@ -403,6 +403,19 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     searchContext = await searchWeb(userPrompt);
   }
 
+  // Check Verified Route & Distance Engine (KRL / MRT / Road Distance)
+  let routeContext = '';
+  try {
+    const { interceptRouteAndDistance } = require('./routeEngine');
+    const routeData = await interceptRouteAndDistance(userPrompt);
+    if (routeData) {
+      routeContext = `\n\n[DATA RUTE, JARAK & WAKTU TEMPUH RESMI & TERVERIFIKASI (SISTEM GEOLOKASI)]:\n${routeData}\n\n` +
+        `PEDOMAN PENJELASAN RUTE & JARAK:\n` +
+        `1. Gunakan data presisi di atas (jarak km, stasiun, transit, tarif, estimasi waktu) sebagai FAKTA UTAMA.\n` +
+        `2. Jelaskan kepada lawan bicara secara mengalir, akurat, dan percaya diri layaknya aplikasi peta & navigasi resmi.`;
+    }
+  } catch (_) {}
+
   let userContent;
   if (imageUrls.length > 0) {
     userContent = [
@@ -418,7 +431,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     userContent = userPrompt;
   }
 
-  let systemMessage = systemPrompt + liveVcContext;
+  let systemMessage = systemPrompt + liveVcContext + routeContext;
   if (searchContext) {
     systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY AI INTELLIGENCE)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +

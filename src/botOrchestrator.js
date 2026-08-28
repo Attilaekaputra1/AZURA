@@ -96,8 +96,8 @@ async function scanGuildBots(guild, client) {
     const category = isSelf ? '👑 Master AI Commander' : inferBotCategory(member);
 
     // Layer 1: Presence Detection (if presence intent is enabled)
-    const presenceStatus = member.presence?.status || 'offline';
-    const isOnline = presenceStatus !== 'offline';
+    const presenceStatus = member.presence?.status || 'unknown';
+    const isExplicitlyOffline = presenceStatus === 'offline';
 
     // Layer 2: Voice Channel Active Connection Check
     const voiceState = guild.voiceStates.cache.get(id);
@@ -108,32 +108,44 @@ async function scanGuildBots(guild, client) {
     let healthStatus = '🟢 TERDAFTAR (Siap Pakai)';
     let healthColor = 0x57F287; // Green
     let statusEmoji = '🟢';
+    let isOnline = true;
 
     if (isSelf) {
       healthStatus = '👑 AKTIF (Master AI Commander)';
       healthColor = 0x57F287;
       statusEmoji = '👑';
+      isOnline = true;
     } else if (isInVoice) {
-      healthStatus = `🟢 AKTIF (Tersambung di VC #${voiceChannelName || 'Voice'})`;
+      healthStatus = `🔊 AKTIF (Tersambung di VC #${voiceChannelName || 'Voice'})`;
       healthColor = 0x57F287;
       statusEmoji = '🔊';
+      isOnline = true;
     } else if (presenceStatus === 'online') {
       healthStatus = '🟢 AKTIF & SEHAT';
       healthColor = 0x57F287;
       statusEmoji = '🟢';
+      isOnline = true;
     } else if (presenceStatus === 'idle') {
       healthStatus = '🟡 STANDBY / IDLE';
       healthColor = 0xFEE75C;
       statusEmoji = '🟡';
+      isOnline = true;
     } else if (presenceStatus === 'dnd') {
       healthStatus = '🟣 DND (Aktif)';
       healthColor = 0xEB459E;
       statusEmoji = '🟣';
+      isOnline = true;
+    } else if (isExplicitlyOffline) {
+      healthStatus = '🔴 OFFLINE / MATI';
+      healthColor = 0xED4245;
+      statusEmoji = '🔴';
+      isOnline = false;
     } else {
-      // Standard registered bot status
+      // Standard registered bot status (Ready to receive commands)
       healthStatus = '🟢 TERDAFTAR (Siap Menerima Perintah)';
       healthColor = 0x5865F2;
       statusEmoji = '🟢';
+      isOnline = true;
     }
 
     botList.push({

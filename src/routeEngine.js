@@ -174,8 +174,16 @@ function calculateKRLRoute(fromRaw, toRaw) {
   for (const [lineName, lineArray] of Object.entries(KRL_LINES)) {
     const directPath = findPathInLine(lineArray, fromStation, toStation);
     if (directPath) {
-      const durationMins = Math.round(directPath.count * 2.8); // avg 2.8 mins per station
-      const fare = directPath.count <= 5 ? 3000 : 3000 + Math.ceil((directPath.count - 5) / 5) * 1000;
+      const segCount = directPath.count;
+      const distanceKm = Math.round(segCount * 1.75 * 10) / 10;
+      
+      // Official KAI Commuter fare: Rp 3.000 for first 25 km, +Rp 1.000 per 10 km thereafter
+      const fare = distanceKm <= 25 ? 3000 : 3000 + Math.ceil((distanceKm - 25) / 10) * 1000;
+      
+      // Realistic operational travel time: Running time + station dwell time + signal queuing (e.g. Manggarai hub)
+      const passesManggarai = directPath.path.includes('Manggarai');
+      const minDuration = Math.round(segCount * 3.0);
+      const maxDuration = Math.round(segCount * 3.0 + (passesManggarai ? 8 : 4));
       
       let lineLabel = 'KRL Commuter Line';
       if (lineName === 'BOGOR_LINE') lineLabel = 'KRL Red Line (Bogor - Jakarta Kota)';
@@ -191,13 +199,16 @@ function calculateKRLRoute(fromRaw, toRaw) {
           to: toStation,
           isDirect: true,
           line: lineLabel,
-          stationCount: directPath.count,
+          stationCount: segCount,
           stationsList: directPath.path,
-          durationMinutes: durationMins,
-          durationFormatted: durationMins >= 60 ? `${Math.floor(durationMins / 60)} jam ${durationMins % 60} menit` : `${durationMins} menit`,
+          distanceKm: distanceKm,
+          distanceFormatted: `~${distanceKm} km`,
+          durationMin: minDuration,
+          durationMax: maxDuration,
+          durationFormatted: `${minDuration}–${maxDuration} menit (Realistis operasional ~${maxDuration} menit)`,
           transfers: [],
-          fare: Math.min(fare, 7000),
-          fareFormatted: `Rp ${Math.min(fare, 7000).toLocaleString('id-ID')}`
+          fare: Math.min(fare, 8000),
+          fareFormatted: `Rp ${Math.min(fare, 8000).toLocaleString('id-ID')}`
         }
       };
     }
@@ -228,8 +239,13 @@ function calculateKRLRoute(fromRaw, toRaw) {
 
     if (leg1 && leg2) {
       const totalStations = leg1.count + leg2.count;
-      const travelMins = Math.round(totalStations * 2.8) + 8; // +8 mins for transit platform change
-      if (!bestRoute || travelMins < bestRoute.durationMinutes) {
+      const distanceKm = Math.round(totalStations * 1.75 * 10) / 10;
+      const fare = distanceKm <= 25 ? 3000 : 3000 + Math.ceil((distanceKm - 25) / 10) * 1000;
+      
+      const minDuration = Math.round(totalStations * 3.0 + 8); // +8 min platform transfer
+      const maxDuration = Math.round(totalStations * 3.0 + 15);
+
+      if (!bestRoute || maxDuration < bestRoute.durationMax) {
         bestRoute = {
           from: fromStation,
           to: toStation,
@@ -238,10 +254,13 @@ function calculateKRLRoute(fromRaw, toRaw) {
           leg1: { line: line1Name, count: leg1.count, stations: leg1.path },
           leg2: { line: line2Name, count: leg2.count, stations: leg2.path },
           stationCount: totalStations,
-          durationMinutes: travelMins,
-          durationFormatted: travelMins >= 60 ? `${Math.floor(travelMins / 60)} jam ${travelMins % 60} menit` : `${travelMins} menit`,
-          fare: Math.min(totalStations <= 5 ? 3000 : 3000 + Math.ceil((totalStations - 5) / 5) * 1000, 8000),
-          fareFormatted: `Rp ${Math.min(totalStations <= 5 ? 3000 : 3000 + Math.ceil((totalStations - 5) / 5) * 1000, 8000).toLocaleString('id-ID')}`
+          distanceKm: distanceKm,
+          distanceFormatted: `~${distanceKm} km`,
+          durationMin: minDuration,
+          durationMax: maxDuration,
+          durationFormatted: `${minDuration}–${maxDuration} menit (Termasuk jeda pindah peron ~8-10 mnt)`,
+          fare: Math.min(fare, 9000),
+          fareFormatted: `Rp ${Math.min(fare, 9000).toLocaleString('id-ID')}`
         };
       }
     }
@@ -365,8 +384,9 @@ async function getVerifiedRouteAndDistance(origin, destination, mode = 'auto') {
           `• **Asal:** Stasiun ${d.from} ➡️ **Tujuan:** Stasiun ${d.to}\n` +
           `• **Jalur:** ${d.line} (Langsung tanpa transit)\n` +
           `• **Jumlah Stasiun:** ${d.stationCount} stasiun\n` +
-          `• **Estimasi Waktu Tempuh:** ~${d.durationFormatted}\n` +
-          `• **Tarif Tiket:** ${d.fareFormatted}\n` +
+          `• **Jarak Rel Kereta:** **${d.distanceFormatted}**\n` +
+          `• **Estimasi Waktu Tempuh:** **${d.durationFormatted}**\n` +
+          `• **Tarif Tiket Resmi:** ${d.fareFormatted}\n` +
           `• **Daftar Stasiun yang Dilewati:** ${d.stationsList.join(' ➔ ')}`;
       } else {
         return `🚆 **[DATA RUTE KRL TRANSIT TERVERIFIKASI & AKURAT]**:\n` +
@@ -374,8 +394,9 @@ async function getVerifiedRouteAndDistance(origin, destination, mode = 'auto') {
           `• **Transit di:** **Stasiun ${d.transferStation}**\n` +
           `• **Rute:** Stasiun ${d.from} ➔ (Transit ${d.transferStation}) ➔ Stasiun ${d.to}\n` +
           `• **Total Stasiun:** ${d.stationCount} stasiun\n` +
-          `• **Estimasi Waktu Tempuh:** ~${d.durationFormatted} (Termasuk jeda pindah peron ~8 mnt)\n` +
-          `• **Tarif Tiket:** ${d.fareFormatted}`;
+          `• **Jarak Rel Kereta:** **${d.distanceFormatted}**\n` +
+          `• **Estimasi Waktu Tempuh:** **${d.durationFormatted}**\n` +
+          `• **Tarif Tiket Resmi:** ${d.fareFormatted}`;
       }
     }
   }

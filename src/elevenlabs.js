@@ -169,9 +169,14 @@ function streamElevenLabsTTS(text, voiceId = null, modelId = null, client = null
 
     const requestTimeout = Math.max(15000, Math.min(60000, text.length * 15));
 
+    const isFlashOrMulti = (selectedModel === ELEVENLABS_MODELS.FLASH || selectedModel === ELEVENLABS_MODELS.MULTILINGUAL_V2);
+    const streamQuery = isFlashOrMulti
+      ? '?optimize_streaming_latency=4&output_format=mp3_44100_128'
+      : '?output_format=mp3_44100_128';
+
     const req = https.request({
       hostname: 'api.elevenlabs.io',
-      path: `/v1/text-to-speech/${selectedVoice}/stream?optimize_streaming_latency=4&output_format=mp3_44100_128`,
+      path: `/v1/text-to-speech/${selectedVoice}/stream${streamQuery}`,
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,

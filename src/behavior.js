@@ -297,7 +297,15 @@ function getBehaviorContextForPrompt(currentUserId, mentionedUserIds = []) {
 
   const formatted = profiles.map(p => {
     const traits = p.positiveTraits.length > 0 ? p.positiveTraits.join(', ') : 'Ramah & Santai';
-    return `- **${p.nickname}** (@${p.username}):\n  • Vibe & Karakter Positif: ${traits}\n  • Kesan AZURA: "${p.personalitySummary}"`;
+    let factsSnippet = '';
+    try {
+      const { getUserFacts } = require('./memory');
+      const facts = getUserFacts(p.userId) || [];
+      if (facts.length > 0) {
+        factsSnippet = `\n  • Catatan Fakta & Preferensi Terverifikasi: ${facts.slice(-4).map(f => `"${f}"`).join('; ')}`;
+      }
+    } catch (_) {}
+    return `- **${p.nickname}** (@${p.username}):\n  • Vibe & Karakter: ${traits}\n  • Kesan AZURA: "${p.personalitySummary}"${factsSnippet}`;
   }).join('\n');
 
   return `\n\n[DATABASE BEHAVIOR & SIFAT POSITIF PENGGUNA (Social Intelligence - Maks 20 User)]:\n` +

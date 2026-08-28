@@ -1976,8 +1976,9 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   let vcPermissionsContext = '';
   if (!isOwner) {
     vcPermissionsContext = `\n\n[ATURAN HAK AKSES KHUSUS TEMAN]:
-1. KESETARAAN FITUR: Lawan bicara (${speakerName}) adalah teman dekat Attila yang mendapatkan akses beta testing VC. Berikan 100% fitur kecerdasan, cerita, humor, dan emosi v3 ([laughs], [giggles], dll) yang sama persis seperti saat berbicara dengan Attila!
-2. BATASAN PERINTAH KELUAR/MASUK VC: Hanya Attila (Owner utama) yang berhak menyuruhmu keluar dari VC atau bergabung ke VC. Jika ${speakerName} memintamu keluar dari VC (misal: "Azura kamu keluar ya", "leave vc"), TOLAK secara manis dan ramah (misal: "Maaf ya ${speakerName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~") dan DILARANG mengeluarkan tag [ACTION:LEAVE_VC]!`;
+1. LINGKUP FITUR TERBATAS: Lawan bicara (${speakerName}) adalah teman dekat Attila yang memiliki akses ke fitur obrolan suara dan tanya-jawab biasa.
+2. FOKUS HANYA OBROLAN & TANYA JAWAB: Tanggapi setiap pertanyaan dan obrolan ${speakerName} secara ramah, asyik, cerdas, dan solutif. DILARANG menjalankan perintah administratif, otomasi browser web, atau manipulasi bot server untuk teman.
+3. BATASAN PERINTAH KELUAR/MASUK VC: Hanya Attila (Owner utama) yang berhak menyuruhmu keluar dari VC atau bergabung ke VC. Jika ${speakerName} memintamu keluar dari VC (misal: "Azura kamu keluar ya", "leave vc"), TOLAK secara manis dan ramah (misal: "Maaf ya ${speakerName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~") dan DILARANG mengeluarkan tag [ACTION:LEAVE_VC]!`;
   }
 
   if (isStoryIntent) {

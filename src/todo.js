@@ -43,13 +43,39 @@ function clearAllTodos() {
   return true;
 }
 
-function saveTodos() {
+let todoFlushTimer = null;
+let isTodoDirty = false;
+
+function flushTodosSync() {
+  if (todoFlushTimer) {
+    clearTimeout(todoFlushTimer);
+    todoFlushTimer = null;
+  }
   try {
     writeSecureJson(TODO_FILE_PATH, todoCache);
+    isTodoDirty = false;
   } catch (err) {
     console.error('[Todo Engine Save Error]:', err.message);
   }
 }
+
+function saveTodos(immediate = false) {
+  isTodoDirty = true;
+  if (immediate) {
+    flushTodosSync();
+    return;
+  }
+  if (!todoFlushTimer) {
+    todoFlushTimer = setTimeout(() => {
+      todoFlushTimer = null;
+      if (isTodoDirty) flushTodosSync();
+    }, 1500);
+  }
+}
+
+process.on('SIGTERM', () => { if (isTodoDirty) flushTodosSync(); });
+process.on('SIGINT', () => { if (isTodoDirty) flushTodosSync(); });
+process.on('beforeExit', () => { if (isTodoDirty) flushTodosSync(); });
 
 function generateTaskId() {
   const rand = Math.floor(100 + Math.random() * 900);

@@ -23,7 +23,6 @@ const isBotSpeaking = new Set();          // guildIds where bot is speaking
 const isGuildProcessingVoice = new Set(); // guildIds where voice turn is actively processing (Whisper/GPT/TTS)
 const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
 const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, channelId, requesterId }
-const hummingTimers = new Map();          // guildId -> NodeJS.Timeout (3-minute silence spontaneous singing/humming)
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 const deepSleepTimers = new Map();        // guildId -> NodeJS.Timeout (15-minute auto-pause & deep sleep)
 const dismissedGuilds = new Set();        // guildIds where bot was dismissed by Attila (anti auto-rejoin)
@@ -40,112 +39,60 @@ const vcThirdPersonTracker = new Map();   // guildId -> { count: number, lastTim
 // ============================================================
 const VOICE_COOLDOWN_MS = 500;        // 0.5s cooldown for regular members (0ms for Owner)
 const SILENCE_DURATION_MS = 600;      // 0.6s natural snappy silence window for ultra-fast turn-taking
-const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
-const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
 const MAX_OWNER_STORY_CHARS = 5500;   // ~5 minutes maximum storytelling/deep explanation for Owner (~750 words)
 const MAX_OWNER_NORMAL_CHARS = 3000;  // ~2 - 3 minutes normal speech for Owner
 const MAX_FRIEND_CHARS = 2500;        // ~2 minutes maximum speech for Approved Friends
 const MAX_NORMAL_CHARS = 2500;        // Default fallback normal TTS speech
 const MAX_STORY_CHARS = 5500;         // Default fallback storytelling TTS speech
-const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes of silence -> Spontaneous humming/singing
-const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
+// Modular Subsystems
+const {
+  MIN_AUDIO_BYTES,
+  MAX_RECORDING_MS,
+  WHISPER_HALLUCINATIONS,
+  WHISPER_HALLUCINATION_PATTERNS,
+  isWhisperHallucination,
+  pcmToWav,
+  calculateRmsAndPeak,
+  transcribeVoice
+} = require('./voiceAudioPipeline');
 
-// Whisper hallucination filter: common phantom transcripts from background noise, wind, breathing, or YouTube subtitles
-const WHISPER_HALLUCINATIONS = new Set([
-  'terima kasih telah menonton',
-  'terima kasih sudah menonton',
-  'terima kasih',
-  'terimakasih',
-  'terima kasih banyak',
-  'sampai jumpa',
-  'sampai jumpa di video selanjutnya',
-  'sampai jumpa lagi',
-  'subscribe',
-  'like and subscribe',
-  'jangan lupa subscribe',
-  'thank you for watching',
-  'thanks for watching',
-  'thank you',
-  'thanks',
-  'subtitles by',
-  'subtitles by the amara.org community',
-  'subtitles by the amara org community',
-  'amara.org',
-  'amara org',
-  'translated by',
-  'transcribed by',
-  'you',
-  'bye',
-  'bye bye',
-  'goodbye',
-  'hmm',
-  'hm',
-  'uh',
-  'ah',
-  'oh',
-  'eh',
-  'krik',
-  'krik krik',
-  'musik',
-  'music',
-  'audio',
-  'suara angin',
-  'suara musik',
-  'suara nafas',
-  'he-he',
-  'ha-ha',
-  'halo',
-  'hai',
-  'kamu',
-  'aku',
-  'ya',
-  'tidak',
-  'dan',
-  'ini',
-  'itu'
-]);
+const {
+  SPONTANEOUS_SONGS,
+  pendingAttilaVoiceCalls,
+  hummingTimers,
+  resetHummingTimer: resetAutonomousHummingTimer,
+  clearHummingTimer
+} = require('./voiceAutonomousBehaviors');
 
-const WHISPER_HALLUCINATION_PATTERNS = [
-  /terima\s+kasih\s+(?:telah|sudah|banyak\s+telah|banyak\s+sudah)?\s*(?:menonton|menyaksikan)/i,
-  /terima\s+kasih\s+telah\s+menonton\s+video/i,
-  /jangan\s+lupa\s+(?:like|comment|share|subscribe)/i,
-  /subtitles?\s+(?:by|oleh)/i,
-  /amara\.org/i,
-  /transcribed?\s+by/i,
-  /translated?\s+by/i,
-  /sampai\s+jumpa\s+(?:lagi|di\s+video)/i,
-  /video\s+selanjutnya/i
-];
+const {
+  saveVoiceStateCache,
+  loadVoiceStateCache
+} = require('./voiceSessionState');
 
-function isWhisperHallucination(transcript) {
-  if (!transcript || typeof transcript !== 'string') return true;
-  const clean = transcript.toLowerCase().replace(/[.,!?;:'"()\[\]]+/g, ' ').trim();
-  if (clean.length < 2) return true;
-  if (WHISPER_HALLUCINATIONS.has(clean)) return true;
-  return WHISPER_HALLUCINATION_PATTERNS.some(pattern => pattern.test(clean));
-}
+const {
+  hasWakeWord,
+  analyzeVoiceIntent,
+  isSoloAttilaSession
+} = require('./voiceIntentRouter');
 
-// Spontaneous singing & humming library for 3-minute silence in VC (natural rhythm & real song melody)
-const SPONTANEOUS_SONGS = [
-  // 1. Lagu Ikonik & Populer (Sesuai nada asli)
-  '[humming] Hm hm hm hm... [sings] Balonku ada lima... rupa-rupa warnanya... merah kuning kelabu... [softly] meletus balon hijau, dor! [gasp] [laughs] kaget sendiri kan tuh.',
-  '[sings] Pelangi-pelangi alangkah indahmu... merah kuning hijau di langit yang biru... [humming] la la la la... [softly] hening banget, pada melamun ya? [giggles]',
-  '[sings] Bintang kecil di langit yang tinggi... amat banyak menghias angkasa... [softly] ku ingin terbang dan melayang... [giggles] aduh jadi pengen rebahan.',
-  '[humming] Hm hm hm... [sings] Burung kakak tua... hinggap di jendela... [softly] nenek sudah tua... giginya tinggal dua... [laughs] klasik banget lagunya.',
+const {
+  splitIntoSentences,
+  getAudioQueue
+} = require('./ttsStreamingQueue');
 
-  // 2. Lagu Galau & Pop Hits Nostalgia (Sesuai nada asli)
-  '[humming] Hmm hmm hmm... [sings] Dan... bila hatimu... terluka... aku yang selalu ada... [sighs] fyuuh... [softly] kenapa tiba-tiba jadi galau gini ya [chuckles]',
-  '[sings] Mungkin aku pernah salah... tapi rasa ini tulus adanya... [humming] hm hm hm... [softly] sepi banget room-nya, Attila lagi sibuk apa sih? [giggles]',
-  '[humming] La la la... [sings] Kau adalah darahku... kau adalah jantungku... kau adalah nafasku... [softly] asyik sendiri kan gue nyanyi [laughs]',
-  '[sings] Ku ingin kau tahu... ku slalu merindukanmu... [sighs] [humming] hm hm hm... [softly] ada yang lagi kangen seseorang nggak nih di sini? [giggles]',
-  '[humming] Hmm... [sings] Bukankah kita saling mencintai... mengapa kita harus berpisah... [sighs] aduh lagu zaman kapan ini [chuckles]',
-  '[sings] Dan aku kembali... dalam dekap pelukmu... [humming] la la la... [softly] enak juga ya nyanyi kalau suasananya lagi tenang gini.',
-  '[sings] Risalah hati... aku bisa membuatmu... jatuh cinta kepadaku... meski kau tak cinta... [humming] hm hm hm... [softly] liriknya ngena banget ya.',
+// Load persistent voice state cache on startup (Solving Concurrency State Loss)
+loadVoiceStateCache(voiceSessions, conversationMode);
 
-  // 3. Lagu Barat Pop Romantis & Chill
-  '[humming] Mm mm mm... [sings] I wanna hold your hand in mine... and tell you that you are divine... [softly] [giggles] kok manis banget ya lagunya.',
-  '[sings] Cause you were always there for me... [humming] la la la la... [softly] hehe, lagunya bikin pikiran adem banget.'
-];
+// Periodic persistence: save active VC sessions every 30 seconds
+setInterval(() => {
+  if (voiceSessions.size > 0 || conversationMode.size > 0) {
+    saveVoiceStateCache(voiceSessions, conversationMode);
+  }
+}, 30000);
+
+process.on('SIGTERM', () => saveVoiceStateCache(voiceSessions, conversationMode));
+process.on('SIGINT', () => saveVoiceStateCache(voiceSessions, conversationMode));
+
 
 // Ensure temp directory exists
 const TEMP_DIR = path.join(__dirname, '..', 'data', 'temp');
@@ -185,59 +132,7 @@ function getPrism() {
   return _prism;
 }
 
-// ============================================================
-// Audio Utilities
-// ============================================================
 
-/**
- * Generate a WAV buffer from raw PCM s16le data.
- */
-function pcmToWav(pcmBuffer, sampleRate = 48000, channels = 2, bitsPerSample = 16) {
-  const header = Buffer.alloc(44);
-  const dataLen = pcmBuffer.length;
-  const byteRate = sampleRate * channels * (bitsPerSample / 8);
-  const blockAlign = channels * (bitsPerSample / 8);
-
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + dataLen, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(dataLen, 40);
-
-  return Buffer.concat([header, pcmBuffer]);
-}
-
-/**
- * Transcribe a WAV buffer in-memory using OpenAI Whisper API (Zero Disk Latency).
- */
-async function transcribeVoice(wavBuffer) {
-  const openai = getOpenAI();
-  if (!openai) return null;
-
-  try {
-    const { toFile } = require('openai');
-    const file = await toFile(wavBuffer, 'speech.wav', { type: 'audio/wav' });
-    const result = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      language: 'id',
-      temperature: 0.0,
-      prompt: 'Percakapan santai di Discord voice channel bersama Attila dan teman-teman.'
-    });
-    return result.text?.trim() || null;
-  } catch (err) {
-    console.error('[Voice STT Error]:', err.message);
-    return null;
-  }
-}
 
 
 /**
@@ -1014,8 +909,7 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
   console.log(`[Voice Listener]: Active — listening for Attila & member calls in guild ${guildId}`);
 }
 
-// Track pending 10-second absence timer when members call Attila in VC
-const pendingAttilaVoiceCalls = new Map(); // guildId -> { timer, callerId, callerName, transcript }
+
 
 /**
  * Process voice speech from a non-owner member in VC:
@@ -1693,134 +1587,7 @@ const WAKE_WORDS = new Set([
   'azura', 'zura', 'ara', 'asura', 'ajura', 'ajur', 'ajurr', 'jur', 'azuraa', 'zuraa', 'araa', 'zurah', 'arah', 'asurah', 'jura', 'jurah', 'ajurah'
 ]);
 
-/**
- * Comprehensive Voice Intent & Summon Analyzer:
- * 1. Wake-Word Detection (Awal Kalimat, Akhir Kalimat, Direct Vocative)
- * 2. Intent Categorization (Question vs Statement/Banter vs Command vs Direct Call)
- * 3. 3rd-Person Filter (Strict silence if talking about Azura in 3rd person)
- * @param {string} transcript
- * @returns {{
- *   hasWakeWord: boolean,
- *   wakePosition: 'beginning' | 'end' | 'middle' | 'none',
- *   isQuestion: boolean,
- *   isCommand: boolean,
- *   isBanter: boolean,
- *   isThirdPerson: boolean,
- *   category: 'QUESTION' | 'COMMAND' | 'BANTER' | 'CALL' | 'STATEMENT'
- * }}
- */
-function analyzeVoiceIntent(transcript) {
-  if (!transcript || typeof transcript !== 'string') {
-    return {
-      hasWakeWord: false,
-      wakePosition: 'none',
-      isQuestion: false,
-      isCommand: false,
-      isBanter: false,
-      isThirdPerson: false,
-      category: 'STATEMENT'
-    };
-  }
 
-  const raw = transcript.trim();
-  const clean = raw.toLowerCase().replace(/[.,!?;:'"()[\]]/g, ' ');
-  const words = clean.split(/\s+/).filter(Boolean);
-
-  // 1. Strict Silence on 3rd-person conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
-  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(clean);
-  const isPassiveThirdPerson = /\b(?:tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(clean);
-
-  if (isThirdPersonWithSi || isPassiveThirdPerson) {
-    return {
-      hasWakeWord: false,
-      wakePosition: 'none',
-      isQuestion: false,
-      isCommand: false,
-      isBanter: false,
-      isThirdPerson: true,
-      category: 'STATEMENT'
-    };
-  }
-
-  // 2. Wake-word position analysis
-  let hasWakeWord = false;
-  let wakePosition = 'none';
-
-  // A. Check BEGINNING (first 4 words)
-  const prefixLimit = Math.min(words.length, 4);
-  for (let i = 0; i < prefixLimit; i++) {
-    if (WAKE_WORDS.has(words[i]) || (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1]))) {
-      hasWakeWord = true;
-      wakePosition = 'beginning';
-      break;
-    }
-  }
-
-  // B. Check END (last 4 words)
-  if (!hasWakeWord) {
-    const suffixStart = Math.max(0, words.length - 4);
-    for (let i = suffixStart; i < words.length; i++) {
-      if (WAKE_WORDS.has(words[i]) || (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1]))) {
-        hasWakeWord = true;
-        wakePosition = 'end';
-        break;
-      }
-    }
-  }
-
-  // C. Check Middle Vocative / Direct Call directed at Azura
-  if (!hasWakeWord) {
-    const isDirectQuestionToAzura = /\b(?:gimana|apa|kenapa|tolong|coba|siapa|kapan|apakah|bisa\s+gak|boleh\s+gak|menurutmu|menurut\s+kamu|lagi\s+ngapain|sehat\s+kan|halo|hai|eh)\b.*?\b(?:azura|ara|zura|ajur|ajura)\b/i.test(clean);
-    if (isDirectQuestionToAzura) {
-      hasWakeWord = true;
-      wakePosition = 'middle';
-    }
-  }
-
-  // 3. Question Detection
-  const hasQuestionMark = raw.includes('?');
-  const questionWordsRegex = /\b(?:apa|kenapa|mengapa|bagaimana|gimana|siapa|kapan|dimana|kemana|dari\s+mana|apakah|bisa\s+gak|boleh\s+gak|tau\s+gak|tahu\s+gak|bener\s+gak|iya\s+gak|beneran|emang|menurutmu|menurut\s+kamu|lagi\s+ngapain|ada\s+apa|udah\s+belum|sudah\s+belum|kamu\s+tau|bisa\s+bantu)\b/i;
-  const questionSuffixRegex = /\b(?:ya\?|kah\?|dong\?|kan\?|sih\?|tuh\?|kah|kan)\b/i;
-  const isQuestion = hasQuestionMark || questionWordsRegex.test(clean) || questionSuffixRegex.test(clean);
-
-  // 4. Command Detection
-  const commandRegex = /\b(?:setel|putar|play|nyanyi|sing|cerita|dongeng|lelucon|jokes|krik|buka|search|cari|bantu|keluar|leave)\b/i;
-  const isCommand = commandRegex.test(clean);
-
-  // 5. Banter / Teasing Detection
-  const banterRegex = /\b(?:haha|wkwk|hehe|lucu|kocak|canda|jail|ledek|ngakak|garing|cie|sayang|ganteng|cantik|imut)\b/i;
-  const isBanter = banterRegex.test(clean);
-
-  let category = 'STATEMENT';
-  if (isCommand) category = 'COMMAND';
-  else if (isQuestion) category = 'QUESTION';
-  else if (isBanter) category = 'BANTER';
-  else if (hasWakeWord && words.length <= 3) category = 'CALL';
-
-  return {
-    hasWakeWord,
-    wakePosition,
-    isQuestion,
-    isCommand,
-    isBanter,
-    isThirdPerson: false,
-    category
-  };
-}
-
-/**
- * Check if Azura wake-word was explicitly called:
- * - At the BEGINNING of the sentence (first 4 words)
- * - Or at the END of the sentence (last 4 words)
- * - Or Middle direct vocative
- * - STRICT SILENCE if preceded by conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
- * @param {string} transcript
- * @returns {boolean}
- */
-function isWakeWordInvoked(transcript) {
-  const intent = analyzeVoiceIntent(transcript);
-  return intent.hasWakeWord;
-}
 
 /**
  * Speak a text response directly into the Voice Channel where Azura is currently connected

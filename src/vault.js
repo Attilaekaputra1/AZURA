@@ -132,10 +132,17 @@ function loadVault() {
   }
 }
 
+let vaultFlushTimer = null;
+let isVaultDirty = false;
+
 /**
- * Encrypt and atomically save user database and blacklist to disk
+ * Encrypt and atomically save user database and blacklist to disk (Immediate Sync Flush)
  */
-function saveVault() {
+function flushVaultSync() {
+  if (vaultFlushTimer) {
+    clearTimeout(vaultFlushTimer);
+    vaultFlushTimer = null;
+  }
   try {
     // 1. Save User Vault
     const plainObj = Object.fromEntries(userVaultCache);
@@ -150,10 +157,34 @@ function saveVault() {
     const tmpBlPath = `${BLACKLIST_FILE_PATH}.tmp`;
     fs.writeFileSync(tmpBlPath, encryptedBl, 'utf8');
     fs.renameSync(tmpBlPath, BLACKLIST_FILE_PATH);
+
+    isVaultDirty = false;
   } catch (err) {
     console.error('[User Vault Save Error]: Failed to save encrypted vault/blacklist:', err.message);
   }
 }
+
+/**
+ * High-Throughput Debounced Write-Behind: Buffer saves in-memory and write to disk in 1.5s
+ */
+function saveVault(immediate = false) {
+  isVaultDirty = true;
+  if (immediate) {
+    flushVaultSync();
+    return;
+  }
+  if (!vaultFlushTimer) {
+    vaultFlushTimer = setTimeout(() => {
+      vaultFlushTimer = null;
+      if (isVaultDirty) flushVaultSync();
+    }, 1500);
+  }
+}
+
+// Ensure clean flush before process exits
+process.on('SIGTERM', () => { if (isVaultDirty) flushVaultSync(); });
+process.on('SIGINT', () => { if (isVaultDirty) flushVaultSync(); });
+process.on('beforeExit', () => { if (isVaultDirty) flushVaultSync(); });
 
 /**
  * Generate a persistent, secure session cookie token for a user

@@ -50,17 +50,43 @@ function loadFeedbackStore() {
   }
 }
 
-function saveFeedbackStore() {
+let feedbackFlushTimer = null;
+let isFeedbackDirty = false;
+
+function flushFeedbackStoreSync() {
+  if (feedbackFlushTimer) {
+    clearTimeout(feedbackFlushTimer);
+    feedbackFlushTimer = null;
+  }
   try {
     const plainObj = Object.fromEntries(feedbackStore);
     const encryptedEnvelope = encryptPayload(plainObj);
     const tmpPath = `${FEEDBACK_FILE_PATH}.tmp`;
     fs.writeFileSync(tmpPath, encryptedEnvelope, 'utf8');
     fs.renameSync(tmpPath, FEEDBACK_FILE_PATH);
+    isFeedbackDirty = false;
   } catch (err) {
     console.error('[Feedback Store Save Error]: Failed to save encrypted tickets:', err.message);
   }
 }
+
+function saveFeedbackStore(immediate = false) {
+  isFeedbackDirty = true;
+  if (immediate) {
+    flushFeedbackStoreSync();
+    return;
+  }
+  if (!feedbackFlushTimer) {
+    feedbackFlushTimer = setTimeout(() => {
+      feedbackFlushTimer = null;
+      if (isFeedbackDirty) flushFeedbackStoreSync();
+    }, 1500);
+  }
+}
+
+process.on('SIGTERM', () => { if (isFeedbackDirty) flushFeedbackStoreSync(); });
+process.on('SIGINT', () => { if (isFeedbackDirty) flushFeedbackStoreSync(); });
+process.on('beforeExit', () => { if (isFeedbackDirty) flushFeedbackStoreSync(); });
 
 /**
  * Generate a friendly short ticket ID e.g. #ADV-7B3 or #REP-9A1

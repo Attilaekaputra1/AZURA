@@ -1,4 +1,8 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
+const {
+  EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
+  PermissionFlagsBits
+} = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -273,7 +277,105 @@ async function buildBotStatusEmbed(guild, client, isDm = false, filterCategory =
     });
   }
 
-  return { embed, components: [] };
+  const components = [];
+
+  // Component 1: If in DM and multiple servers exist, show Server Selection Dropdown
+  if (isDm && client?.guilds?.cache?.size > 1) {
+    const serverOptions = client.guilds.cache.map(g => ({
+      label: g.name.slice(0, 100),
+      value: `orch_server_${g.id}`,
+      description: `ID: ${g.id} • ${g.memberCount || '?'} Member`,
+      default: g.id === guild.id,
+      emoji: '🏰'
+    })).slice(0, 25);
+
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('select_orchestrator_server')
+          .setPlaceholder('🏰 Pilih Server yang Ingin Dipantau...')
+          .addOptions(serverOptions)
+      )
+    );
+  }
+
+  // Component 2: Interactive Bot Selection Dropdown (Lists up to 25 bots from this server)
+  const selectableBots = bots.filter(b => !b.isSelf).slice(0, 25);
+  if (selectableBots.length > 0) {
+    const botOptions = selectableBots.map(b => ({
+      label: `${b.displayName} (@${b.username})`.slice(0, 100),
+      value: `orch_bot_${guild.id}_${b.id}`,
+      description: `${b.category.slice(0, 30)} • ${b.healthStatus.replace(/[^a-zA-Z0-9 ()&/]/g, '').slice(0, 35)}`,
+      emoji: b.statusEmoji === '🔊' ? '🔊' : (b.isOnline ? '🟢' : '🔴')
+    }));
+
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('select_orchestrator_bot')
+          .setPlaceholder('🤖 Pilih Bot untuk Melihat Detail & Mengoperasikannya...')
+          .addOptions(botOptions)
+      )
+    );
+  }
+
+  // Component 3: Refresh Button
+  const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`btn_orch_refresh_${guild.id}`)
+      .setLabel('🔄 Segarkan Status')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  components.push(actionRow);
+
+  return { embed, components };
+}
+
+/**
+ * Build a detailed card for a single selected bot
+ * @param {import('discord.js').Guild} guild 
+ * @param {object} bot 
+ * @param {import('discord.js').Client} client 
+ * @returns {{ embed: EmbedBuilder, components: Array<ActionRowBuilder> }}
+ */
+function buildBotDetailEmbed(guild, bot, client) {
+  const embed = new EmbedBuilder()
+    .setColor(bot.isOnline ? 0x57F287 : 0xED4245)
+    .setTitle(`${bot.statusEmoji} [DETAIL BOT] • ${bot.displayName}`)
+    .setDescription(
+      `🤖 **Profil & Status Aplikasi:**\n` +
+      `• **Nama Tampilan:** ${bot.displayName}\n` +
+      `• **Username Tag:** \`@${bot.username}\` (\`${bot.id}\`)\n` +
+      `• **Kategori:** **${bot.category}**\n` +
+      `• **Status Kesehatan:** ${bot.statusEmoji} **${bot.healthStatus}**\n` +
+      `• **Server Asal:** **${guild.name}**\n` +
+      `• **Roles:** ${bot.roles.length > 0 ? bot.roles.map(r => `\`${r}\``).join(', ') : '*Tidak ada role khusus*'}\n\n` +
+      `💡 *Gunakan tombol di bawah untuk langsung mengirimkan perintah teks ke bot ini!*`
+    )
+    .setFooter({
+      text: `AZURA Master Bot Orchestrator • Server: ${guild.name}`,
+      iconURL: client?.user?.displayAvatarURL()
+    })
+    .setTimestamp();
+
+  if (bot.avatar) {
+    embed.setThumbnail(bot.avatar);
+  }
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`btn_orch_modal_${guild.id}_${bot.id}`)
+      .setLabel(`⚡ Kirim Perintah ke ${bot.displayName.slice(0, 30)}`)
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(!bot.isOnline),
+    new ButtonBuilder()
+      .setCustomId(`btn_orch_back_${guild.id}`)
+      .setLabel('🔙 Kembali ke Daftar Bot')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, components: [row] };
 }
 
 /**
@@ -448,9 +550,133 @@ function initBotHealthMonitor(client) {
   }, CHECK_INTERVAL_MS);
 }
 
+/**
+ * Handle Select Menu Interactions for Bot Orchestrator
+ * @param {import('discord.js').StringSelectMenuInteraction} interaction 
+ */
+async function handleBotOrchestratorSelectMenu(interaction) {
+  const { customId, values } = interaction;
+  const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+
+  if (customId === 'select_orchestrator_server') {
+    const selectedGuildId = values[0].replace('orch_server_', '');
+    const targetGuild = interaction.client.guilds.cache.get(selectedGuildId);
+    if (!targetGuild) {
+      return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
+    }
+    await interaction.deferUpdate();
+    const { embed, components } = await buildBotStatusEmbed(targetGuild, interaction.client, !interaction.guild);
+    return interaction.editReply({ embeds: [embed], components });
+
+  } else if (customId === 'select_orchestrator_bot') {
+    const parts = values[0].split('_'); // ['orch', 'bot', guildId, botId]
+    const guildId = parts[2];
+    const botId = parts[3];
+
+    const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
+    if (!targetGuild) {
+      return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
+    }
+
+    const bots = await scanGuildBots(targetGuild, interaction.client);
+    const targetBot = bots.find(b => b.id === botId);
+    if (!targetBot) {
+      return interaction.reply({ content: '❌ Bot tidak ditemukan di server.', flags: 64 });
+    }
+
+    await interaction.deferUpdate();
+    const { embed, components } = buildBotDetailEmbed(targetGuild, targetBot, interaction.client);
+    return interaction.editReply({ embeds: [embed], components });
+  }
+}
+
+/**
+ * Handle Button Interactions for Bot Orchestrator
+ * @param {import('discord.js').ButtonInteraction} interaction 
+ */
+async function handleBotOrchestratorButton(interaction) {
+  const { customId } = interaction;
+  const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+
+  if (customId.startsWith('btn_orch_refresh_') || customId.startsWith('btn_orch_back_')) {
+    const guildId = customId.replace('btn_orch_refresh_', '').replace('btn_orch_back_', '');
+    const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
+    if (!targetGuild) {
+      return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
+    }
+
+    await interaction.deferUpdate();
+    const { embed, components } = await buildBotStatusEmbed(targetGuild, interaction.client, !interaction.guild);
+    return interaction.editReply({ embeds: [embed], components });
+
+  } else if (customId.startsWith('btn_orch_modal_')) {
+    const parts = customId.replace('btn_orch_modal_', '').split('_');
+    const guildId = parts[0];
+    const botId = parts[1];
+
+    const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
+    const bots = await scanGuildBots(targetGuild, interaction.client);
+    const targetBot = bots.find(b => b.id === botId);
+    const botName = targetBot ? targetBot.displayName : 'Bot';
+
+    const modal = new ModalBuilder()
+      .setCustomId(`modal_orch_dispatch:${guildId}:${botId}`)
+      .setTitle(`Operasikan @${botName}`.slice(0, 45));
+
+    const commandInput = new TextInputBuilder()
+      .setCustomId('bot_cmd_text')
+      .setLabel(`Perintah Teks ke @${botName}`.slice(0, 45))
+      .setPlaceholder('Contoh: !play lofi, $daily, .rank, $marry')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(300);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(commandInput));
+    return interaction.showModal(modal);
+  }
+}
+
+/**
+ * Handle Modal Submit for Bot Orchestrator
+ * @param {import('discord.js').ModalSubmitInteraction} interaction 
+ */
+async function handleBotOrchestratorModal(interaction) {
+  const [prefix, guildId, botId] = interaction.customId.split(':');
+  const commandText = interaction.fields.getTextInputValue('bot_cmd_text');
+  const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+
+  const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
+  if (!targetGuild) {
+    return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
+  }
+
+  // Find suitable text channel (either current channel or first viewable channel)
+  let targetChannel = interaction.channel;
+  if (!targetChannel || !targetChannel.isTextBased?.() || !interaction.guild) {
+    targetChannel = targetGuild.channels.cache.find(c =>
+      c.isTextBased?.() && c.permissionsFor(targetGuild.members.me)?.has(PermissionFlagsBits.SendMessages)
+    );
+  }
+
+  if (!targetChannel) {
+    return interaction.reply({
+      content: '❌ Tidak dapat menemukan text channel yang sesuai di server tersebut untuk mengirimkan perintah.',
+      flags: 64
+    });
+  }
+
+  await interaction.deferReply({ ephemeral: false });
+  const res = await operateBot(targetGuild, targetChannel, botId, commandText, interaction.user, isOwner);
+  return interaction.editReply({ content: res.message });
+}
+
 module.exports = {
   scanGuildBots,
   buildBotStatusEmbed,
+  buildBotDetailEmbed,
   operateBot,
-  initBotHealthMonitor
+  initBotHealthMonitor,
+  handleBotOrchestratorSelectMenu,
+  handleBotOrchestratorButton,
+  handleBotOrchestratorModal
 };

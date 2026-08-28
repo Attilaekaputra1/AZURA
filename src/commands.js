@@ -472,8 +472,8 @@ const commands = [
     .addSubcommand(sub =>
       sub.setName('operate')
         .setDescription('Kirim perintah teks ke bot lain dan pantau responnya')
-        .addStringOption(opt => opt.setName('bot').setDescription('Nama atau kategori bot target (contoh: fredboat, carl, mee6)').setRequired(true))
-        .addStringOption(opt => opt.setName('command').setDescription('Perintah teks yang ingin dikirim (contoh: !play lofi, .rank)').setRequired(true))
+        .addUserOption(opt => opt.setName('bot').setDescription('Tag atau pilih @bot target (contoh: @Mudae, @Rythm, @Lofi Radio)').setRequired(true))
+        .addStringOption(opt => opt.setName('command').setDescription('Perintah teks yang ingin dikirim (contoh: !play lofi, $daily, .rank)').setRequired(true))
         .addChannelOption(opt => opt.setName('channel').setDescription('Channel target (Default: channel saat ini)').setRequired(false)))
 ];
 
@@ -1839,7 +1839,8 @@ async function handleSlashCommand(interaction, startTime) {
         });
       }
 
-      const botQuery = interaction.options.getString('bot');
+      const targetUser = interaction.options.getUser('bot');
+      const botQuery = targetUser ? targetUser.id : (interaction.options.getString('bot') || '');
       const commandText = interaction.options.getString('command');
       const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
 

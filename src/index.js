@@ -862,6 +862,10 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // Route to correct button handler based on customId prefix
+    if (interaction.customId.startsWith('btn_orch_')) {
+      const { handleBotOrchestratorButton } = require('./botOrchestrator');
+      return handleBotOrchestratorButton(interaction);
+    }
     if (
       interaction.customId.startsWith('confirmch_') ||
       interaction.customId.startsWith('cancelch_') ||
@@ -876,12 +880,16 @@ client.on('interactionCreate', async (interaction) => {
     return handleSendDmButton(interaction);
   }
 
-  // Handle Modal Submissions (e.g. Feedback Rejection Reason)
+  // Handle Modal Submissions (e.g. Feedback Rejection Reason, Bot Orchestrator Command)
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('modal_fb_reject:')) {
       const ticketId = interaction.customId.split(':')[1];
       const { handleFeedbackRejectModalSubmit } = require('./feedback');
       return handleFeedbackRejectModalSubmit(interaction, ticketId);
+    }
+    if (interaction.customId.startsWith('modal_orch_dispatch:')) {
+      const { handleBotOrchestratorModal } = require('./botOrchestrator');
+      return handleBotOrchestratorModal(interaction);
     }
   }
 
@@ -891,6 +899,10 @@ client.on('interactionCreate', async (interaction) => {
     const { handleSendChannelSelectMenu, handleSendChannelGuildSelectMenu } = require('./sendChannel');
     if (interaction.customId === 'help_category_select') {
       return handleHelpSelectMenu(interaction);
+    }
+    if (interaction.customId.startsWith('select_orchestrator_')) {
+      const { handleBotOrchestratorSelectMenu } = require('./botOrchestrator');
+      return handleBotOrchestratorSelectMenu(interaction);
     }
     if (interaction.customId.startsWith('selectguild_')) {
       return handleSendChannelGuildSelectMenu(interaction);

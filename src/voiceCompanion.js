@@ -2796,6 +2796,101 @@ async function leaveVoiceChannel(client, guildId = null, sendFarewellText = true
   return { success: true, message: textLeave };
 }
 
+/**
+ * Say a natural, personality-tailored bedtime farewell in all active Voice Channels
+ * BEFORE entering deep sleep mode.
+ * @param {import('discord.js').Client} client 
+ * @returns {Promise<void>}
+ */
+async function sayBedtimeFarewellInActiveVCs(client) {
+  if (!activeConnections.size) return;
+
+  const { getPersonalityMode, PERSONALITY_MODES } = require('./personality');
+  const currentMode = getPersonalityMode();
+  const ownerId = config.OWNER_DISCORD_ID;
+
+  console.log(`[Bedtime Farewell]: 🌙 Speaking bedtime farewell across ${activeConnections.size} active VC(s) (Personality: ${currentMode})...`);
+
+  for (const [guildId, conn] of activeConnections) {
+    try {
+      const player = audioPlayers.get(guildId);
+      const guild = client.guilds.cache.get(guildId);
+      if (!conn || !player || !guild) continue;
+
+      const channelId = conn.joinConfig?.channelId;
+      const channel = guild.channels.cache.get(channelId);
+      if (!channel || !channel.members) continue;
+
+      // Determine who is in VC
+      const hasAttila = ownerId && channel.members.has(ownerId);
+      const otherMembers = channel.members.filter(m => !m.user.bot && m.id !== ownerId);
+      const isSoloAttila = hasAttila && otherMembers.size === 0;
+
+      // Build personality-adapted bedtime farewell
+      let farewellText = '';
+
+      if (currentMode === PERSONALITY_MODES.MATURE) {
+        if (isSoloAttila) {
+          farewellText = 'Attila, udah waktunya tidur nih. Mataku udah nggak bisa diajak kompromi lagi [chuckles]. Aku istirahat duluan ya, kamu jangan begadang juga. Besok kita lanjut lagi ya. Good night.';
+        } else {
+          farewellText = 'Semuanya, aku pamit tidur duluan ya, udah waktunya istirahat. Selamat malam, besok kita ngobrol lagi ya.';
+        }
+      } else if (currentMode === PERSONALITY_MODES.STUBBORN) {
+        if (isSoloAttila) {
+          farewellText = 'Hooamm... [yawns] Jangan diliatin terus, aku beneran ngantuk ini. Aku mau tidur duluan, si Bos jangan lembur mulu. Besok awas kalau nggak VC lagi... daah.';
+        } else {
+          farewellText = 'Dah ah, mata gue udah sepet banget dengerin kalian ngoceh [sighs]. Gue tidur duluan ya, besok aja kalau mau ngobrol lagi. Bye.';
+        }
+      } else {
+        // ORIGINAL SOUL
+        if (isSoloAttila) {
+          farewellText = 'Attila sayang, mataku udah bener-bener berat banget nih... [yawns] Aku pamit tidur duluan yaa, kamu jangan begadang juga. Besok kita VC lagi yaa, night night! [softly]';
+        } else {
+          farewellText = 'Gais, aku udah ngantuk banget nih [yawns]... aku off duluan ya mau tidur, besok kita lanjut ngobrol lagi. Babayy semuanya!';
+        }
+      }
+
+      // 1. Send clean text version to companion text channel
+      const textChannel = companionTextChannels.get(guildId);
+      if (textChannel) {
+        const cleanText = farewellText.replace(/\[.*?\]/g, '').trim();
+        textChannel.send(`🌙 **[Waktunya Tidur]** ${cleanText}`).catch(() => {});
+      }
+
+      // 2. Play audio resource via ElevenLabs and wait for completion
+      const resource = await textToAudioResource(farewellText, false, 'eleven_flash_v2_5', client);
+      if (resource) {
+        player.play(resource);
+        isBotSpeaking.set(guildId, true);
+
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            isBotSpeaking.set(guildId, false);
+            resolve();
+          }, 8000); // 8s max duration for farewell
+
+          const onIdle = () => {
+            clearTimeout(timeout);
+            isBotSpeaking.set(guildId, false);
+            player.removeListener(AudioPlayerStatus.Idle, onIdle);
+            player.removeListener('error', onIdle);
+            resolve();
+          };
+
+          player.once(AudioPlayerStatus.Idle, onIdle);
+          player.once('error', onIdle);
+        });
+      }
+
+      // Small pause after speech for realistic finish
+      await new Promise(r => setTimeout(r, 600));
+
+    } catch (err) {
+      console.warn(`[Bedtime Farewell Warning]: Failed to speak farewell in guild ${guildId}:`, err.message);
+    }
+  }
+}
+
 module.exports = {
   handleVoiceStateUpdate,
   getCompanionTextChannel,
@@ -2803,6 +2898,7 @@ module.exports = {
   handleMusicButton,
   joinAttilaVoiceChannel,
   leaveVoiceChannel,
+  sayBedtimeFarewellInActiveVCs,
   playMusicAutonomous,
   getActiveVoiceSession,
   getLiveVoiceTranscriptContext,

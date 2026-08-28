@@ -244,9 +244,13 @@ async function enterSleepMode(client, password, userId, reason = 'Meredakan kine
 
   console.log(`[Sleep Mode]: 🌙 Putting AZURA into Deep Sleep Mode. Reason: "${reason}"...`);
 
-  // 1. Disconnect and cleanup all Voice Channels
+  // 1. Speak natural bedtime farewell in active Voice Channels (if any) BEFORE disconnecting
   try {
-    const { cleanupGuild } = require('./voiceCompanion');
+    const { sayBedtimeFarewellInActiveVCs, cleanupGuild } = require('./voiceCompanion');
+    await sayBedtimeFarewellInActiveVCs(client).catch((err) => {
+      console.warn('[Sleep Mode]: Bedtime farewell warning:', err.message);
+    });
+
     for (const [guildId] of client.guilds.cache) {
       await cleanupGuild(guildId, client).catch(() => {});
     }

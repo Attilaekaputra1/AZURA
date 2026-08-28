@@ -159,6 +159,25 @@ function autoExtractFact(userId, prompt) {
     }
   }
 
+  // Preferences, Likes & Dislikes trigger: "aku lebih suka art", "aku tidak terlalu suka coding", "minatku di hardware"
+  const prefMatch = lower.match(/(?:(?:gw|aku|saya|gua)\s+(?:lebih\s+suka|tidak\s+terlalu\s+suka|nggak\s+suka|gak\s+suka|suka\s+banget|tertarik\s+sama|fokus\s+di|lebih\s+condong\s+ke)\s+.+)/i);
+  if (prefMatch) {
+    let fact = prompt.trim();
+    if (fact.length >= 8 && fact.length <= 150) {
+      // If user says doesn't like coding, purge old coding facts
+      if (/\b(?:tidak|nggak|gak|bukan)\s+(?:terlalu\s+)?(?:suka|minat)?\s*(?:sama\s+)?(?:coding|koding)\b/i.test(fact)) {
+        const memories = loadMemories();
+        if (memories[userId] && Array.isArray(memories[userId].facts)) {
+          memories[userId].facts = memories[userId].facts.filter(f => !/\b(?:suka\s+coding|coding\s+enthusiast)\b/i.test(f));
+          saveMemories(memories);
+        }
+      }
+      addFact(userId, fact);
+      console.log(`[Memory Auto-Save] Saved preference fact for ${userId}: "${fact}"`);
+      return fact;
+    }
+  }
+
   return null;
 }
 

@@ -191,16 +191,34 @@ function recordPositiveBehavior(userId, username, displayName, textContent, isDM
 
   const lower = textContent.toLowerCase();
 
-  // Pattern detection for positive traits & public interests
+  // 1. Negation & Trait Removal Guard (Removes traits if user explicitly states they don't like or do it)
+  if (/\b(?:tidak|nggak|ngga|gak|ga|bukan|kurang)\s+(?:terlalu\s+)?(?:suka|minat|demen|bisa|hobi|tertarik)?\s*(?:sama\s+)?(?:coding|koding|code|pemrograman)\b/i.test(lower)) {
+    profile.positiveTraits = profile.positiveTraits.filter(t => t !== 'Tech & Coding Enthusiast');
+  }
+  if (/\b(?:tidak|nggak|ngga|gak|ga|bukan|kurang)\s+(?:terlalu\s+)?(?:suka|minat|demen|bisa|hobi|tertarik)?\s*(?:sama\s+)?(?:game|gaming|mabar)\b/i.test(lower)) {
+    profile.positiveTraits = profile.positiveTraits.filter(t => t !== 'Gaming & Santai');
+  }
+
+  // 2. Pattern detection for positive traits & public interests (with negation lookbehind)
+  const isNegatedCoding = /\b(?:tidak|nggak|ngga|gak|ga|bukan|kurang)\s+(?:terlalu\s+)?(?:suka|minat|demen|bisa|hobi|tertarik)?\s*(?:sama\s+)?(?:coding|koding|code|pemrograman)\b/i.test(lower);
+
   const TRAIT_MAP = [
     { trait: 'Humoris & Suka Bercanda', regex: /\b(?:wkwk|haha|hehe|ngakak|lawak|lucu|canda|jokes|awokwok)\b/i },
     { trait: 'Sopan & Menghargai', regex: /\b(?:makasih|terima kasih|thanks|thank you|mohon|tolong|permisi|maaf ya|appreciate)\b/i },
-    { trait: 'Tech & Coding Enthusiast', regex: /\b(?:coding|code|javascript|python|bot|api|database|framework|deploy|server|vps|bug|fix|git)\b/i },
+    { trait: 'Suka Seni & Art Kreatif', regex: /\b(?:art|seni|gambar|menggambar|ilustrasi|desain|design|kreatif|visual)\b/i },
+    { trait: 'Hardware & Komputer PC Enthusiast', regex: /\b(?:komponen\s+komputer|rakit\s+pc|hardware|motherboard|vga|ram|processor|perkomputeran)\b/i },
     { trait: 'Gaming & Santai', regex: /\b(?:game|mabar|voice|vc|genshin|valorant|steam|discord|roblox|mlbb|chill|santai)\b/i },
     { trait: 'Suportif & Hangat', regex: /\b(?:semangat|mantap|keren|good job|gokil|salut|hebat|bisa yuk|sukses)\b/i },
-    { trait: 'Kreatif & Berwawasan', regex: /\b(?:ide|desain|design|konsep|project|proyek|kreatif|inovasi|strategi|arsitektur)\b/i },
+    { trait: 'Kreatif & Berwawasan', regex: /\b(?:ide|konsep|project|proyek|inovasi|strategi|arsitektur)\b/i },
     { trait: 'Pemerhati Musik & Media', regex: /\b(?:lagu|musik|anime|film|nonton|youtube|spotify|playlist)\b/i }
   ];
+
+  if (!isNegatedCoding) {
+    TRAIT_MAP.push({
+      trait: 'Tech & Coding Enthusiast',
+      regex: /\b(?:coding|code|javascript|python|bot|api|database|framework|deploy|server|vps|bug|fix|git)\b/i
+    });
+  }
 
   for (const item of TRAIT_MAP) {
     if (item.regex.test(lower)) {
@@ -216,6 +234,8 @@ function recordPositiveBehavior(userId, username, displayName, textContent, isDM
   // Update dynamic personality summary
   if (profile.positiveTraits.length > 0) {
     profile.personalitySummary = `Orangnya ${profile.positiveTraits.join(', ').toLowerCase()}, asyik diajak berinteraksi.`;
+  } else {
+    profile.personalitySummary = 'Orangnya ramah dan santai diajak berinteraksi.';
   }
 
   saveBehaviors();

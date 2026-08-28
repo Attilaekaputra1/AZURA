@@ -330,13 +330,13 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
   const detectedModel = forcedModel ? { modelId: forcedModel, name: forcedModel, reason: 'forced' } : detectVoiceModel(userTranscript, text, isStory);
   const voiceId = config.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T'; // Always Kak Ceria
 
-  // 1. Primary: ElevenLabs (Kak Ceria - Dynamic Model)
+  // 1. Primary: ElevenLabs Real-Time Low-Latency Audio Streaming (Kak Ceria - Dynamic Model)
   if (config.ELEVENLABS_API_KEY) {
     try {
-      console.log(`[Voice TTS Engine]: 🎙️ Selected ${detectedModel.name} (Kak Ceria - ${voiceId}) [Reason: ${detectedModel.reason}] | Output: ${clean.length} chars...`);
-      const { generateElevenLabsTTS } = require('./elevenlabs');
-      const audioBuffer = await generateElevenLabsTTS(clean, voiceId, detectedModel.modelId, client);
-      const resource = createAudioResource(Readable.from(audioBuffer), {
+      console.log(`[Voice TTS Engine]: ⚡ Real-Time Streaming via ${detectedModel.name} (Kak Ceria - ${voiceId}) [Reason: ${detectedModel.reason}] | Output: ${clean.length} chars...`);
+      const { streamElevenLabsTTS } = require('./elevenlabs');
+      const audioStream = await streamElevenLabsTTS(clean, voiceId, detectedModel.modelId, client);
+      const resource = createAudioResource(audioStream, {
         inputType: StreamType.Arbitrary,
         inlineVolume: true
       });
@@ -345,7 +345,7 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
       }
       return resource;
     } catch (elevenErr) {
-      console.warn(`[Voice TTS Warning]: ElevenLabs (${detectedModel.modelId}) failed (${elevenErr.message}). Switching to Indonesian Female Voice Fallback...`);
+      console.warn(`[Voice TTS Warning]: ElevenLabs Streaming (${detectedModel.modelId}) failed (${elevenErr.message}). Switching to Indonesian Female Voice Fallback...`);
     }
   }
 
@@ -2054,13 +2054,30 @@ Jika lawan bicara mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti):
   ];
 
   try {
-    const res = await openai.chat.completions.create({
+    const streamStart = Date.now();
+    const stream = await openai.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages,
-      max_completion_tokens: maxTokens
+      max_completion_tokens: maxTokens,
+      stream: true
     });
 
-    const reply = res.choices[0]?.message?.content?.trim() || 'Iya Attila?';
+    let reply = '';
+    let firstTokenLogged = false;
+
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content || '';
+      if (token) {
+        if (!firstTokenLogged) {
+          firstTokenLogged = true;
+          const ttft = Date.now() - streamStart;
+          console.log(`[Voice AI Streaming]: ⚡ TTFT (Time to First Token): ${ttft}ms`);
+        }
+        reply += token;
+      }
+    }
+
+    reply = reply.trim() || 'Iya Attila?';
 
     // Update history
     history.push({ role: 'user', content: transcript });

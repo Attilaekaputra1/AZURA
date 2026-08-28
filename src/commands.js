@@ -489,8 +489,22 @@ const commands = [
         .setDescription('Bangunkan AZURA dan aktifkan kembali seluruh fitur secara normal')
         .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
     .addSubcommand(sub =>
+      sub.setName('schedule')
+        .setDescription('Atur jadwal tidur otomatis dengan fase mengantuk 1 jam sebelumnya')
+        .addStringOption(opt => opt.setName('waktu_tidur').setDescription('Waktu tidur WIB (contoh: 20:00, 8 malam, 21.30, atau 1h)').setRequired(true))
+        .addStringOption(opt => opt.setName('waktu_bangun').setDescription('Waktu bangun WIB (contoh: 06:00, opsional)').setRequired(false))
+        .addStringOption(opt => opt.setName('tipe').setDescription('Tipe jadwal').setRequired(false).addChoices(
+          { name: '⏳ Sekali (Hari Ini Saja)', value: 'once' },
+          { name: '🔁 Setiap Hari (Rutin)', value: 'daily' }
+        ))
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('cancel_schedule')
+        .setDescription('Batalkan jadwal tidur otomatis yang sedang aktif')
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
+    .addSubcommand(sub =>
       sub.setName('status')
-        .setDescription('Cek status aktif/tidur dan penggunaan resource memori AZURA'))
+        .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA'))
 ];
 
 const fs = require('fs');
@@ -1874,7 +1888,7 @@ async function handleSlashCommand(interaction, startTime) {
       });
     }
 
-    const { enterSleepMode, wakeUpAzura, getSleepState } = require('./sleepMode');
+    const { enterSleepMode, wakeUpAzura, getSleepState, scheduleSleep, cancelScheduledSleep } = require('./sleepMode');
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === 'start') {
@@ -1894,14 +1908,35 @@ async function handleSlashCommand(interaction, startTime) {
       } else {
         return interaction.reply({ content: res.message, flags: 64 });
       }
+    } else if (subcommand === 'schedule') {
+      const sleepTime = interaction.options.getString('waktu_tidur');
+      const wakeTime = interaction.options.getString('waktu_bangun');
+      const type = interaction.options.getString('tipe') || 'once';
+      const password = interaction.options.getString('password');
+      const res = await scheduleSleep(interaction.client, sleepTime, wakeTime, type === 'daily', password, user.id);
+      if (res.success && res.embed) {
+        return interaction.reply({ embeds: [res.embed] });
+      } else {
+        return interaction.reply({ content: res.message, flags: 64 });
+      }
+    } else if (subcommand === 'cancel_schedule') {
+      const password = interaction.options.getString('password');
+      const res = await cancelScheduledSleep(password, user.id);
+      return interaction.reply({ content: res.message, flags: 64 });
     } else if (subcommand === 'status') {
       const state = getSleepState();
       const memUsage = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
+      const sched = state.scheduledSleep || {};
+      const schedStr = sched.enabled && sched.targetTimeStr
+        ? `⏰ Terjadwal: **${sched.targetTimeStr}** (${sched.isDaily ? 'Setiap Hari' : 'Sekali'})`
+        : '❌ Tidak Ada Jadwal Aktif';
+
       const embed = new EmbedBuilder()
         .setColor(state.isSleeping ? 0x2C2F33 : 0x57F287)
         .setTitle(`💤 Status Sleep Mode & Resource AZURA`)
         .setDescription(
           `• **Status Saat Ini:** ${state.isSleeping ? '🌙 **SEDANG TIDUR (Deep Sleep Active)**' : '🟢 **AKTIF / ONLINE**'}\n` +
+          `• **Jadwal Tidur Otomatis:** ${schedStr}\n` +
           `• **Penggunaan RAM VPS:** \`${memUsage} MB\`\n` +
           `• **Waktu Mulai Tidur:** ${state.sleepStartedAt ? new Date(state.sleepStartedAt).toLocaleString('id-ID') : '-'}\n` +
           `• **Alasan:** ${state.reason || '-'}`

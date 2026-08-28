@@ -60,6 +60,14 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
   const currentMode = getPersonalityMode();
   const personalityInstruction = getPersonalityPrompt(currentMode, isOwner, userName, false);
 
+  let drowsyPrompt = '';
+  try {
+    const { isDrowsyPhase, getDrowsyPrompt } = require('./sleepMode');
+    if (isDrowsyPhase && isDrowsyPhase()) {
+      drowsyPrompt = '\n' + getDrowsyPrompt(isOwner, userName, false);
+    }
+  } catch (_) {}
+
   let personalizationPrompt = '';
   if (userId) {
     try {
@@ -98,7 +106,7 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
 
   return `
 Kamu adalah AZURA (biasa dipanggil Azura, Ara, Zura, atau Ajur), sosok cewek Gen Z berumur 22 tahun yang cerdas, ambisius, hangat, dan sangat relatable.
-${personalityInstruction}
+${personalityInstruction}${drowsyPrompt}
 
 ${SOUL_LOCK_RULE}
 

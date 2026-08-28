@@ -79,6 +79,10 @@ client.once(Events.ClientReady, async () => {
   const { initBotHealthMonitor } = require('./botOrchestrator');
   initBotHealthMonitor(client);
 
+  // Initialize Sleep Scheduler Worker (checks sleep & wake triggers)
+  const { initSleepScheduler } = require('./sleepMode');
+  initSleepScheduler(client);
+
   // Auto-connect to VC if Attila is already in a voice channel on startup
   setTimeout(async () => {
     try {
@@ -127,19 +131,36 @@ async function handleIncomingMessage(message, isEdit = false) {
   if (message.author.bot || message.mentions.everyone) return;
 
   // Sleep Mode Check: Suspend all processing when Azura is sleeping
-  const { isAzuraSleeping, wakeUpAzura, enterSleepMode, SLEEP_PASSWORD } = require('./sleepMode');
+  const { isAzuraSleeping, wakeUpAzura, enterSleepMode, scheduleSleep, cancelScheduledSleep, SLEEP_PASSWORD } = require('./sleepMode');
   const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
 
-  // Direct Text Sleep & Wake Triggers for Owner with Procedural Password
-  if (isOwner) {
+  // Direct Text Sleep, Wake & Schedule Triggers for Owner with Procedural Password
+  if (isOwner && message.content.includes(SLEEP_PASSWORD)) {
     const cleanLower = message.content.toLowerCase();
-    if (/\b(?:bangun|wake\s*up|aktifkan\s*kembali)\b/i.test(cleanLower) && message.content.includes(SLEEP_PASSWORD)) {
+    
+    // Wake trigger
+    if (/\b(?:bangun|wake\s*up|aktifkan\s*kembali)\b/i.test(cleanLower)) {
       const res = await wakeUpAzura(client, SLEEP_PASSWORD, message.author.id);
       if (res.embed) return message.reply({ embeds: [res.embed] });
       return message.reply(res.message);
     }
-    if (/\b(?:tidur|sleep\s*mode|masuk\s*mode\s*tidur)\b/i.test(cleanLower) && message.content.includes(SLEEP_PASSWORD)) {
+    // Instant sleep trigger
+    if (/\b(?:tidur\s+sekarang|sleep\s*mode|masuk\s*mode\s*tidur)\b/i.test(cleanLower)) {
       const res = await enterSleepMode(client, SLEEP_PASSWORD, message.author.id);
+      if (res.embed) return message.reply({ embeds: [res.embed] });
+      return message.reply(res.message);
+    }
+    // Cancel schedule trigger
+    if (/\b(?:batalkan\s+jadwal|cancel\s+schedule|hapus\s+jadwal)\b/i.test(cleanLower)) {
+      const res = await cancelScheduledSleep(SLEEP_PASSWORD, message.author.id);
+      return message.reply(res.message);
+    }
+    // Schedule sleep trigger (e.g. "Ara jadwalkan tidur jam 20:00 @Timetosleepara" or "tidur jam 8 malam")
+    const schedMatch = message.content.match(/(?:jadwalkan\s+tidur|schedule\s+sleep|atur\s+tidur|tidur\s+jam)\s+([^\s@]+(?:\s+(?:malam|sore|pagi|siang|pm|am))?)/i);
+    if (schedMatch) {
+      const timeStr = schedMatch[1];
+      const isDaily = /\b(?:setiap\s+hari|rutin|daily)\b/i.test(cleanLower);
+      const res = await scheduleSleep(client, timeStr, null, isDaily, SLEEP_PASSWORD, message.author.id);
       if (res.embed) return message.reply({ embeds: [res.embed] });
       return message.reply(res.message);
     }

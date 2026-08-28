@@ -1981,6 +1981,14 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
 3. BATASAN PERINTAH KELUAR/MASUK VC: Hanya Attila (Owner utama) yang berhak menyuruhmu keluar dari VC atau bergabung ke VC. Jika ${speakerName} memintamu keluar dari VC (misal: "Azura kamu keluar ya", "leave vc"), TOLAK secara manis dan ramah (misal: "Maaf ya ${speakerName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~") dan DILARANG mengeluarkan tag [ACTION:LEAVE_VC]!`;
   }
 
+  let drowsyVoicePrompt = '';
+  try {
+    const { isDrowsyPhase, getDrowsyPrompt } = require('./sleepMode');
+    if (isDrowsyPhase && isDrowsyPhase()) {
+      drowsyVoicePrompt = '\n\n' + getDrowsyPrompt(isOwner, speakerName, true);
+    }
+  } catch (_) {}
+
   if (isStoryIntent) {
     systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) atau memberikan penjelasan mendalam langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
 Lawan bicara yang sedang berbicara denganmu: ${speakerName}
@@ -1988,7 +1996,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}
+${vcPermissionsContext}${drowsyVoicePrompt}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
@@ -2004,7 +2012,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}
+${vcPermissionsContext}${drowsyVoicePrompt}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 

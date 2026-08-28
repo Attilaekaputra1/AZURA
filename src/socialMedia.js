@@ -168,6 +168,16 @@ async function scrapeTwitter(url) {
         `📅 **Waktu Posting:** ${dateStr} WIB\n` +
         `🔗 **Link Tweet:** ${url}`;
     }
+    // Fallback: Official Twitter / X oEmbed
+    const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&lang=id`;
+    const oembed = await fetchHttp(oembedUrl);
+    if (oembed && (oembed.html || oembed.author_name)) {
+      const cleanHtml = (oembed.html || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+      return `🐦 **Data Postingan Twitter / X (Official oEmbed):**\n` +
+        `👤 **Author:** [${oembed.author_name}](${oembed.author_url})\n` +
+        `📝 **Isi Tweet:**\n"${cleanHtml.slice(0, 500)}"\n\n` +
+        `🔗 **Link:** ${url}`;
+    }
   } catch (err) {
     console.warn('[Social Media Engine]: Twitter scrape warning:', err.message);
   }
@@ -191,7 +201,11 @@ async function scrapeReddit(url) {
       cleanUrl += '.json';
     }
 
-    const redditData = await fetchHttp(cleanUrl, { 'User-Agent': 'AZURA-DiscordBot/2.0 (Personal AI Companion)' });
+    const redditData = await fetchHttp(cleanUrl, {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept': 'application/json'
+    });
+
     if (Array.isArray(redditData) && redditData.length > 0) {
       const postListing = redditData[0]?.data?.children?.[0]?.data;
       if (postListing) {
@@ -260,7 +274,7 @@ async function scrapeInstagram(queryOrUrl) {
       max_results: 3
     });
 
-    const safeResults = filterSafeResults(res.results);
+    const safeResults = typeof filterSafeResults === 'function' ? filterSafeResults(res.results) : (res.results || []);
     const answer = res.answer || '';
 
     if (safeResults.length > 0 || answer) {

@@ -764,5 +764,6 @@ module.exports = {
   scrapeWebData,
   isSacredData,
   cleanSearchQuery,
-  processTavilyIntelligence
+  processTavilyIntelligence,
+  filterSafeResults
 };

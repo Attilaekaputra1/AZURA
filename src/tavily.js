@@ -308,7 +308,12 @@ function cleanSearchQuery(prompt) {
     .replace(/[?!.]+$/, '')
     .trim();
 
-  return clean || targetQuery.trim() || prompt.trim();
+  let resultQuery = clean || targetQuery.trim() || prompt.trim();
+  if (/^(?:hari\s+ini|terbaru|terkini|update)$/i.test(resultQuery)) {
+    resultQuery = 'berita terkini hari ini indonesia';
+  }
+
+  return resultQuery;
 }
 
 /**
@@ -321,37 +326,30 @@ function cleanSearchQuery(prompt) {
 async function ensureIndonesianSummary(text, query, results = []) {
   if (!text && (!results || results.length === 0)) return '';
 
-  // Check if text has English words
-  const englishMatches = (text || '').match(/\b(?:the|is|are|was|were|has|have|had|in|on|at|by|with|from|to|for|of|and|but|that|this|which|today|news|report|includes|updates|demonstration|government|plant|owned|tests)\b/gi) || [];
-  const isEnglish = englishMatches.length >= 2;
-
-  if (!isEnglish && text && text.trim().length > 35) {
-    return text.trim();
-  }
-
-  // Fast synthesis & translation via OpenAI gpt-5.6-luna
+  // Fast synthesis & translation via OpenAI gpt-5.6-luna (Guarantees 100% Bahasa Indonesia)
   try {
     const { OpenAI } = require('openai');
     const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
-    const contextContent = (text ? `Rangkuman Mentah: ${text}\n\n` : '') + (results || []).slice(0, 3).map((r, i) => `Sumber ${i + 1} (${r.title}): ${r.content}`).join('\n');
+    const articlesContext = (results || []).slice(0, 3).map((r, i) => `[${i + 1}] ${r.title}\n${r.content}`).join('\n\n');
+    const fullContext = `${text ? `Ikhtisar Awal:\n${text}\n\n` : ''}Artikel Media Terverifikasi:\n${articlesContext}`;
 
     const comp = await openai.chat.completions.create({
       model: config.OPENAI_MODEL || 'gpt-5.6-luna',
       messages: [
         {
           role: 'system',
-          content: 'Kamu adalah jurnalis berita AZURA. Rangkum inti berita berikut ke dalam 2-3 kalimat Bahasa Indonesia yang sangat fasih, aktual, informatif, dan mudah dipahami. WAJIB 100% BAHASA INDONESIA, DILARANG KERAS menggunakan bahasa Inggris.'
+          content: 'Kamu adalah redaktur berita resmi AZURA. Rangkum inti pokok dari peristiwa atau berita berikut ke dalam 2-3 kalimat Bahasa Indonesia yang sangat fasih, aktual, informatif, dan mudah dipahami. WAJIB 100% BAHASA INDONESIA. DILARANG KERAS menggunakan bahasa Inggris.'
         },
         {
           role: 'user',
-          content: `Topik: "${query}"\n\nData Berita:\n${contextContent.slice(0, 1500)}`
+          content: `Topik: "${query}"\n\n${fullContext.slice(0, 1800)}`
         }
       ],
-      max_completion_tokens: 200
+      max_completion_tokens: 220
     });
 
     const translated = comp.choices[0]?.message?.content?.trim();
-    if (translated) return translated;
+    if (translated && translated.length > 10) return translated;
   } catch (err) {
     console.error('[ensureIndonesianSummary Error]:', err.message);
   }

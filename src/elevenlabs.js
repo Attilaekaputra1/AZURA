@@ -56,6 +56,20 @@ function getModelVoiceSettings(modelId) {
 }
 
 /**
+ * Normalizes Indonesian phonetic pronunciation for ElevenLabs & TTS engines.
+ * Fixes: "Att" -> "At" (ElevenLabs reads English "Att" as /ɛt/ "Et", while "At" is pronounced as Indonesian /at/)
+ * @param {string} text 
+ * @returns {string}
+ */
+function normalizePhonetics(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text
+    .replace(/\bAtt\b/g, 'At')
+    .replace(/\batt\b/g, 'at')
+    .replace(/\bATT\b/g, 'At');
+}
+
+/**
  * Generate MP3 audio buffer from text using ElevenLabs API with Dynamic Model Routing, Quota Guard & Circuit Breaker
  * @param {string} text 
  * @param {string|null} voiceId 
@@ -65,6 +79,7 @@ function getModelVoiceSettings(modelId) {
  */
 function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = null) {
   return new Promise((resolve, reject) => {
+    const phoneticText = normalizePhonetics(text);
     const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
     if (!apiKey) {
       return reject(new Error('ELEVENLABS_API_KEY not configured'));
@@ -82,7 +97,7 @@ function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = nu
     const voiceSettings = getModelVoiceSettings(selectedModel);
 
     const postData = JSON.stringify({
-      text: text,
+      text: phoneticText,
       model_id: selectedModel,
       voice_settings: voiceSettings
     });
@@ -145,6 +160,7 @@ function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = nu
  */
 function streamElevenLabsTTS(text, voiceId = null, modelId = null, client = null) {
   return new Promise((resolve, reject) => {
+    const phoneticText = normalizePhonetics(text);
     const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
     if (!apiKey) {
       return reject(new Error('ELEVENLABS_API_KEY not configured'));
@@ -162,7 +178,7 @@ function streamElevenLabsTTS(text, voiceId = null, modelId = null, client = null
     const voiceSettings = getModelVoiceSettings(selectedModel);
 
     const postData = JSON.stringify({
-      text: text,
+      text: phoneticText,
       model_id: selectedModel,
       voice_settings: voiceSettings
     });

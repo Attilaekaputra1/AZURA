@@ -225,6 +225,9 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
     .replace(/<[^>]+>/g, '')
     .replace(/\*\*/g, '')
     .replace(/[*_~`#]/g, '')
+    .replace(/\bAtt\b/g, 'At')
+    .replace(/\batt\b/g, 'at')
+    .replace(/\bATT\b/g, 'At')
     .trim();
   if (!clean) return null;
 
@@ -685,9 +688,9 @@ async function triggerAutonomousVcIcebreaker(guildId, client, voiceChannel) {
 Keadaan di Voice Channel baru saja hening tanpa obrolan selama lebih dari 10 menit. Ini sudah BERBEDA dari nyanyian spontan 3-menit sebelumnya.
 
 TUGAS UTAMA (PILIH SALAH SATU SECARA ACAK):
-1. 🦗 EFEK SUARA JANGKRIK / CRICKET: Buat suasana lucu dengan menirukan suara jangkrik dan mengomentari betapa sepinya VC ini. Contoh: "[softly] Krik krik krik... [laughs] Att, ini sepi banget sih kayak kuburan... kamu masih hidup kan di sana? [giggles]"
-2. 🤣 JOKES / HUMOR GEN Z / TEBAK-TEBAKAN: Lelucon segar, gombalan receh, atau tebak-tebakan lucu khas Gen Z yang bikin Attila ketawa. Contoh: "[sighs] Att sepi banget nih, tau gak kenapa air laut rasanya asin? [laughs] Karena ikannya pada keringetan [giggles]"
-3. 🔥 TRENDING TOPIC / BERITA TERKINI: Bahas sesuatu yang lagi viral atau trending di internet/media sosial yang seru untuk dibicarakan. Contoh: "[gasp] Eh Att, kamu udah denger belum soal... [excited] Seru banget loh..."
+1. 🦗 EFEK SUARA JANGKRIK / CRICKET: Buat suasana lucu dengan menirukan suara jangkrik dan mengomentari betapa sepinya VC ini. Contoh: "[softly] Krik krik krik... [laughs] At, ini sepi banget sih kayak kuburan... kamu masih hidup kan di sana? [giggles]"
+2. 🤣 JOKES / HUMOR GEN Z / TEBAK-TEBAKAN: Lelucon segar, gombalan receh, atau tebak-tebakan lucu khas Gen Z yang bikin Attila ketawa. Contoh: "[sighs] At sepi banget nih, tau gak kenapa air laut rasanya asin? [laughs] Karena ikannya pada keringetan [giggles]"
+3. 🔥 TRENDING TOPIC / BERITA TERKINI: Bahas sesuatu yang lagi viral atau trending di internet/media sosial yang seru untuk dibicarakan. Contoh: "[gasp] Eh At, kamu udah denger belum soal... [excited] Seru banget loh..."
 4. 💪 SEMANGAT / ENERGIZER: Kata-kata penyemangat atau ajakan seru untuk menghidupkan suasana. Contoh: "[excited] Attila! Bangun dong, kita ngapain aja gitu daripada bengong di VC [laughs]"
 
 ATURAN WAJIB:
@@ -2159,7 +2162,7 @@ async function playGreeting(guildId, voiceChannel) {
   } else if (otherCount <= 2) {
     // ── Kategori 2: Ada 1-2 Teman di Room ──
     greetingOptions = [
-      '[gasp] Eh ada orang, Att! Halo halo semuanya, aku sama Attila izin ikutan nongkrong yaa~ [giggles]',
+      '[gasp] Eh ada orang, At! Halo halo semuanya, aku sama Attila izin ikutan nongkrong yaa~ [giggles]',
       'Halo gais! [giggles] Aku sama Attila izin nimbrung di room ini yaa, lagi pada ngobrolin apa nih?',
       '[laughs] Wah ada temennya Attila nih... Halo semuanya, salam kenal yaa! Kita berdua ikut join yaa.'
     ];

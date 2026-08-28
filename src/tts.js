@@ -53,6 +53,9 @@ async function generateVoiceNote(text, client = null) {
     .replace(/<[^>]+>/g, '')
     .replace(/\*\*/g, '')
     .replace(/[*_~`#]/g, '')
+    .replace(/\bAtt\b/g, 'At')
+    .replace(/\batt\b/g, 'at')
+    .replace(/\bATT\b/g, 'At')
     .trim();
 
   // 1. Primary: ElevenLabs v3 Flagship (Kak Ceria / Custom Voice)

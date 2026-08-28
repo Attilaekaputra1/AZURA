@@ -266,7 +266,7 @@ function detectVoiceModel(userTranscript = '', aiSpokenText = '', isStory = fals
   const cleanOutput = (aiSpokenText || '').toLowerCase();
 
   // 1. Check for Emotion Audio Tags or Drama in AI Response -> eleven_v3
-  const hasAudioEmotionTags = /\[(?:laughs|giggles|chuckles|snickers|wheezing|cries|sobbing|sniffs|tearing up|screams|shouts|yells|sings|singing|humming|melody|whispers|softly|sighs|groans|gasp|panicking|pouts|yawns|grunts|excited|cheering|amazed|awe)\]/i.test(aiSpokenText);
+  const hasAudioEmotionTags = /\[(?:laughs|giggles|chuckles|snickers|wheezing|cries|sobbing|sniffs|tearing up|screams|shouts|yells|sings|singing|humming|melody|whispers|softly|sighs|groans|gasp|panicking|pouts|yawns|sleepy|drowsy|grunts|excited|cheering|amazed|awe)\]/i.test(aiSpokenText);
   
   // 2. Check for High Emotion, Jokes, Humor, Cricket Sounds, Prank, Drama in User Input or AI Response
   const hasHighEmotionIntent = /\b(?:kaget|dor|teriak|jerit|nangis|sedih|hiks|ketawa|ngakak|lucu|lucu\s+banget|canda|candaan|jokes|joke|lelucon|humor|lawak|lawakan|ngelawak|tebak\s*tebakan|tebakan|gombal|gombalan|krik|jangkrik|prank|hantu|kecoa|marah|kesal|panik|nyanyi|singing|lagu|sayang|bisik|ngambek|gemas|awikwok|wkwk|haha|hehe|hihi|gokil)\b/i.test(cleanInput) || /\b(?:krik\s*krik|jangkrik|tebak-tebakan|lelucon|jokes)\b/i.test(cleanOutput);
@@ -2866,8 +2866,8 @@ async function sayBedtimeFarewellInActiveVCs(client) {
         textChannel.send(`🌙 **[Waktunya Tidur]** ${cleanText}`).catch(() => {});
       }
 
-      // 2. Play audio resource via ElevenLabs and wait for completion
-      const resource = await textToAudioResource(farewellText, false, 'eleven_flash_v2_5', client);
+      // 2. Play audio resource via ElevenLabs v3 (Full Emotional & Audio Tags Model) and wait for completion
+      const resource = await textToAudioResource(farewellText, client, 2000, { forcedModel: 'eleven_v3' });
       if (resource) {
         player.play(resource);
         isBotSpeaking.set(guildId, true);

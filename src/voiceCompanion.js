@@ -2779,6 +2779,7 @@ module.exports = {
   generateVoiceAIResponse,
   recordSessionEntry,
   speakTextInVC,
+  detectVoiceModel,
   audioPlayers,
   activeConnections,
   WHISPER_HALLUCINATIONS,

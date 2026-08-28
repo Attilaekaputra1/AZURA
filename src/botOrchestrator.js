@@ -687,6 +687,8 @@ async function handleBotOrchestratorSelectMenu(interaction) {
       return interaction.showModal(modal);
 
     } else if (selectedVal.startsWith('orch_cmd_')) {
+      await interaction.deferReply({ ephemeral: false });
+
       const parts = selectedVal.split('_');
       const guildId = parts[2];
       const botId = parts[3];
@@ -695,7 +697,7 @@ async function handleBotOrchestratorSelectMenu(interaction) {
 
       const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
       if (!targetGuild) {
-        return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
+        return interaction.editReply({ content: '❌ Server tidak ditemukan.' });
       }
 
       let targetChannel = interaction.channel;
@@ -706,13 +708,11 @@ async function handleBotOrchestratorSelectMenu(interaction) {
       }
 
       if (!targetChannel) {
-        return interaction.reply({
-          content: '❌ Tidak dapat menemukan text channel yang sesuai di server tersebut untuk mengirimkan perintah.',
-          flags: 64
+        return interaction.editReply({
+          content: '❌ Tidak dapat menemukan text channel yang sesuai di server tersebut untuk mengirimkan perintah.'
         });
       }
 
-      await interaction.deferReply({ ephemeral: false });
       const res = await operateBot(targetGuild, targetChannel, botId, commandText, interaction.user, isOwner);
       return interaction.editReply({ content: res.message });
     }

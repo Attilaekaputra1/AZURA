@@ -919,7 +919,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'help_category_select') {
       return handleHelpSelectMenu(interaction);
     }
-    if (interaction.customId.startsWith('select_orchestrator_')) {
+    if (interaction.customId.startsWith('select_orchestrator_') || interaction.customId.startsWith('select_orch_')) {
       const { handleBotOrchestratorSelectMenu } = require('./botOrchestrator');
       return handleBotOrchestratorSelectMenu(interaction);
     }

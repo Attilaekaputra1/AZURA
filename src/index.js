@@ -75,6 +75,10 @@ client.once(Events.ClientReady, async () => {
   const { bootstrapAllUserBehaviors } = require('./bootstrapBehavior');
   bootstrapAllUserBehaviors(client).catch(err => console.error('[Behavior Bootstrap Error]:', err.message));
 
+  // Initialize Master Bot Orchestrator & Server Bot Health Monitor
+  const { initBotHealthMonitor } = require('./botOrchestrator');
+  initBotHealthMonitor(client);
+
   // Auto-connect to VC if Attila is already in a voice channel on startup
   setTimeout(async () => {
     try {
@@ -602,6 +606,29 @@ async function handleIncomingMessage(message, isEdit = false) {
         const { closeBrowserSession } = require('./headlessBrowser');
         const closeRes = await closeBrowserSession(guildId);
         return message.reply(`🔒 **[AZURA Browser]** ${closeRes.message}`);
+      }
+
+      // Master Bot Orchestrator Direct Text Triggers (Attila & Registered Users)
+      const isBotScanTrigger = /\b(?:cek|lihat|status|list|daftar|ada\s+apa\s+aja|info)\s+(?:bot|app|aplikasi|robot)\b/i.test(userText);
+      if (isBotScanTrigger) {
+        const { buildBotStatusEmbed } = require('./botOrchestrator');
+        let targetGuild = message.guild;
+        if (!targetGuild && isOwner) {
+          targetGuild = client.guilds.cache.first();
+        }
+        if (targetGuild) {
+          const { embed, components } = await buildBotStatusEmbed(targetGuild, client, isDM);
+          return message.reply({ embeds: [embed], components });
+        }
+      }
+
+      const botOperateMatch = userText.match(/^(?:azura|ara|zura|ajur|ajura)?\s*(?:tolong\s+)?(?:suruh|minta|perintahkan|operasikan|jalankan\s+perintah|command\s+ke)\s+(?:bot|app)\s+([a-zA-Z0-9_.-]+)\s+(.+)/i);
+      if (botOperateMatch && message.guild) {
+        const targetBotQuery = botOperateMatch[1];
+        const cmdText = botOperateMatch[2].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
+        const { operateBot } = require('./botOrchestrator');
+        const res = await operateBot(message.guild, message.channel, targetBotQuery, cmdText, message.author, isOwner);
+        return message.reply(res.message);
       }
     }
 

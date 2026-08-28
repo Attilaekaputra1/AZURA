@@ -421,11 +421,13 @@ async function interceptRouteAndDistance(prompt) {
   const hasRouteIntent = /\b(?:berapa\s+lama|waktu\s+tempuh|jarak|berapa\s+km|rute\s+krl|naik\s+krl|naik\s+kereta|transit\s+di\s+mana|stasiun\s+ke\s+stasiun|dari\s+.+\s+ke\s+.+)\b/i.test(lower);
   if (!hasRouteIntent) return null;
 
-  // Extract "dari X ke Y" or "X ke Y"
+  // Extract "dari X ke Y" or "stasiun X ke stasiun Y"
   const matchFromTo = lower.match(/(?:dari|stasiun)\s+([a-z0-9\s.]+?)\s+(?:ke|menuju|sampai)\s+(?:stasiun\s+)?([a-z0-9\s.]+?)(?:[?.,!]|$)/i);
   if (matchFromTo) {
-    const origin = matchFromTo[1].trim();
-    const destination = matchFromTo[2].trim();
+    const noiseRegex = /\b(?:berapa\s+km|berapa\s+lama|waktu\s+tempuh|jarak|naik\s+apa|transit\s+di\s+mana|ya|nih|dong|kira\s*kira|estimasinya|lewat\s+mana|tolong|coba)\b/gi;
+    let origin = matchFromTo[1].replace(noiseRegex, '').trim();
+    let destination = matchFromTo[2].replace(noiseRegex, '').trim();
+
     if (origin && destination && origin !== destination && origin.length >= 2 && destination.length >= 2) {
       console.log(`[Route Engine]: 🗺️ Intercepted route query: "${origin}" ➔ "${destination}"`);
       const routeData = await getVerifiedRouteAndDistance(origin, destination);

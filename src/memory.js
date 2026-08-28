@@ -109,6 +109,11 @@ function addFact(userId, fact, scope = 'private', guildId = null) {
   const cleanFact = fact.trim();
   if (!cleanFact) return { success: false };
 
+  // 🛡️ Filter questions, interrogation & interrogative sentences
+  if (cleanFact.includes('?') || /^(?:kamu\s+)?(?:inget|ingat|tau|tahu|siapa|apa|kenapa|gimana|apakah|boleh|bisa)\b/i.test(cleanFact)) {
+    return { success: false, invalid: true };
+  }
+
   // 🛡️ SECURITY GUARD: Block passwords, PINs, credentials, KTP/NIK
   if (isSacredData(cleanFact)) {
     console.warn(`[Memory Security Guard]: ⚠️ Blocked attempt to save sacred/confidential data.`);
@@ -313,6 +318,13 @@ function buildMemoryEmbedAndDropdown(userId, guildId, channelId, selectedScope =
  * Auto-detect if user is explicitly telling AZURA a fact to remember
  */
 function autoExtractFact(userId, prompt, guildId = null) {
+  if (!prompt || typeof prompt !== 'string') return null;
+
+  // Ignore questions, quizzes, or interrogations
+  if (prompt.includes('?') || /\b(?:siapa|apa|kenapa|gimana|kapan|apakah|tau\s+gak|tahu\s+gak|inget\s+gak|ingat\s+gak|coba\s+tebak)\b/i.test(prompt)) {
+    return null;
+  }
+
   const lower = prompt.toLowerCase().trim();
 
   // Explicit trigger: "ingat ya...", "catat ya...", "remember...", "ingetin ya...", "fyi..."

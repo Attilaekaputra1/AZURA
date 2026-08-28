@@ -542,18 +542,27 @@ async function operateBot(guild, channel, targetQuery, commandText, author, isOw
   };
 }
 
+let healthMonitorTimer = null;
+
 /**
  * Background Health Monitor: Periodically checks all bots across all servers
  * Sends Auto-Alerts EXCLUSIVELY to Attila's Direct Message (DM) when any bot dies.
  * @param {import('discord.js').Client} client 
  */
 function initBotHealthMonitor(client) {
+  if (healthMonitorTimer) {
+    clearInterval(healthMonitorTimer);
+    healthMonitorTimer = null;
+  }
+
   const CHECK_INTERVAL_MS = 15 * 60 * 1000; // Check every 15 minutes
 
   console.log('[Bot Orchestrator]: 🛡️ Bot Health Monitor initialized (15-min background worker).');
 
-  setInterval(async () => {
+  healthMonitorTimer = setInterval(async () => {
     if (!client || !client.isReady()) return;
+    const { isAzuraSleeping } = require('./sleepMode');
+    if (isAzuraSleeping && isAzuraSleeping()) return; // Mute when Azura is sleeping
     const ownerId = config.OWNER_DISCORD_ID;
     if (!ownerId) return;
 
@@ -619,6 +628,17 @@ function initBotHealthMonitor(client) {
       console.error('[Bot Health Monitor Error]:', err.message);
     }
   }, CHECK_INTERVAL_MS);
+}
+
+/**
+ * Stop Background Health Monitor (when entering sleep mode)
+ */
+function stopBotHealthMonitor() {
+  if (healthMonitorTimer) {
+    clearInterval(healthMonitorTimer);
+    healthMonitorTimer = null;
+    console.log('[Bot Orchestrator]: ⏸️ Bot Health Monitor paused/stopped.');
+  }
 }
 
 /**
@@ -847,6 +867,7 @@ module.exports = {
   buildBotDetailEmbed,
   operateBot,
   initBotHealthMonitor,
+  stopBotHealthMonitor,
   handleBotOrchestratorSelectMenu,
   handleBotOrchestratorButton,
   handleBotOrchestratorModal

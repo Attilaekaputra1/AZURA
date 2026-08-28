@@ -2589,6 +2589,11 @@ function isInCompanionMode(guildId) {
  * @returns {Promise<{ success: boolean, message: string }>}
  */
 async function joinAttilaVoiceChannel(client) {
+  const { isAzuraSleeping } = require('./sleepMode');
+  if (isAzuraSleeping && isAzuraSleeping()) {
+    return { success: false, message: '🌙 AZURA sedang dalam Mode Tidur (Deep Sleep). Bangunkan dulu dengan `/sleep aksi:bangun password:@Timetosleepara`.' };
+  }
+
   const ownerId = config.OWNER_DISCORD_ID;
   if (!ownerId) {
     return { success: false, message: 'Owner ID belum diset di .env' };

@@ -126,6 +126,30 @@ async function handleIncomingMessage(message, isEdit = false) {
   // Ignore messages from bots or mass mentions (@everyone / @here)
   if (message.author.bot || message.mentions.everyone) return;
 
+  // Sleep Mode Check: Suspend all processing when Azura is sleeping
+  const { isAzuraSleeping, wakeUpAzura, enterSleepMode, SLEEP_PASSWORD } = require('./sleepMode');
+  const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
+
+  // Direct Text Sleep & Wake Triggers for Owner with Procedural Password
+  if (isOwner) {
+    const cleanLower = message.content.toLowerCase();
+    if (/\b(?:bangun|wake\s*up|aktifkan\s*kembali)\b/i.test(cleanLower) && message.content.includes(SLEEP_PASSWORD)) {
+      const res = await wakeUpAzura(client, SLEEP_PASSWORD, message.author.id);
+      if (res.embed) return message.reply({ embeds: [res.embed] });
+      return message.reply(res.message);
+    }
+    if (/\b(?:tidur|sleep\s*mode|masuk\s*mode\s*tidur)\b/i.test(cleanLower) && message.content.includes(SLEEP_PASSWORD)) {
+      const res = await enterSleepMode(client, SLEEP_PASSWORD, message.author.id);
+      if (res.embed) return message.reply({ embeds: [res.embed] });
+      return message.reply(res.message);
+    }
+  }
+
+  // If Azura is Sleeping, IGNORE ALL MESSAGES & TRIGGERS COMPLETELY
+  if (isAzuraSleeping()) {
+    return; // Complete radio silence
+  }
+
   // 0. Security Guard: Absolute Zero Response for Blacklisted / Banned Users
   const { isUserBanned, recordUserInteraction, getUserRecord, getUserCallingName } = require('./vault');
   if (isUserBanned(message.author.id)) {
@@ -136,7 +160,6 @@ async function handleIncomingMessage(message, isEdit = false) {
   const isDM = !message.guild;
   const rawDisplayName = message.member?.displayName || message.author.displayName || message.author.username;
   const userName = getUserCallingName(message.author.id, rawDisplayName);
-  const isOwner = config.OWNER_DISCORD_ID && message.author.id === config.OWNER_DISCORD_ID;
   const guildId = message.guild?.id || null;
 
   // Record daily metrics for Daily Digest
@@ -726,6 +749,8 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
 
 // Event: Voice State Update (Voice Channel Companion)
 client.on('voiceStateUpdate', async (oldState, newState) => {
+  const { isAzuraSleeping } = require('./sleepMode');
+  if (isAzuraSleeping && isAzuraSleeping()) return; // Disallow auto-follow when sleeping
   await handleVoiceStateUpdate(oldState, newState, client);
 });
 
@@ -739,6 +764,22 @@ client.on('interactionCreate', async (interaction) => {
         content: '🚫 Akses kamu ke seluruh layanan AZURA telah dihentikan secara permanen (Diblokir Total).',
         flags: 64
       });
+    }
+    return;
+  }
+
+  // Sleep Mode Check: Suspend interactions when Azura is sleeping (except /sleep wake)
+  const { isAzuraSleeping } = require('./sleepMode');
+  if (isAzuraSleeping && isAzuraSleeping()) {
+    if (interaction.isChatInputCommand() && interaction.commandName === 'sleep') {
+      const startTime = Date.now();
+      return handleSlashCommand(interaction, startTime);
+    }
+    if (interaction.isRepliable()) {
+      return interaction.reply({
+        content: '🌙 **AZURA Sedang Tidur (Deep Sleep Mode Active)**\nSeluruh sistem dinonaktifkan sementara untuk mengoptimalkan beban & memori VPS. Gunakan `/sleep wake password:@Timetosleepara` (Owner Only) untuk mengaktifkan kembali.',
+        flags: 64
+      }).catch(() => {});
     }
     return;
   }

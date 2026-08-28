@@ -474,7 +474,23 @@ const commands = [
         .setDescription('Kirim perintah teks ke bot lain dan pantau responnya')
         .addUserOption(opt => opt.setName('bot').setDescription('Tag atau pilih @bot target (contoh: @Mudae, @Rythm, @Lofi Radio)').setRequired(true))
         .addStringOption(opt => opt.setName('command').setDescription('Perintah teks yang ingin dikirim (contoh: !play lofi, $daily, .rank)').setRequired(true))
-        .addChannelOption(opt => opt.setName('channel').setDescription('Channel target (Default: channel saat ini)').setRequired(false)))
+        .addChannelOption(opt => opt.setName('channel').setDescription('Channel target (Default: channel saat ini)').setRequired(false))),
+
+  new SlashCommandBuilder()
+    .setName('sleep')
+    .setDescription('Aktifkan Mode Tidur (Deep Sleep) AZURA untuk optimasi & meredakan beban VPS (Khusus Owner)')
+    .addSubcommand(sub =>
+      sub.setName('start')
+        .setDescription('Tidurkan AZURA dan nonaktifkan seluruh fitur sementara')
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true))
+        .addStringOption(opt => opt.setName('alasan').setDescription('Alasan optimasi/istirahat').setRequired(false)))
+    .addSubcommand(sub =>
+      sub.setName('wake')
+        .setDescription('Bangunkan AZURA dan aktifkan kembali seluruh fitur secara normal')
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('status')
+        .setDescription('Cek status aktif/tidur dan penggunaan resource memori AZURA'))
 ];
 
 const fs = require('fs');
@@ -1847,6 +1863,52 @@ async function handleSlashCommand(interaction, startTime) {
       await interaction.deferReply({ ephemeral: false });
       const res = await operateBot(interaction.guild, targetChannel, botQuery, commandText, interaction.user, isOwner);
       return interaction.editReply({ content: res.message });
+    }
+
+  } else if (commandName === 'sleep') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({
+        content: '⛔ **[Akses Ditolak]** Fitur Sleep Mode secara prosedural hanya boleh dioperasikan oleh Owner (Attila).',
+        flags: 64
+      });
+    }
+
+    const { enterSleepMode, wakeUpAzura, getSleepState } = require('./sleepMode');
+    const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === 'start') {
+      const password = interaction.options.getString('password');
+      const reason = interaction.options.getString('alasan') || 'Manual VPS Optimization by Owner';
+      const res = await enterSleepMode(interaction.client, password, user.id, reason);
+      if (res.success && res.embed) {
+        return interaction.reply({ embeds: [res.embed] });
+      } else {
+        return interaction.reply({ content: res.message, flags: 64 });
+      }
+    } else if (subcommand === 'wake') {
+      const password = interaction.options.getString('password');
+      const res = await wakeUpAzura(interaction.client, password, user.id);
+      if (res.success && res.embed) {
+        return interaction.reply({ embeds: [res.embed] });
+      } else {
+        return interaction.reply({ content: res.message, flags: 64 });
+      }
+    } else if (subcommand === 'status') {
+      const state = getSleepState();
+      const memUsage = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
+      const embed = new EmbedBuilder()
+        .setColor(state.isSleeping ? 0x2C2F33 : 0x57F287)
+        .setTitle(`💤 Status Sleep Mode & Resource AZURA`)
+        .setDescription(
+          `• **Status Saat Ini:** ${state.isSleeping ? '🌙 **SEDANG TIDUR (Deep Sleep Active)**' : '🟢 **AKTIF / ONLINE**'}\n` +
+          `• **Penggunaan RAM VPS:** \`${memUsage} MB\`\n` +
+          `• **Waktu Mulai Tidur:** ${state.sleepStartedAt ? new Date(state.sleepStartedAt).toLocaleString('id-ID') : '-'}\n` +
+          `• **Alasan:** ${state.reason || '-'}`
+        )
+        .setFooter({ text: 'AZURA System Health Engine' })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
     }
   }
 }

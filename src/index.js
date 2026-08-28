@@ -388,6 +388,11 @@ async function handleIncomingMessage(message, isEdit = false) {
   // If not a direct call and not the 3rd passive mention, ignore
   if (!isDirectCall && !isThirdPersonNimbrung) return;
 
+  // Handle direct headless browser text commands for Owner (Attila)
+  const { handleTextBrowserCommands } = require('./headlessBrowser');
+  const browserHandled = await handleTextBrowserCommands(message, client);
+  if (browserHandled) return;
+
   // Extract Visual Media for Vision (Attachments, Discord Stickers, Tenor/Giphy GIFs, Embeds)
   const { extractVisualMedia } = require('./visionHelper');
   const { imageUrls, visualContextPrompt } = await extractVisualMedia(message);

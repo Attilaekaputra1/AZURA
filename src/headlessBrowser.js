@@ -2,7 +2,7 @@
  * AZURA Headless Browser & Live Visual Companion Engine
  * Powered by Playwright Chromium with ultra-lightweight memory management,
  * Chrome DevTools Protocol (CDP) 60fps Real-Time Screencast,
- * safety guardrails (Anti-Judol/NSFW), and direct VC companion sync.
+ * safety guardrails (Anti-Judol/NSFW), and direct VC / Text companion sync.
  */
 
 const { chromium } = require('playwright-chromium');
@@ -21,6 +21,21 @@ const BLOCKED_DOMAINS = [
 let globalBrowser = null;
 const activeBrowserSessions = new Map(); // guildId -> { context, page, cdp, lastActive, timer, currentUrl, currentTitle }
 const IDLE_BROWSER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes auto close
+
+// Documentation Mode:
+// false = Background Mode (Silent in Discord chat, live streaming 60fps only on http://203.175.10.163:7860/live)
+// true = Active Documentation Mode (Posts visual cards with screenshot to Discord chat on every action)
+let visualDocumentationEnabled = false;
+
+function setVisualDocumentationMode(enabled) {
+  visualDocumentationEnabled = !!enabled;
+  console.log(`[Headless Browser]: 📸 Visual documentation in Discord channel set to: ${visualDocumentationEnabled ? 'ENABLED' : 'DISABLED (Background Mode)'}`);
+  return visualDocumentationEnabled;
+}
+
+function isVisualDocumentationEnabled() {
+  return visualDocumentationEnabled;
+}
 
 /**
  * Get or launch shared Chromium instance with low-resource flags
@@ -99,19 +114,15 @@ async function getOrCreateSession(guildId) {
       everyNthFrame: 1
     });
 
-    cdp.on('Page.screencastFrame', async ({ data, sessionId }) => {
+    cdp.on('Page.screencastFrame', async ({ data, sessionId: sid }) => {
       try {
-        await cdp.send('Page.screencastFrameAck', { sessionId });
-        broadcastFrame(data, {
-          title: session?.currentTitle || 'AZURA Screen Companion',
-          url: session?.currentUrl || 'about:blank',
-          activeGuild: guildId
-        });
+        broadcastFrame(data);
+        await cdp.send('Page.screencastFrameAck', { sessionId: sid });
       } catch (_) {}
     });
-    console.log('[Headless Browser]: 📺 CDP Screencast 60fps stream initialized!');
-  } catch (cdpErr) {
-    console.warn('[Headless Browser Warning]: CDP Screencast setup error:', cdpErr.message);
+    console.log(`[Headless Browser]: 🎥 Real-time 60fps Screencast connected for guild ${guildId}`);
+  } catch (err) {
+    console.error('[Headless Browser CDP Error]:', err.message);
   }
 
   session = {
@@ -120,8 +131,7 @@ async function getOrCreateSession(guildId) {
     cdp,
     lastActive: Date.now(),
     currentUrl: 'about:blank',
-    currentTitle: 'Browser Standby',
-    timer: null
+    currentTitle: 'Browser Standby'
   };
 
   activeBrowserSessions.set(guildId, session);
@@ -130,7 +140,34 @@ async function getOrCreateSession(guildId) {
 }
 
 /**
- * Check if URL is safe to open
+ * Safely close browser session for a guild
+ * @param {string} guildId 
+ */
+async function closeBrowserSession(guildId) {
+  const session = activeBrowserSessions.get(guildId);
+  if (!session) return { success: true, message: 'Tidak ada sesi browser yang aktif.' };
+
+  try {
+    if (session.timer) clearTimeout(session.timer);
+    if (session.cdp) {
+      await session.cdp.send('Page.stopScreencast').catch(() => {});
+      await session.cdp.detach().catch(() => {});
+    }
+    await session.page.close().catch(() => {});
+    await session.context.close().catch(() => {});
+  } catch (err) {
+    console.error('[Headless Browser Close Error]:', err.message);
+  } finally {
+    activeBrowserSessions.delete(guildId);
+    updateStreamMeta({ title: 'AZURA Companion Standby', url: 'about:blank', activeGuild: null });
+    console.log(`[Headless Browser]: 🔒 Closed browser session for guild ${guildId}`);
+  }
+
+  return { success: true, message: 'Sesi browser berhasil ditutup dan memori dibebaskan.' };
+}
+
+/**
+ * Check if URL is safe
  * @param {string} url 
  * @returns {boolean}
  */
@@ -141,12 +178,12 @@ function isSafeUrl(url) {
 }
 
 /**
- * Format query or string into a valid web URL
+ * Format string query into a valid URL
  * @param {string} input 
  * @returns {string}
  */
 function formatToUrl(input) {
-  const clean = input.trim();
+  let clean = input.trim();
   if (/^https?:\/\//i.test(clean)) return clean;
   if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/.*)?$/i.test(clean)) return `https://${clean}`;
   return `https://duckduckgo.com/?q=${encodeURIComponent(clean)}`;
@@ -258,25 +295,22 @@ async function browseYouTube(guildId, query, client, voiceChannel, textChannel) 
 }
 
 /**
- * Scroll the current active webpage (smooth scrolling) and take updated visual screenshot
+ * Scroll webpage in active session
  * @param {string} guildId 
  * @param {'down'|'up'} direction 
- * @param {number} amount 
  */
-async function scrollWebpage(guildId, direction = 'down', amount = 600) {
+async function scrollWebpage(guildId, direction = 'down') {
   const session = activeBrowserSessions.get(guildId);
   if (!session || session.page.isClosed()) {
-    return { success: false, error: 'Tidak ada sesi browser yang sedang aktif. Buka halaman dulu yaa!' };
+    return { success: false, error: 'Tidak ada browser yang aktif.' };
   }
 
   try {
     const { page } = session;
-    const scrollOffset = direction === 'down' ? amount : -amount;
-    await page.evaluate((offset) => {
-      window.scrollBy({ top: offset, behavior: 'smooth' });
-    }, scrollOffset);
+    const scrollAmount = direction === 'down' ? 500 : -500;
+    await page.evaluate((y) => window.scrollBy({ top: y, behavior: 'smooth' }), scrollAmount);
+    await page.waitForTimeout(800);
 
-    await page.waitForTimeout(600);
     const screenshot = await page.screenshot({ type: 'png' });
     resetSessionTimer(guildId);
 
@@ -284,8 +318,7 @@ async function scrollWebpage(guildId, direction = 'down', amount = 600) {
       success: true,
       title: session.currentTitle,
       url: session.currentUrl,
-      screenshot,
-      direction
+      screenshot
     };
   } catch (err) {
     console.error('[Headless Browser Scroll Error]:', err.message);
@@ -294,31 +327,7 @@ async function scrollWebpage(guildId, direction = 'down', amount = 600) {
 }
 
 /**
- * Close browser session for a specific guild
- * @param {string} guildId 
- */
-async function closeBrowserSession(guildId) {
-  const session = activeBrowserSessions.get(guildId);
-  if (!session) return { success: false, message: 'Tidak ada browser yang aktif.' };
-
-  try {
-    if (session.timer) clearTimeout(session.timer);
-    if (session.cdp) {
-      await session.cdp.send('Page.stopScreencast').catch(() => {});
-    }
-    await session.context.close().catch(() => {});
-    activeBrowserSessions.delete(guildId);
-    console.log(`[Headless Browser]: 🔒 Closed browser session for guild ${guildId}. RAM released.`);
-    return { success: true, message: 'Sesi browser berhasil ditutup & RAM dibebaskan.' };
-  } catch (err) {
-    console.error('[Headless Browser Close Error]:', err.message);
-    activeBrowserSessions.delete(guildId);
-    return { success: true, message: 'Sesi browser ditutup.' };
-  }
-}
-
-/**
- * Type text into an active input field / search bar on the webpage
+ * Type text into the first active text input / search box
  * @param {string} guildId 
  * @param {string} textToType 
  */
@@ -330,18 +339,31 @@ async function typeIntoWebpage(guildId, textToType) {
 
   try {
     const { page } = session;
-    const inputSelector = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"]';
-    const input = await page.$(inputSelector);
-    if (input) {
-      await input.click();
-      await input.fill(textToType);
+    const focused = await page.evaluate((val) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        activeEl.value = val;
+        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      }
+      const firstInput = document.querySelector('input[type="text"], input[type="search"], input:not([type]), textarea');
+      if (firstInput) {
+        firstInput.focus();
+        firstInput.value = val;
+        firstInput.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      }
+      return false;
+    }, textToType);
+
+    if (focused) {
       await page.keyboard.press('Enter').catch(() => {});
     } else {
-      await page.keyboard.type(textToType);
+      await page.keyboard.type(textToType, { delay: 50 });
       await page.keyboard.press('Enter').catch(() => {});
     }
 
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
     const title = await page.title().catch(() => session.currentTitle);
     const url = page.url();
     session.currentUrl = url;
@@ -456,15 +478,42 @@ async function getWebpageSummary(guildId) {
 }
 
 /**
+ * Take live screenshot on demand
+ * @param {string} guildId 
+ */
+async function takeScreenshotOnDemand(guildId) {
+  const session = activeBrowserSessions.get(guildId);
+  if (!session || session.page.isClosed()) {
+    return { success: false, error: 'Tidak ada browser yang sedang aktif di guild ini.' };
+  }
+  try {
+    const screenshot = await session.page.screenshot({ type: 'png' });
+    return {
+      success: true,
+      title: session.currentTitle || 'Layar Browser',
+      url: session.currentUrl || 'about:blank',
+      screenshot
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Send interactive Visual Snapshot card with 60fps Live Stream Button to Discord channel
  * @param {import('discord.js').TextChannel} textChannel 
  * @param {string} title 
  * @param {string} url 
  * @param {Buffer} screenshotBuffer 
  * @param {string} [extraNotes] 
+ * @param {boolean} [forceSend=false] 
  */
-async function sendVisualSnapshotCard(textChannel, title, url, screenshotBuffer, extraNotes = '') {
-  if (!textChannel || !textChannel.send) return;
+async function sendVisualSnapshotCard(textChannel, title, url, screenshotBuffer, extraNotes = '', forceSend = false) {
+  // If documentation mode is disabled and not explicitly requested, run silently in background
+  if (!visualDocumentationEnabled && !forceSend) {
+    return null;
+  }
+  if (!textChannel || !textChannel.send) return null;
 
   const fileName = `azura_snapshot_${Date.now()}.png`;
   const attachment = new AttachmentBuilder(screenshotBuffer, { name: fileName });
@@ -474,10 +523,10 @@ async function sendVisualSnapshotCard(textChannel, title, url, screenshotBuffer,
     .setTitle(`🌐 [AZURA Screen Companion] ${title.slice(0, 80)}`)
     .setURL(url && url.startsWith('http') ? url : 'https://www.google.com')
     .setDescription(
-      `📺 **Layar Headless Browser Aktif di VC**\n` +
+      `📺 **Layar Headless Browser Aktif**\n` +
       `🔗 **URL:** \`${url ? url.slice(0, 100) : '-'}\`\n` +
       `${extraNotes ? `✨ ${extraNotes}\n` : ''}\n` +
-      `*💡 Klik tombol di bawah untuk menonton live stream layar browser secara realtime (60fps)!*`
+      `*💡 Tonton live stream 60fps di portal web tanpa lagging!*`
     )
     .setImage(`attachment://${fileName}`)
     .setFooter({ text: 'Playwright Chromium • Ultra Low Latency Live Stream' })
@@ -495,6 +544,151 @@ async function sendVisualSnapshotCard(textChannel, title, url, screenshotBuffer,
   });
 }
 
+/**
+ * Process text-based browser command triggers from chat messages
+ * @param {import('discord.js').Message} message 
+ * @param {import('discord.js').Client} client 
+ * @returns {Promise<boolean>} Whether message was handled as browser command
+ */
+async function handleTextBrowserCommands(message, client) {
+  if (!message.content) return false;
+  const isOwner = message.author.id === config.OWNER_DISCORD_ID;
+  if (!isOwner) return false;
+
+  const content = message.content.trim();
+  const lower = content.toLowerCase();
+  const guildId = message.guild?.id || 'default_guild';
+  const textChannel = message.channel;
+
+  // 1. Toggle Documentation Mode (Aktifkan / Matikan dokumentasi ke Discord chat)
+  const docToggleMatch = lower.match(/\b(?:atur|set|ubah)?\s*(?:mode\s+)?dokumentasi\s+browser\s*(?:ke\s+)?(aktif|nyala|on|mati|off|background|latar\s+belakang)\b/i);
+  if (docToggleMatch) {
+    const state = docToggleMatch[1].toLowerCase();
+    const isEnable = /aktif|nyala|on/.test(state);
+    setVisualDocumentationMode(isEnable);
+    if (isEnable) {
+      await message.reply('📸 **[Dokumentasi Visual Chat: AKTIF]**\nSetiap navigasi browser kini akan mengirimkan kartu screenshot ke channel chat Discord.');
+    } else {
+      await message.reply('🔇 **[Dokumentasi Visual Chat: NONAKTIF (Mode Latar Belakang)]**\nBrowser kini berjalan senyap di background tanpa spam screenshot di chat. Layar tetap disiarkan live 60fps di: 👉 ' + STREAM_URL);
+    }
+    return true;
+  }
+
+  // 2. Explicit Screenshot On-Demand
+  if (/\b(?:screenshot|ss|tangkapan\s+layar|foto\s+layar|kirim\s+layar|tampilkan\s+layar)\s*(?:browser|web|halaman|layarnya)?\b/i.test(lower)) {
+    const snap = await takeScreenshotOnDemand(guildId);
+    if (snap.success) {
+      await sendVisualSnapshotCard(textChannel, snap.title, snap.url, snap.screenshot, 'Tangkapan layar browser terbaru atas permintaanmu.', true);
+    } else {
+      await message.reply(`⚠️ ${snap.error}`);
+    }
+    return true;
+  }
+
+  // 3. Open Chrome / Standby
+  if (/\b(?:buka|bukain|jalankan)\s+(?:chrome|browser|google\s+chrome)\b/i.test(lower) && !/situs|web|link|url|youtube/i.test(lower)) {
+    const res = await openWebpage(guildId, 'https://www.google.com');
+    if (res.success) {
+      await message.reply('🌐 **[AZURA Browser]** Google Chrome sudah dibuka di latar belakang. Live stream aktif di: 👉 ' + STREAM_URL);
+      await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, 'Browser siap menerima perintah navigasi.');
+    } else {
+      await message.reply(`❌ ${res.error}`);
+    }
+    return true;
+  }
+
+  // 4. Open Website / URL
+  const openUrlMatch = content.match(/\b(?:buka|kunjungi|browsing|buka\s+situs|buka\s+web)\s+(https?:\/\/[^\s]+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)/i);
+  if (openUrlMatch && openUrlMatch[1]) {
+    const targetUrl = openUrlMatch[1];
+    const res = await openWebpage(guildId, targetUrl);
+    if (res.success) {
+      await message.reply(`🌐 **[AZURA Browser]** Membuka halaman: **${res.title}** (\`${res.url}\`)\nLive stream: 👉 ${STREAM_URL}`);
+      await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, `Halaman ${targetUrl} berhasil dimuat.`);
+    } else {
+      await message.reply(`❌ ${res.error}`);
+    }
+    return true;
+  }
+
+  // 5. YouTube Browse
+  const ytMatch = content.match(/\b(?:buka|putar|tonton)\s+youtube\s*(?:cari|video)?\s*(.+)/i);
+  if (ytMatch && ytMatch[1]) {
+    const query = ytMatch[1].trim();
+    const voiceChannel = message.member?.voice?.channel;
+    const res = await browseYouTube(guildId, query, client, voiceChannel, textChannel);
+    if (res.success) {
+      await message.reply(`🎥 **[AZURA Browser]** YouTube: **${res.title}** dimuat.\nLive stream: 👉 ${STREAM_URL}`);
+      await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, 'Video YouTube dimuat.');
+    } else {
+      await message.reply(`❌ ${res.error}`);
+    }
+    return true;
+  }
+
+  // 6. Type into Webpage
+  const typeMatch = content.match(/\b(?:ketik|isi\s+form|masukkan\s+teks)\s+(.+)/i);
+  if (typeMatch && typeMatch[1] && /\b(?:di\s+browser|di\s+web|di\s+layar)\b/i.test(lower)) {
+    const cleanText = typeMatch[1].replace(/\b(?:di\s+browser|di\s+web|di\s+layar)\b/gi, '').trim();
+    const res = await typeIntoWebpage(guildId, cleanText);
+    if (res.success) {
+      await message.reply(`⌨️ **[AZURA Browser]** Berhasil mengetik: \`${cleanText}\``);
+      await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, `Berhasil mengetik: ${cleanText}`);
+    } else {
+      await message.reply(`❌ ${res.error}`);
+    }
+    return true;
+  }
+
+  // 7. Click on Webpage
+  const clickMatch = content.match(/\b(?:klik|tekan|pilih)\s+(?:tombol\s+|link\s+)?(.+)/i);
+  if (clickMatch && clickMatch[1] && /\b(?:di\s+browser|di\s+web|di\s+layar)\b/i.test(lower)) {
+    const cleanTarget = clickMatch[1].replace(/\b(?:di\s+browser|di\s+web|di\s+layar)\b/gi, '').trim();
+    const res = await clickOnWebpage(guildId, cleanTarget);
+    if (res.success) {
+      await message.reply(`🖱️ **[AZURA Browser]** Berhasil mengklik: \`${cleanTarget}\``);
+      await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, `Berhasil mengklik: ${cleanTarget}`);
+    } else {
+      await message.reply(`❌ ${res.error}`);
+    }
+    return true;
+  }
+
+  // 8. Scroll Webpage
+  if (/\b(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i.test(lower)) {
+    const isUp = /\b(?:atas|up)\b/i.test(lower);
+    const dir = isUp ? 'up' : 'down';
+    const res = await scrollWebpage(guildId, dir);
+    if (res.success) {
+      await message.reply(`📜 **[AZURA Browser]** Halaman digulir ke ${dir === 'down' ? 'bawah ⬇️' : 'atas ⬆️'}.`);
+      await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, `Halaman digulir ke ${dir}.`);
+    } else {
+      await message.reply(`❌ ${res.error}`);
+    }
+    return true;
+  }
+
+  // 9. Read / Summarize Webpage
+  if (/\b(?:jelaskan|baca|bacakan|ringkas)\s+(?:tampilan|isi|halaman|layar)\s*(?:web|browser|ini)?\b/i.test(lower)) {
+    const res = await getWebpageSummary(guildId);
+    if (res.success) {
+      await message.reply(`👁️ **[Ringkasan Halaman Web: ${res.title}]**\n\n${res.bodyText || res.headings || 'Tidak ada teks artikel yang terdeteksi.'}`);
+    } else {
+      await message.reply(`❌ ${res.error}`);
+    }
+    return true;
+  }
+
+  // 10. Close Browser
+  if (/\b(?:tutup|close|stop|matikan)\s+(?:chrome|browser|web|tab)\b/i.test(lower)) {
+    const res = await closeBrowserSession(guildId);
+    await message.reply(`🔒 **[AZURA Browser]** ${res.message}`);
+    return true;
+  }
+
+  return false;
+}
+
 module.exports = {
   getBrowser,
   openWebpage,
@@ -503,6 +697,10 @@ module.exports = {
   typeIntoWebpage,
   clickOnWebpage,
   getWebpageSummary,
+  takeScreenshotOnDemand,
   closeBrowserSession,
-  sendVisualSnapshotCard
+  sendVisualSnapshotCard,
+  setVisualDocumentationMode,
+  isVisualDocumentationEnabled,
+  handleTextBrowserCommands
 };

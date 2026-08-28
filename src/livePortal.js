@@ -42,13 +42,20 @@ function initLivePortal() {
       return res.end(getPortalHtml());
     }
 
-    // ── TO-DO DASHBOARD & REST API ──
-    if (req.url === '/todo' || req.url === '/tasks' || req.url.startsWith('/todo?')) {
-      const { getTodoDashboardHtml } = require('./todo');
+    // ── MASTER DASHBOARD (TO-DO, ADVICE & BUG REPORTS) ──
+    if (
+      req.url === '/todo' || req.url === '/tasks' || req.url.startsWith('/todo?') ||
+      req.url === '/feedback' || req.url === '/reports' || req.url.startsWith('/feedback?') ||
+      req.url === '/roadmap' || req.url.startsWith('/roadmap?')
+    ) {
+      const { getTodos } = require('./todo');
+      const { getAllFeedbackTickets } = require('./feedback');
+      const { generateMasterDashboardHtml } = require('./dashboardHtml');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(getTodoDashboardHtml());
+      return res.end(generateMasterDashboardHtml(getTodos(), getAllFeedbackTickets()));
     }
 
+    // ── REST API: TO-DO TASKS ──
     if (req.url === '/api/todo/list') {
       const { getTodos } = require('./todo');
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -106,10 +113,45 @@ function initLivePortal() {
       });
     }
 
-    if (req.url.startsWith('/roadmap') || req.url.startsWith('/feedback')) {
-      const { getTodoListHtml } = require('./feedback');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(getTodoListHtml());
+    // ── REST API: FEEDBACK & BUG REPORT TICKETS ──
+    if (req.url === '/api/feedback/list') {
+      const { getAllFeedbackTickets } = require('./feedback');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, tickets: getAllFeedbackTickets() }));
+    }
+
+    if (req.url === '/api/feedback/status' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      return req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const { updateFeedbackStatus } = require('./feedback');
+          const ticket = updateFeedbackStatus(payload.ticketId, payload.status, payload.rejectReason);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: !!ticket, ticket }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+    }
+
+    if (req.url === '/api/feedback/delete' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      return req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const { deleteFeedbackTicket } = require('./feedback');
+          const deleted = deleteFeedbackTicket(payload.ticketId);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: deleted }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
     }
 
     res.writeHead(404, { 'Content-Type': 'text/plain' });

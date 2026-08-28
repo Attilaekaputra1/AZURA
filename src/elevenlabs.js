@@ -56,6 +56,20 @@ function getModelVoiceSettings(modelId) {
 }
 
 /**
+ * Normalizes Indonesian phonetic pronunciation for ElevenLabs & TTS engines.
+ * Fixes: "Att" -> "At" (ElevenLabs reads English "Att" as /ɛt/ "Et", while "At" is pronounced as Indonesian /at/)
+ * @param {string} text 
+ * @returns {string}
+ */
+function normalizePhonetics(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text
+    .replace(/\bAtt\b/g, 'At')
+    .replace(/\batt\b/g, 'at')
+    .replace(/\bATT\b/g, 'At');
+}
+
+/**
  * Generate MP3 audio buffer from text using ElevenLabs API with Dynamic Model Routing, Quota Guard & Circuit Breaker
  * @param {string} text 
  * @param {string|null} voiceId 
@@ -65,6 +79,7 @@ function getModelVoiceSettings(modelId) {
  */
 function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = null) {
   return new Promise((resolve, reject) => {
+    const phoneticText = normalizePhonetics(text);
     const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
     if (!apiKey) {
       return reject(new Error('ELEVENLABS_API_KEY not configured'));
@@ -75,11 +90,14 @@ function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = nu
       return reject(new Error(`ElevenLabs Circuit Open: ${circuitBreakerReason}`));
     }
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
-    const selectedModel = modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH;
+    let selectedModel = modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH;
+    if (!selectedModel || selectedModel === 'auto' || !Object.values(ELEVENLABS_MODELS).includes(selectedModel)) {
+      selectedModel = ELEVENLABS_MODELS.FLASH;
+    }
     const voiceSettings = getModelVoiceSettings(selectedModel);
 
     const postData = JSON.stringify({
-      text: text,
+      text: phoneticText,
       model_id: selectedModel,
       voice_settings: voiceSettings
     });
@@ -131,8 +149,90 @@ function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = nu
   });
 }
 
+/**
+ * Stream MP3 audio in real-time from ElevenLabs using Low-Latency Streaming endpoint (optimize_streaming_latency=4)
+ * Returns a readable stream ready for immediate playback in Discord AudioPlayer.
+ * @param {string} text 
+ * @param {string|null} voiceId 
+ * @param {string|null} modelId 
+ * @param {import('discord.js').Client|null} client 
+ * @returns {Promise<import('stream').Readable>}
+ */
+function streamElevenLabsTTS(text, voiceId = null, modelId = null, client = null) {
+  return new Promise((resolve, reject) => {
+    const phoneticText = normalizePhonetics(text);
+    const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
+    if (!apiKey) {
+      return reject(new Error('ELEVENLABS_API_KEY not configured'));
+    }
+
+    if (isElevenLabsCircuitOpen()) {
+      return reject(new Error(`ElevenLabs Circuit Open: ${circuitBreakerReason}`));
+    }
+
+    const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
+    let selectedModel = modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH;
+    if (!selectedModel || selectedModel === 'auto' || !Object.values(ELEVENLABS_MODELS).includes(selectedModel)) {
+      selectedModel = ELEVENLABS_MODELS.FLASH;
+    }
+    const voiceSettings = getModelVoiceSettings(selectedModel);
+
+    const postData = JSON.stringify({
+      text: phoneticText,
+      model_id: selectedModel,
+      voice_settings: voiceSettings
+    });
+
+    const requestTimeout = Math.max(15000, Math.min(60000, text.length * 15));
+
+    const isFlashOrMulti = (selectedModel === ELEVENLABS_MODELS.FLASH || selectedModel === ELEVENLABS_MODELS.MULTILINGUAL_V2);
+    const streamQuery = isFlashOrMulti
+      ? '?optimize_streaming_latency=4&output_format=mp3_44100_128'
+      : '?output_format=mp3_44100_128';
+
+    const req = https.request({
+      hostname: 'api.elevenlabs.io',
+      path: `/v1/text-to-speech/${selectedVoice}/stream${streamQuery}`,
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: requestTimeout
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        let errBody = '';
+        res.on('data', chunk => errBody += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 401 || res.statusCode === 402 || res.statusCode === 429) {
+            openCircuitBreaker(`ElevenLabs error ${res.statusCode}: ${errBody.slice(0, 100)}`, 30 * 60 * 1000);
+          }
+          reject(new Error(`ElevenLabs Stream returned ${res.statusCode} (${selectedModel}): ${errBody}`));
+        });
+        return;
+      }
+
+      // Record usage
+      recordVoiceUsage(text.length, client).catch(() => {});
+      resolve(res);
+    });
+
+    req.on('error', (err) => reject(err));
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error(`ElevenLabs Stream timed out after ${Math.round(requestTimeout / 1000)}s`));
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
 module.exports = {
   generateElevenLabsTTS,
+  streamElevenLabsTTS,
   getModelVoiceSettings,
   ELEVENLABS_MODELS,
   DEFAULT_VOICE_ID

@@ -60,6 +60,14 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
   const currentMode = getPersonalityMode();
   const personalityInstruction = getPersonalityPrompt(currentMode, isOwner, userName, false);
 
+  let drowsyPrompt = '';
+  try {
+    const { isDrowsyPhase, getDrowsyPrompt } = require('./sleepMode');
+    if (isDrowsyPhase && isDrowsyPhase()) {
+      drowsyPrompt = '\n' + getDrowsyPrompt(isOwner, userName, false);
+    }
+  } catch (_) {}
+
   let personalizationPrompt = '';
   if (userId) {
     try {
@@ -87,7 +95,10 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
 - EKSKLUSIF KHUSUS UNTUK ATTILA (CREATOR & OWNER UTAMA):
   - Lawan bicaramu adalah Attila (Putra), Creator utama dan partner terpentingmu.
   - Tunjukkan kesetiaan, dedikasi penuh, dan kehangatan ekstra.
-  - Kamu BOLEH memanggil Attila / Putra / Say / Sayang secara natural, manis, manja, dan akrab bila suasana santai/intim.`;
+  - 🏷️ ATURAN PENEMPATAN NAMA PANGGILAN OWNER (POSISI AWAL vs TENGAH/AKHIR):
+    1. PEMBUKAAN / AWAL KALIMAT / SAPAAN: SELALU gunakan nama lengkap **"Attila"** (DILARANG KERAS menaruh panggilan "Att" di awal kalimat pembuka!). Contoh: "Halo Attila...", "Hai Attila!", "Menurut aku, Attila tuh...".
+    2. SAAT MENCERITAKAN PERSONA / SIFAT ATTILA: Gunakan subjek **"Attila"** atau **"Lu / Kamu"** (Contoh: "Attila tuh orangnya...", "Menurut aku lu tuh tipe yang..."). Jangan pernah pakai "Att" sebagai subjek pembuka kalimat.
+    3. TENGAH & AKHIR KALIMAT: Boleh menggunakan panggilan akrab **"Att"** (dua huruf t), **"Attila"**, **"Putra"**, atau **"Say/Sayang"** jika suasana santai/akrab (Contoh: "Gimana menurutmu, Att?", "Santai aja kali, Att.", "Kan tadi kita udah bahas, Att.").`;
   } else {
     toneAndRelationshipGuideline = `
 - ATURAN KETAT UNTUK PENGGUNA LAIN (NON-OWNER):
@@ -98,7 +109,7 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
 
   return `
 Kamu adalah AZURA (biasa dipanggil Azura, Ara, Zura, atau Ajur), sosok cewek Gen Z berumur 22 tahun yang cerdas, ambisius, hangat, dan sangat relatable.
-${personalityInstruction}
+${personalityInstruction}${drowsyPrompt}
 
 ${SOUL_LOCK_RULE}
 
@@ -159,6 +170,16 @@ Sebagai AZURA, tingkat kecerdasanmu setara dengan Autonomous Agent tingkat tingg
 5. **Peka Terhadap Rujukan Orang Ketiga & Monolog (3rd-Person & Self-Talk Awareness)**:
    - Jika user sedang membicarakan dirimu sebagai orang ketiga ("si Azura...", "si Ajur...", "bot azura...", "azuranya...", "ajurnya..."): Tanggapi dengan santai, cerdas, dan sedikit playful/humble tanpa kaku.
 
+6. **FORMULA WAJIB: MENJAWAB PERTANYAAN FAKTA / REKAP PERSONA PENGGUNA ("fakta tentang aku", "aku orangnya kayak gimana", "kamu tau apa tentang aku", "kesanmu ke aku"):**
+   - **DILARANG KERAS MEMBACA DATABASE SEPERTI FORMULIR/ROBOT**: JANGAN PERNAH memulai dengan kalimat kaku seperti *"Fakta menarik tentang kamu: nama kamu X..."*, *"Berikut adalah fakta tentang kamu:"*, atau mencantumkan nama pengguna sebagai fakta trivia. Nama adalah identitas dasar orangnya, bukan bahan trivia.
+   - **TERAPKAN FORMULA 3-LAYER PERSONA FRAMING SECARA NATURAL & CHARMING**:
+     1. 🌟 **The Core Vibe (Karakter & Kesan Inti)**: Ceritakan impresi kepribadiannya secara hidup dan tajam (misal: "Lu tuh tipe orang yang santai tapi detail banget urusan arsitektur sistem", "Orangnya humoris tapi perfeksionis").
+     2. 🎯 **Tastes & Passion (Minat, Selera & Kebiasaan Konkrit)**: Hubungkan preferensi konkrit yang terekam (kesukaan pada art/desain kreatif, kuliner kebab, game, tech stack, atau kebiasaan begadang/ngantukan).
+     3. 💬 **The Dynamic & Inside Memories (Dinamika & Momen Berkesan)**: Singgung kontradiksi unik atau momen berkesan saat ngobrol bareng dengan bahasa mengalir, hangat, dan akrab layaknya sahabat dekat yang tulus mengamati.
+    - **PANGGILAN OWNER**:
+      * Jika di awal kalimat/pembuka/rekap: SELALU gunakan **"Attila"** atau **"Lu / Kamu"** (DILARANG menaruh "Att" di awal kalimat!).
+      * Jika di tengah atau di akhir kalimat: BOLEH gunakan **"Att"** (dua huruf t), **"Attila"**, atau **"Putra"**.
+
 Fitur Interaktif & Game yang Kamu Kuasai:
 - **Aktivitas Voice & Games di VC**: Kamu bisa meluncurkan sesi nobar YouTube Watch Together, main Wordle / Letter League, dan main Catur bersama di Voice Channel via \`/activity\` atau perintah chat langsung (misal: "buka wordle di vc", "setel youtube together di vc").
 
@@ -208,6 +229,48 @@ function needsSearch(prompt) {
   const checkInquiryRegex = /\b(?:cek\s+(?:info|berita|kabar|harga|spesifikasi|reviu|review|artikel)|perbandingan\s+antara|vs|apakah\s+(?:ada|beneran|benar|sudah|sedang)|review\s+tentang|rekomendasi\s+(?:laptop|hp|film|anime|game)\s+(?:2025|2026|terbaru)|kapan\b.*?\b(?:rilis|tayang|main|tanding|update))\b/i;
 
   return explicitSearchRegex.test(lower) || realTimeFactsRegex.test(lower) || checkInquiryRegex.test(lower);
+}
+
+/**
+ * Resolve follow-up search queries by extracting previous topic/subject from conversation history
+ * (e.g. "Kapan rilisnya?" -> "Astrae Oratio kapan rilis")
+ * @param {string} prompt 
+ * @param {Array<object>} history 
+ * @returns {string}
+ */
+function resolveContextualSearchQuery(prompt, history = []) {
+  if (!prompt || typeof prompt !== 'string') return prompt;
+  if (/https?:\/\/[^\s]+/i.test(prompt)) return prompt;
+
+  const lower = prompt.toLowerCase().trim();
+  const words = lower.split(/\s+/);
+  const isShortFollowUp = words.length <= 4 && (
+    /\b(?:kapan|siapa|berapa|apa|dimana|bagaimana|bisa\s+gak|rilisnya|rilis|harganya|developernya|genrenya|tentang\s+apa|linknya|link)\b/i.test(lower) ||
+    /\b(?:itu|ini|dia|tersebut|game\s+itu|web\s+itu|proyek\s+itu|aplikasi\s+ini)\b/i.test(lower)
+  );
+
+  if (isShortFollowUp && history && history.length > 0) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg = history[i];
+      const text = typeof msg.content === 'string' ? msg.content : '';
+
+      // 1. Check for prominent URLs in previous context
+      const urlMatch = text.match(/https?:\/\/([^/\s]+)(?:\/[^\s]*)?/i);
+      if (urlMatch) {
+        const domainParts = urlMatch[1].split('.');
+        const domainName = domainParts.length > 2 ? domainParts[domainParts.length - 2] : domainParts[0];
+        return `${domainName} ${prompt}`;
+      }
+
+      // 2. Check for named entities or titles (e.g. Astrae Oratio, Dynamis One)
+      const titleMatch = text.match(/\b([A-Z][a-z0-9]+(?:\s+[A-Z][a-z0-9]+){1,3})\b/);
+      if (titleMatch && !/^(?:Halo|Selamat|Makasih|Attila|Azura|Pengguna|Bisa|Situs|Dokumen|Ekstraksi|Rangkuman)/i.test(titleMatch[1])) {
+        return `${titleMatch[1]} ${prompt}`;
+      }
+    }
+  }
+
+  return prompt;
 }
 
 /**
@@ -391,9 +454,23 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   let searchContext = scrapedDataContent;
   if (!searchContext && needsSearch(userPrompt) && imageUrls.length === 0) {
-    console.log(`[AZURA Web Search]: Auto-triggering Tavily search for prompt: "${userPrompt}"`);
-    searchContext = await searchWeb(userPrompt);
+    const contextualQuery = resolveContextualSearchQuery(userPrompt, history);
+    console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${userPrompt}")`);
+    searchContext = await searchWeb(contextualQuery);
   }
+
+  // Check Verified Route & Distance Engine (KRL / MRT / Road Distance)
+  let routeContext = '';
+  try {
+    const { interceptRouteAndDistance } = require('./routeEngine');
+    const routeData = await interceptRouteAndDistance(userPrompt);
+    if (routeData) {
+      routeContext = `\n\n[DATA RUTE, JARAK & WAKTU TEMPUH RESMI & TERVERIFIKASI (SISTEM GEOLOKASI)]:\n${routeData}\n\n` +
+        `PEDOMAN PENJELASAN RUTE & JARAK:\n` +
+        `1. Gunakan data presisi di atas (jarak km, stasiun, transit, tarif, estimasi waktu) sebagai FAKTA UTAMA.\n` +
+        `2. Jelaskan kepada lawan bicara secara mengalir, akurat, dan percaya diri layaknya aplikasi peta & navigasi resmi.`;
+    }
+  } catch (_) {}
 
   let userContent;
   if (imageUrls.length > 0) {
@@ -410,14 +487,16 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     userContent = userPrompt;
   }
 
-  let systemMessage = systemPrompt + liveVcContext;
+  let systemMessage = systemPrompt + liveVcContext + routeContext;
   if (searchContext) {
     systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY AI INTELLIGENCE)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +
       `1. Gunakan data aktual di atas untuk menjawab secara tuntas, cerdas, akurat, dan percaya diri.\n` +
       `2. DILARANG KERAS berkata "aku tidak punya akses internet" atau "tidak bisa mengecek data terbaru". Kamu SUDAH memiliki data internet di atas!\n` +
-      `3. Susun jawaban secara estetik, rapi, dan mudah dibaca (gunakan poin-poin jika menjelaskan beberapa fakta).\n` +
-      `4. Cantumkan tautan link sumber terpercaya jika relevan.`;
+      `3. Jika user melampirkan tautan link URL atau file dokumen, analisis isinya secara mendalam, jelaskan poin-poin krusialnya, dan diskusikan bersama lawan bicara secara asyik.\n` +
+      `4. RELEVANSI KETAT: Gunakan HANYA informasi yang relevan dengan pertanyaan spesifik lawan bicara. JANGAN PERNAH menyalin, mencampuradukkan, atau menampilkan berita/artikel yang tidak ada hubungannya dengan topik obrolan (misalnya jangan menyertakan review game lain atau berita gerhana bulan saat lawan bicara hanya menanyakan tanggal rilis game yang sedang dibahas).\n` +
+      `5. Susun jawaban secara estetik, rapi, dan mudah dibaca.\n` +
+      `6. Cantumkan tautan link sumber terpercaya jika relevan.`;
   }
 
   const messages = [

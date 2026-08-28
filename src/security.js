@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const config = require('./config');
 
 const MASTER_SALT = 'azura_high_security_master_salt_2026_aes_gcm';
+const VAULT_SALT = 'azura_salt_zero_knowledge_vault_2026';
 const SESSION_DURATION_MS = 15 * 60 * 1000; // 15 minutes session token validity
 
 // Active security sessions: userId -> sessionExpiryTimestamp
@@ -19,11 +20,12 @@ const activeSessions = new Map();
 /**
  * Derive 32-byte key from master secret using scrypt
  * @param {string} [customKey] 
+ * @param {string} [salt]
  * @returns {Buffer}
  */
-function getDerivedKey(customKey = null) {
+function getDerivedKey(customKey = null, salt = MASTER_SALT) {
   const secret = customKey || config.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_fallback_2026';
-  return crypto.scryptSync(secret, MASTER_SALT, 32);
+  return crypto.scryptSync(secret, salt, 32);
 }
 
 /**
@@ -53,34 +55,47 @@ function encryptPayload(data) {
 }
 
 /**
- * Decrypt an AES-256-GCM envelope
+ * Decrypt an AES-256-GCM envelope with automatic multi-salt fallbacks
  * @param {string} envelopeStr 
  * @returns {any} Decrypted object or string (or null if corrupted/wrong key)
  */
 function decryptPayload(envelopeStr) {
   try {
     if (!envelopeStr || typeof envelopeStr !== 'string') return null;
-    const envelope = JSON.parse(envelopeStr);
+    let envelope;
+    try {
+      envelope = JSON.parse(envelopeStr);
+    } catch (_) {
+      return null;
+    }
     if (!envelope.iv || !envelope.tag || !envelope.ciphertext) {
       // Might be legacy plain JSON string
       return envelope;
     }
 
-    const key = getDerivedKey();
-    const iv = Buffer.from(envelope.iv, 'hex');
-    const authTag = Buffer.from(envelope.tag, 'hex');
+    const saltsToTry = [MASTER_SALT, VAULT_SALT];
+    for (const salt of saltsToTry) {
+      try {
+        const key = getDerivedKey(null, salt);
+        const iv = Buffer.from(envelope.iv, 'hex');
+        const authTag = Buffer.from(envelope.tag, 'hex');
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(authTag);
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(authTag);
 
-    let decrypted = decipher.update(envelope.ciphertext, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
+        let decrypted = decipher.update(envelope.ciphertext, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
 
-    try {
-      return JSON.parse(decrypted);
-    } catch (_) {
-      return decrypted;
+        try {
+          return JSON.parse(decrypted);
+        } catch (_) {
+          return decrypted;
+        }
+      } catch (_) {
+        // Try next salt
+      }
     }
+    return null;
   } catch (err) {
     console.error('[Security Decryption Error]:', err.message);
     return null;

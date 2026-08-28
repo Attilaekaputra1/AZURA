@@ -50,17 +50,43 @@ function loadFeedbackStore() {
   }
 }
 
-function saveFeedbackStore() {
+let feedbackFlushTimer = null;
+let isFeedbackDirty = false;
+
+function flushFeedbackStoreSync() {
+  if (feedbackFlushTimer) {
+    clearTimeout(feedbackFlushTimer);
+    feedbackFlushTimer = null;
+  }
   try {
     const plainObj = Object.fromEntries(feedbackStore);
     const encryptedEnvelope = encryptPayload(plainObj);
     const tmpPath = `${FEEDBACK_FILE_PATH}.tmp`;
     fs.writeFileSync(tmpPath, encryptedEnvelope, 'utf8');
     fs.renameSync(tmpPath, FEEDBACK_FILE_PATH);
+    isFeedbackDirty = false;
   } catch (err) {
     console.error('[Feedback Store Save Error]: Failed to save encrypted tickets:', err.message);
   }
 }
+
+function saveFeedbackStore(immediate = false) {
+  isFeedbackDirty = true;
+  if (immediate) {
+    flushFeedbackStoreSync();
+    return;
+  }
+  if (!feedbackFlushTimer) {
+    feedbackFlushTimer = setTimeout(() => {
+      feedbackFlushTimer = null;
+      if (isFeedbackDirty) flushFeedbackStoreSync();
+    }, 1500);
+  }
+}
+
+process.on('SIGTERM', () => { if (isFeedbackDirty) flushFeedbackStoreSync(); });
+process.on('SIGINT', () => { if (isFeedbackDirty) flushFeedbackStoreSync(); });
+process.on('beforeExit', () => { if (isFeedbackDirty) flushFeedbackStoreSync(); });
 
 /**
  * Generate a friendly short ticket ID e.g. #ADV-7B3 or #REP-9A1
@@ -491,129 +517,9 @@ function getTodoList(status = 'ACCEPTED') {
  */
 function getTodoListHtml() {
   loadFeedbackStore();
-  const all = Array.from(feedbackStore.values());
-  const pending = all.filter(t => t.status === 'PENDING');
-  const accepted = all.filter(t => t.status === 'ACCEPTED');
-  const done = all.filter(t => t.status === 'DONE');
-  const rejected = all.filter(t => t.status === 'REJECTED');
-
-  const renderCard = (t) => {
-    const isAdv = t.type === 'advice';
-    const typeBadge = isAdv ? '<span class="badge badge-adv">💡 Advice</span>' : '<span class="badge badge-rep">🐛 Bug Report</span>';
-    const date = new Date(t.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-    const reasonHtml = t.rejectReason ? `<div class="reject-box"><strong>Alasan:</strong> ${t.rejectReason}</div>` : '';
-    return `
-      <div class="task-card">
-        <div class="card-header">
-          <span class="ticket-id">#${t.ticketId}</span>
-          ${typeBadge}
-        </div>
-        <p class="card-content">${t.content}</p>
-        <div class="card-footer">
-          <span class="author">👤 ${t.userName}</span>
-          <span class="date">📅 ${date}</span>
-        </div>
-        ${reasonHtml}
-      </div>
-    `;
-  };
-
-  return `
-<!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AZURA • Realtime Roadmap & To-Do List</title>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg: #0b0f19;
-      --card-bg: rgba(22, 27, 46, 0.85);
-      --border: rgba(255, 255, 255, 0.08);
-      --accent: #5865F2;
-      --accent-glow: rgba(88, 101, 242, 0.3);
-      --text: #f1f5f9;
-      --text-muted: #94a3b8;
-      --success: #22c55e;
-      --warning: #eab308;
-      --danger: #ef4444;
-      --info: #38bdf8;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
-    body { background: var(--bg); color: var(--text); padding: 40px 20px; min-height: 100vh; background-image: radial-gradient(circle at 10% 20%, rgba(88, 101, 242, 0.15) 0%, transparent 40%), radial-gradient(circle at 90% 80%, rgba(236, 72, 153, 0.12) 0%, transparent 40%); }
-    .container { max-width: 1300px; margin: 0 auto; }
-    .header { text-align: center; margin-bottom: 40px; }
-    .header h1 { font-size: 2.4rem; font-weight: 800; background: linear-gradient(135deg, #fff 0%, #cbd5e1 50%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .header p { color: var(--text-muted); margin-top: 8px; font-size: 1.05rem; }
-    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 35px; }
-    .stat-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 20px; text-align: center; backdrop-filter: blur(12px); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
-    .stat-number { font-size: 2rem; font-weight: 800; }
-    .stat-label { color: var(--text-muted); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
-    .board-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; align-items: start; }
-    .column { background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 20px; padding: 20px; backdrop-filter: blur(16px); }
-    .col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
-    .col-title { font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-    .col-count { background: rgba(255, 255, 255, 0.1); padding: 4px 10px; border-radius: 20px; font-size: 0.85rem; font-weight: 700; }
-    .task-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); transition: all 0.2s ease; }
-    .task-card:hover { transform: translateY(-3px); border-color: rgba(255, 255, 255, 0.2); }
-    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .ticket-id { font-size: 0.85rem; font-weight: 700; color: #818cf8; font-family: monospace; }
-    .badge { font-size: 0.75rem; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
-    .badge-adv { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); }
-    .badge-rep { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
-    .card-content { font-size: 0.95rem; line-height: 1.5; color: #e2e8f0; margin-bottom: 14px; word-break: break-word; }
-    .card-footer { display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px; }
-    .reject-box { margin-top: 10px; padding: 8px 12px; background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--danger); border-radius: 6px; font-size: 0.85rem; color: #fca5a5; }
-    .empty-col { text-align: center; color: var(--text-muted); padding: 30px 10px; font-size: 0.9rem; font-style: italic; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🚀 AZURA Development Roadmap & To-Do List</h1>
-      <p>Papan status realtime untuk saran pengguna, perbaikan bug, dan rencana fitur.</p>
-    </div>
-
-    <div class="stats-row">
-      <div class="stat-box"><div class="stat-number" style="color: var(--warning);">${pending.length}</div><div class="stat-label">Pending Review</div></div>
-      <div class="stat-box"><div class="stat-number" style="color: var(--info);">${accepted.length}</div><div class="stat-label">In Progress (To-Do)</div></div>
-      <div class="stat-box"><div class="stat-number" style="color: var(--success);">${done.length}</div><div class="stat-label">Completed & Live</div></div>
-      <div class="stat-box"><div class="stat-number" style="color: var(--danger);">${rejected.length}</div><div class="stat-label">Rejected</div></div>
-    </div>
-
-    <div class="board-grid">
-      <!-- In Progress / To-Do Column -->
-      <div class="column">
-        <div class="col-header">
-          <div class="col-title" style="color: var(--info);">📌 Dalam Pengerjaan (To-Do)</div>
-          <span class="col-count">${accepted.length}</span>
-        </div>
-        ${accepted.length ? accepted.map(renderCard).join('') : '<div class="empty-col">Belum ada tugas aktif</div>'}
-      </div>
-
-      <!-- Completed Column -->
-      <div class="column">
-        <div class="col-header">
-          <div class="col-title" style="color: var(--success);">🎉 Selesai & Diterapkan</div>
-          <span class="col-count">${done.length}</span>
-        </div>
-        ${done.length ? done.map(renderCard).join('') : '<div class="empty-col">Belum ada tugas selesai</div>'}
-      </div>
-
-      <!-- Pending Column -->
-      <div class="column">
-        <div class="col-header">
-          <div class="col-title" style="color: var(--warning);">⏳ Menunggu Review Attila</div>
-          <span class="col-count">${pending.length}</span>
-        </div>
-        ${pending.length ? pending.map(renderCard).join('') : '<div class="empty-col">Tidak ada antrean review</div>'}
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-  `;
+  const { getTodos } = require('./todo');
+  const { generateMasterDashboardHtml } = require('./dashboardHtml');
+  return generateMasterDashboardHtml(getTodos(), Array.from(feedbackStore.values()));
 }
 
 /**
@@ -678,6 +584,38 @@ function parseNaturalFeedback(prompt) {
   return { isFeedback: false };
 }
 
+function getAllFeedbackTickets() {
+  loadFeedbackStore();
+  return Array.from(feedbackStore.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function updateFeedbackStatus(ticketId, status, rejectReason = '') {
+  loadFeedbackStore();
+  const ticket = feedbackStore.get(ticketId);
+  if (!ticket) return null;
+  ticket.status = status;
+  if (status === 'rejected') {
+    ticket.rejectReason = rejectReason || 'Ditolak oleh developer';
+    ticket.rejectedAt = new Date().toISOString();
+  } else if (status === 'done') {
+    ticket.completedAt = new Date().toISOString();
+  } else if (status === 'accepted') {
+    ticket.acceptedAt = new Date().toISOString();
+  }
+  saveFeedbackStore();
+  return ticket;
+}
+
+function deleteFeedbackTicket(ticketId) {
+  loadFeedbackStore();
+  const exists = feedbackStore.has(ticketId);
+  if (exists) {
+    feedbackStore.delete(ticketId);
+    saveFeedbackStore();
+  }
+  return exists;
+}
+
 module.exports = {
   submitFeedback,
   handleFeedbackSlash,
@@ -688,5 +626,8 @@ module.exports = {
   handleFeedbackRejectModalSubmit,
   handleFeedbackDone,
   getTodoList,
-  getTodoListHtml
+  getTodoListHtml,
+  getAllFeedbackTickets,
+  updateFeedbackStatus,
+  deleteFeedbackTicket
 };

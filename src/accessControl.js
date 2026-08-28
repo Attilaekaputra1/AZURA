@@ -134,13 +134,14 @@ function checkFriendDailyVoiceQuota(userId) {
 
   const usedSeconds = Math.round(quota.usedSeconds || 0);
   const remainingSeconds = Math.max(0, MAX_DAILY_VOICE_SECONDS - usedSeconds);
-  const isExhausted = (remainingSeconds <= EXHAUSTION_THRESHOLD_SECONDS) || (quota.exhaustedAt !== null);
+  const shouldExhaust = remainingSeconds <= EXHAUSTION_THRESHOLD_SECONDS;
 
+  let isExhausted = false;
   let resetAt = null;
   let resetAtStr = 'Belum Habis';
   let timeLeftStr = `Tersisa ${remainingSeconds}s (Belum Countdown)`;
 
-  if (isExhausted) {
+  if (shouldExhaust) {
     if (!quota.exhaustedAt) {
       quota.exhaustedAt = now;
       friend.quota = quota;
@@ -151,6 +152,14 @@ function checkFriendDailyVoiceQuota(userId) {
     timeLeftStr = formatCountdown(msLeft);
     const resetDate = new Date(resetAt);
     resetAtStr = resetDate.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+    isExhausted = true;
+  } else {
+    // If quota is still available (> 8s), ensure exhaustedAt is null so countdown is NOT active
+    if (quota.exhaustedAt) {
+      quota.exhaustedAt = null;
+      friend.quota = quota;
+      saveApprovedFriends();
+    }
   }
 
   return {
@@ -349,16 +358,33 @@ async function sendQuota100ExhaustedDM(userId, friendRecord, timeLeftStr, resetT
  */
 async function approveFriend(userId, username, displayName, customNickname = null, approvedBy = 'Attila', client = null) {
   loadApprovedFriends();
-  const now = Date.now();
   const existing = approvedFriendsCache.get(userId);
 
-  const nickname = customNickname || existing?.customNickname || displayName || username || 'Teman';
+  // 1. Check if member already has a self-registered & locked nickname in Vault
+  let finalNickname = null;
+  let isSelfRegistered = false;
+
+  try {
+    const { getUserRecord } = require('./vault');
+    const uRec = getUserRecord(userId);
+    if (uRec && uRec.knownRealName && uRec.knownRealName.trim() && uRec.isNameLocked) {
+      finalNickname = uRec.knownRealName.trim();
+      isSelfRegistered = true;
+      console.log(`[AccessControl]: Member ${userId} has self-registered name "${finalNickname}". Using self-registered name over custom override.`);
+    }
+  } catch (_) {}
+
+  // 2. If member hasn't registered their own name, use Attila's custom nickname or fallback
+  if (!finalNickname) {
+    finalNickname = customNickname || existing?.customNickname || displayName || username || 'Teman';
+  }
 
   const record = {
     userId,
     username: username || existing?.username || 'unknown',
-    displayName: displayName || existing?.displayName || nickname,
-    customNickname: nickname,
+    displayName: displayName || existing?.displayName || finalNickname,
+    customNickname: finalNickname,
+    isSelfRegistered,
     approvedBy,
     approvedAt: existing?.approvedAt || new Date().toISOString(),
     totalVoiceSecondsAllTime: existing?.totalVoiceSecondsAllTime || 0,
@@ -375,11 +401,13 @@ async function approveFriend(userId, username, displayName, customNickname = nul
   approvedFriendsCache.set(userId, record);
   saveApprovedFriends();
 
-  // Also sync nickname into encrypted user vault so Azura natively addresses them
-  try {
-    const { setUserNameByOwner } = require('./vault');
-    setUserNameByOwner(userId, nickname, true);
-  } catch (_) {}
+  // If NOT self-registered, sync owner-assigned nickname into encrypted user vault
+  if (!isSelfRegistered) {
+    try {
+      const { setUserNameByOwner } = require('./vault');
+      setUserNameByOwner(userId, finalNickname, true);
+    } catch (_) {}
+  }
 
   // Send aesthetic welcome onboarding DM
   if (client) {

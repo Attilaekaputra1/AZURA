@@ -132,10 +132,17 @@ function loadVault() {
   }
 }
 
+let vaultFlushTimer = null;
+let isVaultDirty = false;
+
 /**
- * Encrypt and atomically save user database and blacklist to disk
+ * Encrypt and atomically save user database and blacklist to disk (Immediate Sync Flush)
  */
-function saveVault() {
+function flushVaultSync() {
+  if (vaultFlushTimer) {
+    clearTimeout(vaultFlushTimer);
+    vaultFlushTimer = null;
+  }
   try {
     // 1. Save User Vault
     const plainObj = Object.fromEntries(userVaultCache);
@@ -150,10 +157,34 @@ function saveVault() {
     const tmpBlPath = `${BLACKLIST_FILE_PATH}.tmp`;
     fs.writeFileSync(tmpBlPath, encryptedBl, 'utf8');
     fs.renameSync(tmpBlPath, BLACKLIST_FILE_PATH);
+
+    isVaultDirty = false;
   } catch (err) {
     console.error('[User Vault Save Error]: Failed to save encrypted vault/blacklist:', err.message);
   }
 }
+
+/**
+ * High-Throughput Debounced Write-Behind: Buffer saves in-memory and write to disk in 1.5s
+ */
+function saveVault(immediate = false) {
+  isVaultDirty = true;
+  if (immediate) {
+    flushVaultSync();
+    return;
+  }
+  if (!vaultFlushTimer) {
+    vaultFlushTimer = setTimeout(() => {
+      vaultFlushTimer = null;
+      if (isVaultDirty) flushVaultSync();
+    }, 1500);
+  }
+}
+
+// Ensure clean flush before process exits
+process.on('SIGTERM', () => { if (isVaultDirty) flushVaultSync(); });
+process.on('SIGINT', () => { if (isVaultDirty) flushVaultSync(); });
+process.on('beforeExit', () => { if (isVaultDirty) flushVaultSync(); });
 
 /**
  * Generate a persistent, secure session cookie token for a user
@@ -939,6 +970,52 @@ function exportVaultData(format = 'json') {
   }, null, 2);
 }
 
+/**
+ * Resolve the authoritative calling name / nickname for a user.
+ * Prioritizes:
+ * 1. Owner special lock: 'Attila'
+ * 2. Approved Friends custom nickname from accessControl
+ * 3. Vault knownRealName (registered / set by Owner)
+ * 4. User Behavior nickname
+ * 5. Fallback display name / username
+ * @param {string} userId 
+ * @param {string} [fallbackDisplayName='Pengguna'] 
+ * @returns {string}
+ */
+function getUserCallingName(userId, fallbackDisplayName = 'Pengguna') {
+  if (!userId) return fallbackDisplayName || 'Pengguna';
+  
+  if (config.OWNER_DISCORD_ID && userId === config.OWNER_DISCORD_ID) {
+    return 'Attila';
+  }
+
+  // 1. Check Approved Friends custom nickname
+  try {
+    const { getApprovedFriend } = require('./accessControl');
+    const friend = getApprovedFriend(userId);
+    if (friend && friend.customNickname && friend.customNickname.trim()) {
+      return friend.customNickname.trim();
+    }
+  } catch (_) {}
+
+  // 2. Check Vault registered knownRealName
+  const user = getUserRecord(userId);
+  if (user && user.knownRealName && user.knownRealName.trim()) {
+    return user.knownRealName.trim();
+  }
+
+  // 3. Check User Behavior profile
+  try {
+    const { getUserBehavior } = require('./behavior');
+    const beh = getUserBehavior(userId);
+    if (beh && beh.nickname && !beh.nickname.toLowerCase().startsWith('user_') && beh.nickname.trim()) {
+      return beh.nickname.trim();
+    }
+  } catch (_) {}
+
+  return fallbackDisplayName || 'Pengguna';
+}
+
 module.exports = {
   loadVault,
   saveVault,
@@ -949,6 +1026,7 @@ module.exports = {
   getRelationshipTier,
   getVaultStats,
   getUserRecord,
+  getUserCallingName,
   exportVaultData,
   encryptPayload,
   decryptPayload,

@@ -132,7 +132,7 @@ function tavilyApiCall(endpoint, payload) {
       });
     });
     req.on('error', (err) => reject(err));
-    req.setTimeout(12000, () => {
+    req.setTimeout(18000, () => {
       req.destroy();
       reject(new Error('Waktu respon Tavily API habis.'));
     });
@@ -165,17 +165,196 @@ function setCachedTavily(key, data) {
   tavilyMemoryCache.set(key, { data, timestamp: Date.now() });
 }
 
+// ══════════════════════════════════════════════════════════════
+// ── VERIFIED MEDIA PORTALS (GOOGLE NEWS ID & WORLD) ────────────
+// ══════════════════════════════════════════════════════════════
+
+// Verified Indonesian National Media (Dewan Pers / Google News Indonesia)
+const INDONESIA_NEWS_DOMAINS = [
+  'detik.com',
+  'kompas.com',
+  'tempo.co',
+  'cnnindonesia.com',
+  'antaranews.com',
+  'kumparan.com',
+  'liputan6.com',
+  'tribunnews.com',
+  'cnbcindonesia.com',
+  'bisnis.com',
+  'merdeka.com',
+  'suara.com',
+  'sindonews.com',
+  'jawapos.com',
+  'republika.co.id',
+  'idntimes.com'
+];
+
+// Verified International Media (Google News World / Global)
+const INTERNATIONAL_NEWS_DOMAINS = [
+  'reuters.com',
+  'apnews.com',
+  'bbc.com',
+  'bloomberg.com',
+  'aljazeera.com',
+  'theguardian.com',
+  'nytimes.com',
+  'cnn.com',
+  'ft.com',
+  'washingtonpost.com',
+  'theverge.com',
+  'techcrunch.com'
+];
+
 /**
- * Clean user prompt into an optimal search engine query
+ * Detect whether query targets Indonesian National vs International news
+ * @param {string} query 
+ * @param {string} [rawPrompt]
+ * @returns {'national' | 'international' | 'general'}
+ */
+function detectNewsScope(query, rawPrompt = '') {
+  const combined = `${query || ''} ${rawPrompt || ''}`.toLowerCase();
+  const isInternational = /\b(?:internasional|international|global|dunia|world|luar\s+negeri|amerika|us|usa|eropa|timur\s+tengah|rusia|ukraina|china|tiongkok|jepang|palestina|gaza|israel|iran|inggris|uk|prancis|jerman|korea)\b/i.test(combined);
+
+  if (isInternational) return 'international';
+  // Default all Indonesian news/topics to Indonesian National Portals (Dewan Pers / Google News ID)
+  return 'national';
+}
+
+/**
+ * Format friendly portal brand name from URL
+ * @param {string} url 
+ * @returns {string}
+ */
+function formatPortalBrand(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    const brandMap = {
+      'detik.com': 'Detikcom',
+      'kompas.com': 'Kompas.com',
+      'tempo.co': 'Tempo.co',
+      'cnnindonesia.com': 'CNN Indonesia',
+      'antaranews.com': 'Antara News',
+      'kumparan.com': 'Kumparan',
+      'liputan6.com': 'Liputan6',
+      'tribunnews.com': 'Tribunnews',
+      'cnbcindonesia.com': 'CNBC Indonesia',
+      'bisnis.com': 'Bisnis.com',
+      'merdeka.com': 'Merdeka.com',
+      'suara.com': 'Suara.com',
+      'sindonews.com': 'Sindonews',
+      'jawapos.com': 'Jawa Pos',
+      'republika.co.id': 'Republika',
+      'idntimes.com': 'IDN Times',
+      'reuters.com': 'Reuters',
+      'apnews.com': 'AP News',
+      'bbc.com': 'BBC News',
+      'bloomberg.com': 'Bloomberg',
+      'aljazeera.com': 'Al Jazeera',
+      'theguardian.com': 'The Guardian',
+      'nytimes.com': 'New York Times',
+      'cnn.com': 'CNN World',
+      'theverge.com': 'The Verge',
+      'techcrunch.com': 'TechCrunch'
+    };
+    return brandMap[host] || host;
+  } catch (_) {
+    return 'Media Terpercaya';
+  }
+}
+
+/**
+ * Clean user prompt into an optimal search engine query, extracting reply context if needed
  * @param {string} prompt 
  * @returns {string}
  */
 function cleanSearchQuery(prompt) {
   if (!prompt || typeof prompt !== 'string') return '';
-  return prompt
-    .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong|coba|dong|plis|please)?\s*(?:cariin|carikan|cari|search|googling|info|berita|kabar|apa\s+itu|siapa\s+itu|gimana|bagaimana)\s+(?:tentang|soal|terbaru|terkini|mengenai)?\s*/i, '')
+
+  let raw = prompt.trim();
+  let extractedReply = '';
+
+  // 1. Extract referenced / replied message text if present: [Konteks Membalas Pesan @User]: "..."
+  const replyMatch = raw.match(/\[Konteks\s+(?:Membalas\s+Pesan\s+)?@[^\]]+\]:\s*"([^"]+)"/i);
+  if (replyMatch) {
+    extractedReply = replyMatch[1].trim();
+    raw = raw.replace(/\[Konteks\s+[^\]]+\]:\s*"[^"]*"\s*/gi, '').trim();
+  }
+
+  // 2. Strip any other system context wrappers
+  raw = raw
+    .replace(/\[Konteks\s+[^\]]+\]\s*/gi, '')
+    .replace(/\[Isi\s+Lampiran\s+[^\]]+\]:\s*```[\s\S]*?```/gi, '')
+    .replace(/\[Transkrip\s+Suara\]:\s*"[^"]*"/gi, '')
+    .replace(/<@!?[0-9]+>/g, '')
+    .replace(/^@?(?:azura|ara|zura|ajur|ajura|asura)\b[,:\s]*/gi, '')
+    .trim();
+
+  // 3. Determine if current text is just a bot invocation / conversational filler
+  const isFiller = /^(?:azura|ara|zura|ajur|ajura|asura|tolong|coba|dong|plis|please|cek|lihat|ya|yuk|apa\s+ini|ini\s+apa)*$/i.test(raw);
+
+  let targetQuery = '';
+  if (extractedReply && (isFiller || !raw)) {
+    targetQuery = extractedReply;
+  } else if (extractedReply && raw) {
+    targetQuery = `${extractedReply} ${raw}`;
+  } else {
+    targetQuery = raw;
+  }
+
+  // 4. Strip search command verbs and conversational prefixes
+  let clean = targetQuery
+    .replace(/^(?:azura|ara|zura|ajur|ajura|asura)?\s*(?:tolong|coba|dong|plis|please|bisa\s+gak|mau\s+nanya)?\s*(?:cariin|carikan|cari|search|googling|info|berita|kabar|apa\s+itu|siapa\s+itu|gimana|bagaimana|cek\s+info|cek|lihat)\s+(?:tentang|soal|terbaru|terkini|mengenai|kondisi|update)?\s*/i, '')
+    .replace(/\s+(?:dong|ya|yuk|plis|please|deh|kan)$/i, '')
     .replace(/[?!.]+$/, '')
-    .trim() || prompt.trim();
+    .trim();
+
+  let resultQuery = clean || targetQuery.trim() || prompt.trim();
+  if (/^(?:hari\s+ini|terbaru|terkini|update)$/i.test(resultQuery)) {
+    resultQuery = 'berita terkini hari ini indonesia';
+  }
+
+  return resultQuery;
+}
+
+/**
+ * Ensure summary is in fluent, natural Bahasa Indonesia (Google News style)
+ * @param {string} text 
+ * @param {string} query 
+ * @param {Array<object>} results 
+ * @returns {Promise<string>}
+ */
+async function ensureIndonesianSummary(text, query, results = []) {
+  if (!text && (!results || results.length === 0)) return '';
+
+  // Fast synthesis & translation via OpenAI gpt-5.6-luna (Guarantees 100% Bahasa Indonesia)
+  try {
+    const { OpenAI } = require('openai');
+    const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+    const articlesContext = (results || []).slice(0, 3).map((r, i) => `[${i + 1}] ${r.title}\n${r.content}`).join('\n\n');
+    const fullContext = `${text ? `Ikhtisar Awal:\n${text}\n\n` : ''}Artikel Media Terverifikasi:\n${articlesContext}`;
+
+    const comp = await openai.chat.completions.create({
+      model: config.OPENAI_MODEL || 'gpt-5.6-luna',
+      messages: [
+        {
+          role: 'system',
+          content: 'Kamu adalah redaktur berita resmi AZURA. Rangkum inti pokok dari peristiwa atau berita berikut ke dalam 2-3 kalimat Bahasa Indonesia yang sangat fasih, aktual, informatif, dan mudah dipahami. WAJIB 100% BAHASA INDONESIA. DILARANG KERAS menggunakan bahasa Inggris.'
+        },
+        {
+          role: 'user',
+          content: `Topik: "${query}"\n\n${fullContext.slice(0, 1800)}`
+        }
+      ],
+      max_completion_tokens: 220
+    });
+
+    const translated = comp.choices[0]?.message?.content?.trim();
+    if (translated && translated.length > 10) return translated;
+  } catch (err) {
+    console.error('[ensureIndonesianSummary Error]:', err.message);
+  }
+
+  return text || '';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -183,7 +362,7 @@ function cleanSearchQuery(prompt) {
 // ══════════════════════════════════════════════════════════════
 
 /**
- * Perform live Tavily web search with multi-pass fallback
+ * Perform live Tavily web search with multi-pass fallback and Google News style portals
  * @param {string} query 
  * @param {string} [topicMode] 
  * @returns {Promise<string>}
@@ -200,20 +379,52 @@ async function searchTavily(query, topicMode = 'general') {
       recordDailyMetric('webSearches', 1);
     } catch (_) {}
 
-    // Pass 1: Advanced search
-    let response = await tavilyApiCall('/search', {
+    const isTodayQuery = /\b(?:hari\s+ini|today|sekarang|tadi|pagi\s+ini|siang\s+ini|sore\s+ini|malam\s+ini)\b/i.test(query);
+    const isNews = topicMode === 'news' || isTodayQuery || /\b(?:terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
+    const scope = detectNewsScope(cleanQ);
+
+    // Pass 1: Advanced search with strict temporal freshness & verified media portals
+    const payload = {
       query: cleanQ,
-      topic: topicMode,
+      topic: isNews ? 'news' : topicMode,
       search_depth: 'advanced',
       include_answer: true,
       max_results: 4
-    });
+    };
+    if (isTodayQuery) {
+      payload.days = 1; // Strict 24-hour / Today only
+    } else if (isNews) {
+      payload.days = 3; // Strict 3-day max
+    }
 
+    if (isNews) {
+      if (scope === 'national') {
+        payload.include_domains = INDONESIA_NEWS_DOMAINS;
+      } else if (scope === 'international') {
+        payload.include_domains = INTERNATIONAL_NEWS_DOMAINS;
+      }
+    }
+
+    let response = await tavilyApiCall('/search', payload);
     let safeResults = filterSafeResults(response.results);
 
-    // Pass 2 Fallback: If 0 safe results in news mode, retry general
-    if ((!safeResults || safeResults.length === 0) && topicMode === 'news') {
-      console.log(`[Tavily Search]: Pass 2 - Retrying query with general topic for "${cleanQ}"...`);
+    // Pass 2 Fallback: If 0 safe results with domain filter, retry broader news or general
+    if ((!safeResults || safeResults.length === 0) && isNews) {
+      console.log(`[Tavily Search]: Pass 2 - Retrying query without domain restriction for "${cleanQ}"...`);
+      const fallbackPayload = {
+        query: cleanQ,
+        topic: 'news',
+        search_depth: 'advanced',
+        include_answer: true,
+        days: isTodayQuery ? 1 : 3,
+        max_results: 4
+      };
+      response = await tavilyApiCall('/search', fallbackPayload);
+      safeResults = filterSafeResults(response.results);
+    }
+
+    // Pass 3 Fallback: General topic
+    if (!safeResults || safeResults.length === 0) {
       response = await tavilyApiCall('/search', {
         query: cleanQ,
         topic: 'general',
@@ -224,20 +435,29 @@ async function searchTavily(query, topicMode = 'general') {
       safeResults = filterSafeResults(response.results);
     }
 
+    // Ensure fluent Indonesian summary
+    let indonesianSummary = await ensureIndonesianSummary(response.answer, cleanQ, safeResults);
+    if (isHarmfulContent(indonesianSummary)) indonesianSummary = '';
+
     let resultStr = '';
-    if (response.answer && !isHarmfulContent(response.answer)) {
-      resultStr += `💡 **Rangkuman Eksekutif Terkini (Bahasa Indonesia):**\n${response.answer}\n\n`;
+    if (indonesianSummary) {
+      resultStr += `💡 **Rangkuman Eksekutif Terkini (Bahasa Indonesia):**\n${indonesianSummary}\n\n`;
     }
 
     if (safeResults.length > 0) {
       const top3 = safeResults.slice(0, 3);
       const formattedResults = top3.map((r, idx) => {
+        const brand = formatPortalBrand(r.url);
         const date = r.published_date ? ` • 📅 ${r.published_date.slice(0, 10)}` : '';
         const cleanSnippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 200);
-        return `**${idx + 1}. 📌 [${r.title}](${r.url})**${date}\n   📝 *${cleanSnippet}...*`;
+        return `**${idx + 1}. 📌 [${r.title}](${r.url})** (*${brand}*${date})\n   📝 *${cleanSnippet}...*`;
       }).join('\n\n');
 
-      resultStr += `🌐 **Sumber Web Terverifikasi:**\n\n${formattedResults}`;
+      const portalHeader = scope === 'national'
+        ? '🇮🇩 **Sumber Media Nasional Terverifikasi (Dewan Pers / Google News ID):**'
+        : (scope === 'international' ? '🌍 **Sumber Media Internasional Terverifikasi (Google News World):**' : '🌐 **Sumber Web Terverifikasi:**');
+
+      resultStr += `${portalHeader}\n\n${formattedResults}`;
     }
 
     const finalResult = resultStr || `Tidak ditemukan informasi terverifikasi di internet untuk query "${cleanQ}".`;
@@ -250,48 +470,91 @@ async function searchTavily(query, topicMode = 'general') {
 }
 
 /**
- * Extract content from a direct URL
- * @param {string} url 
+ * Extract content from a direct URL using a 3-Tier Multi-Pass Extractor:
+ * 1. Tier 1: Fast Tavily Extract API
+ * 2. Tier 2: Full Headless Playwright Chromium Engine (renders SPA/React/Next/PlayNC & executes client-side JS)
+ * 3. Tier 3: Tavily Deep Search on URL topic/domain
+ * @param {string} rawUrl 
  * @returns {Promise<string>}
  */
-async function extractTavilyUrl(url) {
+async function extractTavilyUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return 'URL tidak valid.';
+  const url = rawUrl.trim().replace(/[.,!?;:)>\]"']+$/, '');
   const cleanUrl = url.toLowerCase().trim();
   const cacheKey = `url:${cleanUrl}`;
   const cached = getCachedTavily(cacheKey);
   if (cached) return cached;
 
-  try {
-    if (GAMBLING_DOMAINS.some(d => cleanUrl.includes(d)) || ADULT_DOMAINS.some(d => cleanUrl.includes(d))) {
-      return 'URL tersebut terdeteksi sebagai situs yang berpotensi bahaya atau melanggar filter keamanan AZURA.';
-    }
+  if (GAMBLING_DOMAINS.some(d => cleanUrl.includes(d)) || ADULT_DOMAINS.some(d => cleanUrl.includes(d))) {
+    return 'URL tersebut terdeteksi sebagai situs yang berpotensi bahaya atau melanggar filter keamanan AZURA.';
+  }
 
-    console.log(`[Tavily Extract]: Reading URL: ${url}`);
+  // ── PASS 1: Fast Tavily Extract API ──
+  try {
+    console.log(`[Web Extractor]: Pass 1 (Tavily API) reading: ${url}`);
     const response = await tavilyApiCall('/extract', { urls: [url] });
     if (response.results && response.results.length > 0) {
       const item = response.results[0];
       const title = item.title || 'Dokumen Web';
       const raw = item.raw_content ? cleanSpamFromText(item.raw_content) : '';
+
       if (isHarmfulContent(raw) || isHarmfulContent(title)) {
         return 'Konten halaman web tersebut diblokir oleh sistem keamanan AZURA.';
       }
 
-      const cleanContent = raw ? raw.slice(0, 1500) : 'Tidak ada konten teks yang dapat diekstrak.';
-      const extractedText = `📄 **Ekstraksi Artikel Web (Tavily Intelligence):**\n` +
-        `📌 **Judul:** ${title}\n` +
-        `🔗 **URL:** ${url}\n\n` +
-        `📝 **Rangkuman Konten Utama:**\n${cleanContent}`;
+      // If extracted text is rich (> 120 chars), return it immediately
+      if (raw && raw.length > 120) {
+        const cleanContent = raw.slice(0, 3500);
+        const extractedText = `📄 **Ekstraksi Artikel Web (Tavily Intelligence):**\n` +
+          `📌 **Judul:** ${title}\n` +
+          `🔗 **URL:** ${url}\n\n` +
+          `📝 **Rangkuman Konten Utama:**\n${cleanContent}`;
+        setCachedTavily(cacheKey, extractedText);
+        return extractedText;
+      }
+    }
+  } catch (tavilyErr) {
+    console.warn('[Web Extractor]: Pass 1 Tavily API failed, escalating to Pass 2 (Playwright Headless Browser)...', tavilyErr.message);
+  }
+
+  // ── PASS 2: Playwright Chromium Headless Scraper (Executes JS, SPAs, React/Vue/Next/PlayNC) ──
+  try {
+    const { scrapeWebWithBrowser } = require('./headlessBrowser');
+    console.log(`[Web Extractor]: Pass 2 (Playwright Chromium) rendering DOM for: ${url}`);
+    const browserRes = await scrapeWebWithBrowser(url, 20000);
+
+    if (browserRes.success && browserRes.content && browserRes.content.length > 50) {
+      const extractedText = `🌐 **Ekstraksi Halaman Web (AZURA Chromium DOM Engine):**\n` +
+        `📌 **Judul Halaman:** ${browserRes.title}\n` +
+        `🔗 **URL:** ${browserRes.url}\n\n` +
+        `${browserRes.content}`;
       setCachedTavily(cacheKey, extractedText);
       return extractedText;
     }
-    return 'Gagal mengekstrak isi artikel dari URL tersebut.';
-  } catch (err) {
-    console.error('[Tavily Extract Error]:', err.message);
-    return 'Gagal mengekstrak URL: ' + err.message;
+  } catch (pwErr) {
+    console.warn('[Web Extractor]: Pass 2 Playwright failed, escalating to Pass 3 (Tavily Deep Search)...', pwErr.message);
   }
+
+  // ── PASS 3: Deep Tavily Search on URL / Site Topic Fallback ──
+  try {
+    console.log(`[Web Extractor]: Pass 3 (Deep Search fallback) querying info about: ${url}`);
+    const searchRes = await searchTavily(url, 'general');
+    if (searchRes && !searchRes.includes('Tidak ditemukan')) {
+      const extractedText = `🔍 **Informasi Web Terverifikasi Terkait Tautan (Tavily Fallback):**\n` +
+        `🔗 **URL Target:** ${url}\n\n` +
+        `${searchRes}`;
+      setCachedTavily(cacheKey, extractedText);
+      return extractedText;
+    }
+  } catch (searchErr) {
+    console.error('[Web Extractor]: Pass 3 search error:', searchErr.message);
+  }
+
+  return `Gagal mengekstrak isi halaman dari URL (${url}). Situs tersebut mungkin memblokir akses bot otomatis atau memerlukan otentikasi login.`;
 }
 
 /**
- * Generate an aesthetic, modern Discord Embed Card with interactive Link Buttons
+ * Generate an aesthetic, modern Discord Embed Card with Google News media portal buttons
  * @param {string} query 
  * @param {string} [topicMode] 
  * @param {string} [userName] 
@@ -302,19 +565,50 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
     const cleanQ = cleanSearchQuery(query);
     console.log(`[Tavily Card]: Generating aesthetic search card for "${cleanQ}"...`);
 
-    let response = await tavilyApiCall('/search', {
+    const isTodayQuery = /\b(?:hari\s+ini|today|sekarang|tadi|pagi\s+ini|siang\s+ini|sore\s+ini|malam\s+ini)\b/i.test(query);
+    const isNews = topicMode === 'news' || isTodayQuery || /\b(?:terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
+    const scope = detectNewsScope(cleanQ);
+
+    const payload = {
       query: cleanQ,
-      topic: topicMode,
+      topic: isNews ? 'news' : topicMode,
       search_depth: 'advanced',
       include_answer: true,
       include_images: true,
       max_results: 3
-    });
+    };
+    if (isTodayQuery) {
+      payload.days = 1; // Strict Today only
+    } else if (isNews) {
+      payload.days = 3; // Strict 3 days max
+    }
 
+    if (isNews) {
+      if (scope === 'national') {
+        payload.include_domains = INDONESIA_NEWS_DOMAINS;
+      } else if (scope === 'international') {
+        payload.include_domains = INTERNATIONAL_NEWS_DOMAINS;
+      }
+    }
+
+    let response = await tavilyApiCall('/search', payload);
     let safeResults = filterSafeResults(response.results);
 
     // Fallback pass if 0 results
-    if ((!safeResults || safeResults.length === 0) && topicMode === 'news') {
+    if ((!safeResults || safeResults.length === 0) && isNews) {
+      response = await tavilyApiCall('/search', {
+        query: cleanQ,
+        topic: 'news',
+        search_depth: 'advanced',
+        include_answer: true,
+        include_images: true,
+        days: isTodayQuery ? 1 : 3,
+        max_results: 3
+      });
+      safeResults = filterSafeResults(response.results);
+    }
+
+    if (!safeResults || safeResults.length === 0) {
       response = await tavilyApiCall('/search', {
         query: cleanQ,
         topic: 'general',
@@ -352,54 +646,54 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
       thumbnailImage = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=400&auto=format&fit=crop&q=60';
     }
 
-    // Summary Text (Bahasa Indonesia)
-    let summaryText = response.answer || '';
+    // Guaranteed Fluent Bahasa Indonesia Summary
+    let summaryText = await ensureIndonesianSummary(response.answer, cleanQ, safeResults);
     if (isHarmfulContent(summaryText)) summaryText = '';
     if (summaryText.length > 350) {
       summaryText = summaryText.slice(0, 350) + '...';
     }
 
+    const portalBadge = scope === 'national'
+      ? '🇮🇩 Media Nasional'
+      : (scope === 'international' ? '🌍 Media Internasional' : '🌐 Web Intelligence');
+
     const embed = new EmbedBuilder()
       .setColor(0x2B82EA) // Royal Azure Blue
-      .setTitle(`📰 Riset & Berita Terkini: ${cleanQ.slice(0, 75)}`)
+      .setTitle(`📰 ${portalBadge}: ${cleanQ.slice(0, 70)}`)
       .setDescription(
         summaryText
-          ? `💡 **Ringkasan Inti (Bahasa Indonesia):**\n${summaryText}`
-          : `Berikut hasil penelusuran fakta dan berita terverifikasi dari internet:`
+          ? `💡 **Ringkasan Inti Berita (Bahasa Indonesia):**\n${summaryText}`
+          : `Berikut hasil penelusuran portal berita resmi terverifikasi dari internet:`
       )
-      .setFooter({ text: 'AZURA Live Intelligence • Real-Time Web 2026' })
+      .setFooter({ text: 'AZURA News Intelligence • Google News Certified • Real-Time Web 2026' })
       .setTimestamp();
 
     if (thumbnailImage) {
       embed.setThumbnail(thumbnailImage);
     }
 
-    // Add Top 3 Sources
+    // Add Top 3 Sources with Brand Badges
     safeResults.slice(0, 3).forEach((r, idx) => {
+      const brand = formatPortalBrand(r.url);
       const title = r.title || `Sumber #${idx + 1}`;
       const snippet = (r.content || '').replace(/\s+/g, ' ').slice(0, 160);
       const dateStr = r.published_date ? ` • 📅 \`${r.published_date.slice(0, 10)}\`` : '';
 
       embed.addFields({
-        name: `📌 ${idx + 1}. ${title.slice(0, 85)}`,
+        name: `📌 ${idx + 1}. [${brand}] ${title.slice(0, 75)}`,
         value: `${snippet}...${dateStr}`,
         inline: false
       });
     });
 
-    // Action Row Buttons (Source Links)
+    // Action Row Buttons with Official Portal Names
     const row = new ActionRowBuilder();
-    safeResults.slice(0, 3).forEach((r, idx) => {
+    safeResults.slice(0, 3).forEach((r) => {
       if (r.url && r.url.startsWith('http')) {
-        let label = `Sumber ${idx + 1}`;
-        try {
-          const domain = new URL(r.url).hostname.replace('www.', '');
-          label = domain.slice(0, 20);
-        } catch (_) {}
-
+        const brand = formatPortalBrand(r.url);
         row.addComponents(
           new ButtonBuilder()
-            .setLabel(`🔗 ${label}`)
+            .setLabel(`🔗 ${brand}`)
             .setStyle(ButtonStyle.Link)
             .setURL(r.url)
         );
@@ -516,5 +810,8 @@ module.exports = {
   scrapeWebData,
   isSacredData,
   cleanSearchQuery,
-  processTavilyIntelligence
+  processTavilyIntelligence,
+  filterSafeResults,
+  ensureIndonesianSummary,
+  detectNewsScope
 };

@@ -23,7 +23,6 @@ const isBotSpeaking = new Set();          // guildIds where bot is speaking
 const isGuildProcessingVoice = new Set(); // guildIds where voice turn is actively processing (Whisper/GPT/TTS)
 const voiceSessions = new Map();          // guildId -> { startTime, channelName, guildName, entries: [] }
 const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, channelId, requesterId }
-const hummingTimers = new Map();          // guildId -> NodeJS.Timeout (3-minute silence spontaneous singing/humming)
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 const deepSleepTimers = new Map();        // guildId -> NodeJS.Timeout (15-minute auto-pause & deep sleep)
 const dismissedGuilds = new Set();        // guildIds where bot was dismissed by Attila (anti auto-rejoin)
@@ -39,90 +38,63 @@ const vcThirdPersonTracker = new Map();   // guildId -> { count: number, lastTim
 // Configuration
 // ============================================================
 const VOICE_COOLDOWN_MS = 500;        // 0.5s cooldown for regular members (0ms for Owner)
-const SILENCE_DURATION_MS = 850;      // 0.85s natural silence window (anti-truncation for human breathing & pauses)
-const MIN_AUDIO_BYTES = 24000;        // ~0.12s at 48kHz stereo 16-bit (NEVER drop short commands)
-const MAX_RECORDING_MS = 30000;       // Max 30s recording per turn
-const MAX_NORMAL_CHARS = 2500;        // ~1.5 - 2 minutes of normal TTS speech
-const MAX_STORY_CHARS = 5500;         // ~5 minutes of maximum storytelling/long-form TTS speech (~750 words)
-const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes of silence -> Spontaneous humming/singing
-const IDLE_DEAFEN_MS = 5 * 60 * 1000; // 5 minutes of inactivity before auto-deafen
+const SILENCE_DURATION_MS = 500;      // 0.5s natural snappy silence window for ultra-fast turn-taking
+const MAX_OWNER_STORY_CHARS = 5500;   // ~5 minutes maximum storytelling/deep explanation for Owner (~750 words)
+const MAX_OWNER_NORMAL_CHARS = 3000;  // ~2 - 3 minutes normal speech for Owner
+const MAX_FRIEND_CHARS = 2500;        // ~2 minutes maximum speech for Approved Friends
+const MAX_NORMAL_CHARS = 2500;        // Default fallback normal TTS speech
+const MAX_STORY_CHARS = 5500;         // Default fallback storytelling TTS speech
+// Modular Subsystems
+const {
+  MIN_AUDIO_BYTES,
+  MAX_RECORDING_MS,
+  WHISPER_HALLUCINATIONS,
+  WHISPER_HALLUCINATION_PATTERNS,
+  isWhisperHallucination,
+  pcmToWav,
+  calculateRmsAndPeak,
+  transcribeVoice
+} = require('./voiceAudioPipeline');
 
-// Whisper hallucination filter: common phantom transcripts from background noise, wind, breathing, or YouTube subtitles
-const WHISPER_HALLUCINATIONS = new Set([
-  'terima kasih telah menonton',
-  'terima kasih sudah menonton',
-  'terima kasih',
-  'terimakasih',
-  'terima kasih banyak',
-  'sampai jumpa',
-  'sampai jumpa di video selanjutnya',
-  'sampai jumpa lagi',
-  'subscribe',
-  'like and subscribe',
-  'jangan lupa subscribe',
-  'thank you for watching',
-  'thanks for watching',
-  'thank you',
-  'thanks',
-  'subtitles by',
-  'subtitles by the amara.org community',
-  'subtitles by the amara org community',
-  'amara.org',
-  'amara org',
-  'translated by',
-  'transcribed by',
-  'you',
-  'bye',
-  'bye bye',
-  'goodbye',
-  'hmm',
-  'hm',
-  'uh',
-  'ah',
-  'oh',
-  'eh',
-  'krik',
-  'krik krik',
-  'musik',
-  'music',
-  'audio',
-  'suara angin',
-  'suara musik',
-  'suara nafas',
-  'he-he',
-  'ha-ha',
-  'halo',
-  'hai',
-  'kamu',
-  'aku',
-  'ya',
-  'tidak',
-  'dan',
-  'ini',
-  'itu'
-]);
+const {
+  SPONTANEOUS_SONGS,
+  pendingAttilaVoiceCalls,
+  hummingTimers,
+  resetHummingTimer: resetAutonomousHummingTimer,
+  clearHummingTimer
+} = require('./voiceAutonomousBehaviors');
 
-// Spontaneous singing & humming library for 3-minute silence in VC (natural rhythm & real song melody)
-const SPONTANEOUS_SONGS = [
-  // 1. Lagu Ikonik & Populer (Sesuai nada asli)
-  '[humming] Hm hm hm hm... [sings] Balonku ada lima... rupa-rupa warnanya... merah kuning kelabu... [softly] meletus balon hijau, dor! [gasp] [laughs] kaget sendiri kan tuh.',
-  '[sings] Pelangi-pelangi alangkah indahmu... merah kuning hijau di langit yang biru... [humming] la la la la... [softly] hening banget, pada melamun ya? [giggles]',
-  '[sings] Bintang kecil di langit yang tinggi... amat banyak menghias angkasa... [softly] ku ingin terbang dan melayang... [giggles] aduh jadi pengen rebahan.',
-  '[humming] Hm hm hm... [sings] Burung kakak tua... hinggap di jendela... [softly] nenek sudah tua... giginya tinggal dua... [laughs] klasik banget lagunya.',
+const {
+  saveVoiceStateCache,
+  loadVoiceStateCache
+} = require('./voiceSessionState');
 
-  // 2. Lagu Galau & Pop Hits Nostalgia (Sesuai nada asli)
-  '[humming] Hmm hmm hmm... [sings] Dan... bila hatimu... terluka... aku yang selalu ada... [sighs] fyuuh... [softly] kenapa tiba-tiba jadi galau gini ya [chuckles]',
-  '[sings] Mungkin aku pernah salah... tapi rasa ini tulus adanya... [humming] hm hm hm... [softly] sepi banget room-nya, Attila lagi sibuk apa sih? [giggles]',
-  '[humming] La la la... [sings] Kau adalah darahku... kau adalah jantungku... kau adalah nafasku... [softly] asyik sendiri kan gue nyanyi [laughs]',
-  '[sings] Ku ingin kau tahu... ku slalu merindukanmu... [sighs] [humming] hm hm hm... [softly] ada yang lagi kangen seseorang nggak nih di sini? [giggles]',
-  '[humming] Hmm... [sings] Bukankah kita saling mencintai... mengapa kita harus berpisah... [sighs] aduh lagu zaman kapan ini [chuckles]',
-  '[sings] Dan aku kembali... dalam dekap pelukmu... [humming] la la la... [softly] enak juga ya nyanyi kalau suasananya lagi tenang gini.',
-  '[sings] Risalah hati... aku bisa membuatmu... jatuh cinta kepadaku... meski kau tak cinta... [humming] hm hm hm... [softly] liriknya ngena banget ya.',
+const {
+  WAKE_WORDS,
+  hasWakeWord,
+  analyzeVoiceIntent,
+  isWakeWordInvoked,
+  isSoloAttilaSession
+} = require('./voiceIntentRouter');
 
-  // 3. Lagu Barat Pop Romantis & Chill
-  '[humming] Mm mm mm... [sings] I wanna hold your hand in mine... and tell you that you are divine... [softly] [giggles] kok manis banget ya lagunya.',
-  '[sings] Cause you were always there for me... [humming] la la la la... [softly] hehe, lagunya bikin pikiran adem banget.'
-];
+const {
+  splitIntoSentences,
+  getAudioQueue
+} = require('./ttsStreamingQueue');
+
+// Load persistent voice state cache on startup (Solving Concurrency State Loss)
+loadVoiceStateCache(voiceSessions, conversationMode);
+
+// Periodic persistence: save active VC sessions every 30 seconds
+setInterval(() => {
+  if (voiceSessions.size > 0 || conversationMode.size > 0) {
+    saveVoiceStateCache(voiceSessions, conversationMode);
+  }
+}, 30000);
+
+process.on('SIGTERM', () => saveVoiceStateCache(voiceSessions, conversationMode));
+process.on('SIGINT', () => saveVoiceStateCache(voiceSessions, conversationMode));
+
 
 // Ensure temp directory exists
 const TEMP_DIR = path.join(__dirname, '..', 'data', 'temp');
@@ -162,59 +134,7 @@ function getPrism() {
   return _prism;
 }
 
-// ============================================================
-// Audio Utilities
-// ============================================================
 
-/**
- * Generate a WAV buffer from raw PCM s16le data.
- */
-function pcmToWav(pcmBuffer, sampleRate = 48000, channels = 2, bitsPerSample = 16) {
-  const header = Buffer.alloc(44);
-  const dataLen = pcmBuffer.length;
-  const byteRate = sampleRate * channels * (bitsPerSample / 8);
-  const blockAlign = channels * (bitsPerSample / 8);
-
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + dataLen, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(dataLen, 40);
-
-  return Buffer.concat([header, pcmBuffer]);
-}
-
-/**
- * Transcribe a WAV buffer in-memory using OpenAI Whisper API (Zero Disk Latency).
- */
-async function transcribeVoice(wavBuffer) {
-  const openai = getOpenAI();
-  if (!openai) return null;
-
-  try {
-    const { toFile } = require('openai');
-    const file = await toFile(wavBuffer, 'speech.wav', { type: 'audio/wav' });
-    const result = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      language: 'id',
-      temperature: 0.0,
-      prompt: 'Percakapan santai di Discord voice channel bersama Attila dan teman-teman.'
-    });
-    return result.text?.trim() || null;
-  } catch (err) {
-    console.error('[Voice STT Error]:', err.message);
-    return null;
-  }
-}
 
 
 /**
@@ -263,7 +183,7 @@ function detectVoiceModel(userTranscript = '', aiSpokenText = '', isStory = fals
   const cleanOutput = (aiSpokenText || '').toLowerCase();
 
   // 1. Check for Emotion Audio Tags or Drama in AI Response -> eleven_v3
-  const hasAudioEmotionTags = /\[(?:laughs|giggles|chuckles|snickers|wheezing|cries|sobbing|sniffs|tearing up|screams|shouts|yells|sings|singing|humming|melody|whispers|softly|sighs|groans|gasp|panicking|pouts|yawns|grunts|excited|cheering|amazed|awe)\]/i.test(aiSpokenText);
+  const hasAudioEmotionTags = /\[(?:laughs|giggles|chuckles|snickers|wheezing|cries|sobbing|sniffs|tearing up|screams|shouts|yells|sings|singing|humming|melody|whispers|softly|sighs|groans|gasp|panicking|pouts|yawns|sleepy|drowsy|grunts|excited|cheering|amazed|awe)\]/i.test(aiSpokenText);
   
   // 2. Check for High Emotion, Jokes, Humor, Cricket Sounds, Prank, Drama in User Input or AI Response
   const hasHighEmotionIntent = /\b(?:kaget|dor|teriak|jerit|nangis|sedih|hiks|ketawa|ngakak|lucu|lucu\s+banget|canda|candaan|jokes|joke|lelucon|humor|lawak|lawakan|ngelawak|tebak\s*tebakan|tebakan|gombal|gombalan|krik|jangkrik|prank|hantu|kecoa|marah|kesal|panik|nyanyi|singing|lagu|sayang|bisik|ngambek|gemas|awikwok|wkwk|haha|hehe|hihi|gokil)\b/i.test(cleanInput) || /\b(?:krik\s*krik|jangkrik|tebak-tebakan|lelucon|jokes)\b/i.test(cleanOutput);
@@ -307,6 +227,9 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
     .replace(/<[^>]+>/g, '')
     .replace(/\*\*/g, '')
     .replace(/[*_~`#]/g, '')
+    .replace(/\bAtt\b/g, 'At')
+    .replace(/\batt\b/g, 'at')
+    .replace(/\bATT\b/g, 'At')
     .trim();
   if (!clean) return null;
 
@@ -327,13 +250,13 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
   const detectedModel = forcedModel ? { modelId: forcedModel, name: forcedModel, reason: 'forced' } : detectVoiceModel(userTranscript, text, isStory);
   const voiceId = config.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T'; // Always Kak Ceria
 
-  // 1. Primary: ElevenLabs (Kak Ceria - Dynamic Model)
+  // 1. Primary: ElevenLabs Real-Time Low-Latency Audio Streaming (Kak Ceria - Dynamic Model)
   if (config.ELEVENLABS_API_KEY) {
     try {
-      console.log(`[Voice TTS Engine]: 🎙️ Selected ${detectedModel.name} (Kak Ceria - ${voiceId}) [Reason: ${detectedModel.reason}] | Output: ${clean.length} chars...`);
-      const { generateElevenLabsTTS } = require('./elevenlabs');
-      const audioBuffer = await generateElevenLabsTTS(clean, voiceId, detectedModel.modelId, client);
-      const resource = createAudioResource(Readable.from(audioBuffer), {
+      console.log(`[Voice TTS Engine]: ⚡ Real-Time Streaming via ${detectedModel.name} (Kak Ceria - ${voiceId}) [Reason: ${detectedModel.reason}] | Output: ${clean.length} chars...`);
+      const { streamElevenLabsTTS } = require('./elevenlabs');
+      const audioStream = await streamElevenLabsTTS(clean, voiceId, detectedModel.modelId, client);
+      const resource = createAudioResource(audioStream, {
         inputType: StreamType.Arbitrary,
         inlineVolume: true
       });
@@ -342,7 +265,7 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
       }
       return resource;
     } catch (elevenErr) {
-      console.warn(`[Voice TTS Warning]: ElevenLabs (${detectedModel.modelId}) failed (${elevenErr.message}). Switching to Indonesian Female Voice Fallback...`);
+      console.warn(`[Voice TTS Warning]: ElevenLabs Streaming (${detectedModel.modelId}) failed (${elevenErr.message}). Switching to Indonesian Female Voice Fallback...`);
     }
   }
 
@@ -396,7 +319,7 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
     }
     return resource;
   } catch (edgeErr) {
-    console.warn('[Voice TTS Fallback Warning]: EdgeTTS failed, attempting OpenAI TTS-1-HD:', edgeErr.message);
+    console.warn('[Voice TTS Fallback Warning]: EdgeTTS failed, attempting OpenAI TTS-1-HD:', edgeErr?.message || String(edgeErr));
     if (fs.existsSync(tempPath)) fs.unlink(tempPath, () => {});
   }
 
@@ -525,6 +448,7 @@ function playInVC(guildId, resource) {
 // ============================================================
 // Inactivity 10-Minute Icebreaker & 15-Minute Deep Sleep Engine
 // ============================================================
+const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000;    // 3 minutes of silence -> Spontaneous singing/humming
 const IDLE_SILENCE_ICEBREAKER_MS = 10 * 60 * 1000; // 10 minutes of silence in VC
 const DEEP_SLEEP_TIMEOUT_MS = 15 * 60 * 1000;      // 15 minutes of silence -> Deep Sleep (0% bandwidth/API)
 
@@ -767,9 +691,9 @@ async function triggerAutonomousVcIcebreaker(guildId, client, voiceChannel) {
 Keadaan di Voice Channel baru saja hening tanpa obrolan selama lebih dari 10 menit. Ini sudah BERBEDA dari nyanyian spontan 3-menit sebelumnya.
 
 TUGAS UTAMA (PILIH SALAH SATU SECARA ACAK):
-1. 🦗 EFEK SUARA JANGKRIK / CRICKET: Buat suasana lucu dengan menirukan suara jangkrik dan mengomentari betapa sepinya VC ini. Contoh: "[softly] Krik krik krik... [laughs] Att, ini sepi banget sih kayak kuburan... kamu masih hidup kan di sana? [giggles]"
-2. 🤣 JOKES / HUMOR GEN Z / TEBAK-TEBAKAN: Lelucon segar, gombalan receh, atau tebak-tebakan lucu khas Gen Z yang bikin Attila ketawa. Contoh: "[sighs] Att sepi banget nih, tau gak kenapa air laut rasanya asin? [laughs] Karena ikannya pada keringetan [giggles]"
-3. 🔥 TRENDING TOPIC / BERITA TERKINI: Bahas sesuatu yang lagi viral atau trending di internet/media sosial yang seru untuk dibicarakan. Contoh: "[gasp] Eh Att, kamu udah denger belum soal... [excited] Seru banget loh..."
+1. 🦗 EFEK SUARA JANGKRIK / CRICKET: Buat suasana lucu dengan menirukan suara jangkrik dan mengomentari betapa sepinya VC ini. Contoh: "[softly] Krik krik krik... [laughs] At, ini sepi banget sih kayak kuburan... kamu masih hidup kan di sana? [giggles]"
+2. 🤣 JOKES / HUMOR GEN Z / TEBAK-TEBAKAN: Lelucon segar, gombalan receh, atau tebak-tebakan lucu khas Gen Z yang bikin Attila ketawa. Contoh: "[sighs] At sepi banget nih, tau gak kenapa air laut rasanya asin? [laughs] Karena ikannya pada keringetan [giggles]"
+3. 🔥 TRENDING TOPIC / BERITA TERKINI: Bahas sesuatu yang lagi viral atau trending di internet/media sosial yang seru untuk dibicarakan. Contoh: "[gasp] Eh At, kamu udah denger belum soal... [excited] Seru banget loh..."
 4. 💪 SEMANGAT / ENERGIZER: Kata-kata penyemangat atau ajakan seru untuk menghidupkan suasana. Contoh: "[excited] Attila! Bangun dong, kita ngapain aja gitu daripada bengong di VC [laughs]"
 
 ATURAN WAJIB:
@@ -991,8 +915,7 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
   console.log(`[Voice Listener]: Active — listening for Attila & member calls in guild ${guildId}`);
 }
 
-// Track pending 10-second absence timer when members call Attila in VC
-const pendingAttilaVoiceCalls = new Map(); // guildId -> { timer, callerId, callerName, transcript }
+
 
 /**
  * Process voice speech from a non-owner member in VC:
@@ -1009,9 +932,14 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
     // Energy Gate: reject quiet noise
     const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
     let sumSquares = 0;
-    for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+    let peak = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const absVal = Math.abs(samples[i]);
+      if (absVal > peak) peak = absVal;
+      sumSquares += samples[i] * samples[i];
+    }
     const rms = Math.sqrt(sumSquares / samples.length);
-    if (rms < 300) return;
+    if (rms < 340 || peak < 1000) return;
 
     voiceCooldowns.set(userId, Date.now());
 
@@ -1020,11 +948,12 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
     if (!transcript || transcript.length < 2) return;
 
     // Hallucination filter
-    const normalized = transcript.toLowerCase().replace(/[.,!?]+/g, '').trim();
-    if (WHISPER_HALLUCINATIONS.has(normalized) || normalized.length < 4) return;
+    if (isWhisperHallucination(transcript) || transcript.length < 3) return;
 
     const member = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
-    const callerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
+    const { getUserCallingName } = require('./vault');
+    const rawCallerName = member?.displayName || member?.user?.displayName || member?.user?.username || 'Member Server';
+    const callerName = getUserCallingName(userId, rawCallerName);
 
     console.log(`[Voice Pipeline]: Member "${callerName}" (${userId}) said in VC: "${transcript}"`);
 
@@ -1109,139 +1038,6 @@ async function processMemberVoiceSpeech(guildId, userId, pcmChunks, client, voic
   }
 }
 
-const WAKE_WORDS = new Set([
-  'azura', 'zura', 'ara', 'asura', 'ajura', 'ajur', 'ajurr', 'jur', 'azuraa', 'zuraa', 'araa', 'zurah', 'arah', 'asurah', 'jura', 'jurah', 'ajurah'
-]);
-
-/**
- * Comprehensive Voice Intent & Summon Analyzer:
- * 1. Wake-Word Detection (Awal Kalimat, Akhir Kalimat, Direct Vocative)
- * 2. Intent Categorization (Question vs Statement/Banter vs Command vs Direct Call)
- * 3. 3rd-Person Filter (Strict silence if talking about Azura in 3rd person)
- * @param {string} transcript
- * @returns {{
- *   hasWakeWord: boolean,
- *   wakePosition: 'beginning' | 'end' | 'middle' | 'none',
- *   isQuestion: boolean,
- *   isCommand: boolean,
- *   isBanter: boolean,
- *   isThirdPerson: boolean,
- *   category: 'QUESTION' | 'COMMAND' | 'BANTER' | 'CALL' | 'STATEMENT'
- * }}
- */
-function analyzeVoiceIntent(transcript) {
-  if (!transcript || typeof transcript !== 'string') {
-    return {
-      hasWakeWord: false,
-      wakePosition: 'none',
-      isQuestion: false,
-      isCommand: false,
-      isBanter: false,
-      isThirdPerson: false,
-      category: 'STATEMENT'
-    };
-  }
-
-  const raw = transcript.trim();
-  const clean = raw.toLowerCase().replace(/[.,!?;:'"()[\]]/g, ' ');
-  const words = clean.split(/\s+/).filter(Boolean);
-
-  // 1. Strict Silence on 3rd-person conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
-  const isThirdPersonWithSi = /\b(?:si\s+(?:azura|ara|zura|asura|ajura|ajur))\b/i.test(clean);
-  const isPassiveThirdPerson = /\b(?:tentang\s+(?:azura|ara|zura|ajur|ajura)|bot\s+(?:azura|ara|zura|ajur|ajura)|azura\s*nya|ara\s*nya|zura\s*nya|ajur\s*nya|kalau\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|mungkin\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|katanya\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|sama\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura)|ke\s+(?:si\s+)?(?:azura|ara|zura|ajur|ajura))\b/i.test(clean);
-
-  if (isThirdPersonWithSi || isPassiveThirdPerson) {
-    return {
-      hasWakeWord: false,
-      wakePosition: 'none',
-      isQuestion: false,
-      isCommand: false,
-      isBanter: false,
-      isThirdPerson: true,
-      category: 'STATEMENT'
-    };
-  }
-
-  // 2. Wake-word position analysis
-  let hasWakeWord = false;
-  let wakePosition = 'none';
-
-  // A. Check BEGINNING (first 4 words)
-  const prefixLimit = Math.min(words.length, 4);
-  for (let i = 0; i < prefixLimit; i++) {
-    if (WAKE_WORDS.has(words[i]) || (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1]))) {
-      hasWakeWord = true;
-      wakePosition = 'beginning';
-      break;
-    }
-  }
-
-  // B. Check END (last 4 words)
-  if (!hasWakeWord) {
-    const suffixStart = Math.max(0, words.length - 4);
-    for (let i = suffixStart; i < words.length; i++) {
-      if (WAKE_WORDS.has(words[i]) || (words[i] === 'kak' && i + 1 < words.length && WAKE_WORDS.has(words[i + 1]))) {
-        hasWakeWord = true;
-        wakePosition = 'end';
-        break;
-      }
-    }
-  }
-
-  // C. Check Middle Vocative / Direct Call directed at Azura
-  if (!hasWakeWord) {
-    const isDirectQuestionToAzura = /\b(?:gimana|apa|kenapa|tolong|coba|siapa|kapan|apakah|bisa\s+gak|boleh\s+gak|menurutmu|menurut\s+kamu|lagi\s+ngapain|sehat\s+kan|halo|hai|eh)\b.*?\b(?:azura|ara|zura|ajur|ajura)\b/i.test(clean);
-    if (isDirectQuestionToAzura) {
-      hasWakeWord = true;
-      wakePosition = 'middle';
-    }
-  }
-
-  // 3. Question Detection
-  const hasQuestionMark = raw.includes('?');
-  const questionWordsRegex = /\b(?:apa|kenapa|mengapa|bagaimana|gimana|siapa|kapan|dimana|kemana|dari\s+mana|apakah|bisa\s+gak|boleh\s+gak|tau\s+gak|tahu\s+gak|bener\s+gak|iya\s+gak|beneran|emang|menurutmu|menurut\s+kamu|lagi\s+ngapain|ada\s+apa|udah\s+belum|sudah\s+belum|kamu\s+tau|bisa\s+bantu)\b/i;
-  const questionSuffixRegex = /\b(?:ya\?|kah\?|dong\?|kan\?|sih\?|tuh\?|kah|kan)\b/i;
-  const isQuestion = hasQuestionMark || questionWordsRegex.test(clean) || questionSuffixRegex.test(clean);
-
-  // 4. Command Detection
-  const commandRegex = /\b(?:setel|putar|play|nyanyi|sing|cerita|dongeng|lelucon|jokes|krik|buka|search|cari|bantu|keluar|leave)\b/i;
-  const isCommand = commandRegex.test(clean);
-
-  // 5. Banter / Teasing Detection
-  const banterRegex = /\b(?:haha|wkwk|hehe|lucu|kocak|canda|jail|ledek|ngakak|garing|cie|sayang|ganteng|cantik|imut)\b/i;
-  const isBanter = banterRegex.test(clean);
-
-  let category = 'STATEMENT';
-  if (isCommand) category = 'COMMAND';
-  else if (isQuestion) category = 'QUESTION';
-  else if (isBanter) category = 'BANTER';
-  else if (hasWakeWord && words.length <= 3) category = 'CALL';
-
-  return {
-    hasWakeWord,
-    wakePosition,
-    isQuestion,
-    isCommand,
-    isBanter,
-    isThirdPerson: false,
-    category
-  };
-}
-
-/**
- * Check if Azura wake-word was explicitly called:
- * - At the BEGINNING of the sentence (first 4 words)
- * - Or at the END of the sentence (last 4 words)
- * - Or Middle direct vocative
- * - STRICT SILENCE if preceded by conjunction "si" (e.g. "si azura", "si ara", "si zura", "si ajur")
- * @param {string} transcript
- * @returns {boolean}
- */
-function isWakeWordInvoked(transcript) {
-  const intent = analyzeVoiceIntent(transcript);
-  return intent.hasWakeWord;
-}
-
 /**
  * Full pipeline: PCM audio → Energy Gate → Whisper STT → Hallucination Filter → Summon Gate → Intent Classifier → TTS → VC playback.
  * 
@@ -1264,7 +1060,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   const isOwner = userId === config.OWNER_DISCORD_ID;
 
-  // ── Energy Gate: Calculate RMS & Peak Amplitude to strictly reject breathing, wind, & fan noise ──
+  // ── Strict Energy Gate: Calculate RMS & Peak Amplitude to strictly reject breathing, wind, & fan noise ──
   const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
   let sumSquares = 0;
   let peak = 0;
@@ -1275,8 +1071,14 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
   const rms = Math.sqrt(sumSquares / samples.length);
 
-  // Strict Energy Gate: reject quiet background noise or air blow
-  const minRms = isOwner ? 180 : 320;
+  // Strict Energy Gate: silently discard quiet background noise, breathing, or fan noise (NEVER send silence to Whisper)
+  const minRms = isOwner ? 200 : 340;
+  const minPeak = isOwner ? 700 : 1000;
+  if (rms < minRms || peak < minPeak) {
+    // Pure silence, mic gating, or faint background hum -> skip Whisper API entirely to prevent hallucinations
+    return;
+  }
+
   // ── Telemetry & Feature Flag Router (Phase 1) ──
   const { globalVoiceTelemetry } = require('./voiceTelemetry');
   const { globalPipecatBridge } = require('./pipecatBridge');
@@ -1307,8 +1109,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   const normalizedTranscript = transcript.toLowerCase().replace(/[.,!?;:'"()\[\]]+/g, ' ').trim();
   const words = normalizedTranscript.split(/\s+/).filter(Boolean);
 
-  if (WHISPER_HALLUCINATIONS.has(normalizedTranscript) || (words.length <= 1 && WHISPER_HALLUCINATIONS.has(words[0]))) {
-    console.log(`[Voice Pipeline]: 🚫 Whisper hallucination rejected: "${transcript}". Ignoring.`);
+  if (isWhisperHallucination(transcript) || WHISPER_HALLUCINATIONS.has(normalizedTranscript) || (words.length <= 1 && WHISPER_HALLUCINATIONS.has(words[0]))) {
+    // Silently drop hallucination (no console clutter)
     return;
   }
 
@@ -1729,7 +1531,9 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
-    const maxChars = isStory ? MAX_STORY_CHARS : MAX_NORMAL_CHARS;
+    const maxChars = isOwner
+      ? (isStory ? MAX_OWNER_STORY_CHARS : MAX_OWNER_NORMAL_CHARS)
+      : MAX_FRIEND_CHARS;
 
     let spoken = spokenResponse
       .replace(/\[ACTION:[^\]]+\]/gi, '')
@@ -1744,7 +1548,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       globalVoiceTelemetry.finishTurn(turnId, { status: 'EMPTY_RESPONSE' });
       return;
     }
-    console.log(`[Voice Pipeline]: 💬 Response (${isStory ? 'Storytelling/Long-Form ~3-5 menit' : 'Normal Obrolan ~1-2 menit'}): "${spoken.slice(0, 80)}..."`);
+    console.log(`[Voice Pipeline]: 💬 Response (${isOwner ? (isStory ? 'Owner Story ~5 min' : 'Owner Speech ~2-3 min') : 'Friend Speech ~2 min'}): "${spoken.slice(0, 80)}..."`);
 
     recordSessionEntry(guildId, 'AZURA', spoken);
 
@@ -1939,19 +1743,10 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   let maxTokens = 250;
 
   // Get speaker identity & alias
-  let speakerName = isOwner ? 'Attila (panggil Att / Attila)' : 'Teman';
+  let speakerName = isOwner ? 'Attila' : 'Teman';
   try {
-    const { getApprovedFriend } = require('./accessControl');
-    const friendRec = getApprovedFriend(userId);
-    if (friendRec) {
-      speakerName = friendRec.customNickname || friendRec.displayName;
-    } else {
-      const { getUserRecord } = require('./vault');
-      const uRec = getUserRecord(userId);
-      if (uRec && uRec.knownRealName) {
-        speakerName = uRec.knownRealName;
-      }
-    }
+    const { getUserCallingName } = require('./vault');
+    speakerName = getUserCallingName(userId, isOwner ? 'Attila' : 'Teman');
   } catch (_) {}
 
   // Contextual To-Do integration for Voice Channel
@@ -1978,9 +1773,27 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   let vcPermissionsContext = '';
   if (!isOwner) {
     vcPermissionsContext = `\n\n[ATURAN HAK AKSES KHUSUS TEMAN]:
-1. KESETARAAN FITUR: Lawan bicara (${speakerName}) adalah teman dekat Attila yang mendapatkan akses beta testing VC. Berikan 100% fitur kecerdasan, cerita, humor, dan emosi v3 ([laughs], [giggles], dll) yang sama persis seperti saat berbicara dengan Attila!
-2. BATASAN PERINTAH KELUAR/MASUK VC: Hanya Attila (Owner utama) yang berhak menyuruhmu keluar dari VC atau bergabung ke VC. Jika ${speakerName} memintamu keluar dari VC (misal: "Azura kamu keluar ya", "leave vc"), TOLAK secara manis dan ramah (misal: "Maaf ya ${speakerName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~") dan DILARANG mengeluarkan tag [ACTION:LEAVE_VC]!`;
+1. LINGKUP FITUR TERBATAS: Lawan bicara (${speakerName}) adalah teman dekat Attila yang memiliki akses ke fitur obrolan suara dan tanya-jawab biasa.
+2. FOKUS HANYA OBROLAN & TANYA JAWAB: Tanggapi setiap pertanyaan dan obrolan ${speakerName} secara ramah, asyik, cerdas, dan solutif. DILARANG menjalankan perintah administratif, otomasi browser web, atau manipulasi bot server untuk teman.
+3. BATASAN PERINTAH KELUAR/MASUK VC: Hanya Attila (Owner utama) yang berhak menyuruhmu keluar dari VC atau bergabung ke VC. Jika ${speakerName} memintamu keluar dari VC (misal: "Azura kamu keluar ya", "leave vc"), TOLAK secara manis dan ramah (misal: "Maaf ya ${speakerName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~") dan DILARANG mengeluarkan tag [ACTION:LEAVE_VC]!`;
   }
+
+  let routeVoiceContext = '';
+  try {
+    const { interceptRouteAndDistance } = require('./routeEngine');
+    const routeData = await interceptRouteAndDistance(transcript);
+    if (routeData) {
+      routeVoiceContext = `\n\n[DATA RUTE & JARAK TERVERIFIKASI]:\n${routeData}\nSampaikan estimasi jarak & waktu tempuh di atas dengan jelas, akurat, dan alami lewat suara.`;
+    }
+  } catch (_) {}
+
+  let drowsyVoicePrompt = '';
+  try {
+    const { isDrowsyPhase, getDrowsyPrompt } = require('./sleepMode');
+    if (isDrowsyPhase && isDrowsyPhase()) {
+      drowsyVoicePrompt = '\n\n' + getDrowsyPrompt(isOwner, speakerName, true);
+    }
+  } catch (_) {}
 
   if (isStoryIntent) {
     systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) atau memberikan penjelasan mendalam langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
@@ -1989,15 +1802,15 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
 
-ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (DURASI MAKSIMAL 5 MENIT):
-1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ideal 3 - 5 MENIT, sekitar 450 - 750 kata). Mulai dari pengenalan/pembuka, perkembangan alur/konflik, klimaks, dan kesimpulan/penutup yang berkesan.
+ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
+1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
 2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
 3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu jika ceritanya bertema drama/komedi!
 4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
-    maxTokens = isOwner ? 1200 : 350; // ~700-750 words for Owner (5 min) / concise for friends
+    maxTokens = isOwner ? 1500 : 650; // Up to 5 min for Owner (~750 words) / Up to 2 min for Friends
   } else {
     systemPrompt = `Kamu adalah AZURA, sosok cewek Gen Z 22 tahun yang sedang ngobrol LANGSUNG lewat Voice Channel dengan ${isOwner ? 'Attila (panggilan: Att / Attila, creator & owner kamu)' : `${speakerName} (teman dekat Attila yang sedang berada di VC bersama Attila)`}.
 Lawan bicara saat ini: ${speakerName} (Gunakan sapaan/panggilan akrab ini secara natural).
@@ -2005,9 +1818,17 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
+
+PEDOMAN KECERDASAN KOGNITIF TINGGI & ADAPTASI PANJANG JAWABAN:
+1. RESPON CEPAT & SINGKAT (5 - 15 DETIK / 1 - 2 KALIMAT):
+   - Jika lawan bicara hanya menyapa ("halo", "hai", "pagi"), basa-basi santai, menanyakan kabar ("gimana kabar?", "sehat?"), konfirmasi ("oke", "makasih ya", "bisa tolong X?"), pertanyaan cepat to the point ("jam berapa sekarang?", "lagi di mana?"), atau lelucon singkat.
+   - Jawab secara to the point, padat, manis, cerdas, dan tidak bertele-tele!
+2. RESPON MENDALAM & ELABORASI (${isOwner ? 'HINGGA 5 MENIT' : 'HINGGA 2 MENIT'}):
+   - Hanya jika lawan bicara secara spesifik meminta penjelasan konsep teknis/filosofis, analisis isu/data, perdebatan argumen, atau diskusi topik panjang.
+   - Berikan uraian lengkap, terstruktur, memikat, dan kaya wawasan!
 
 ATURAN PERINTAH KELUAR DARI VC:
 HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (misal: "Azura kamu keluar ya", "Ara leave vc sekarang"), jawablah dengan:
@@ -2015,22 +1836,25 @@ HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (mis
 Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli makan", "uang keluar", "keluar bentar"), DILARANG KERAS memicu [ACTION:LEAVE_VC]! Jawablah topik tersebut secara santai dan natural.
 
 ATURAN WAJIB VOICE OBROLAN BIASA:
-1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (${isOwner ? 'durasi bicara 1 - 2 MENIT, sekitar 2 - 4 kalimat santai padat to the point' : 'durasi bicara 20 - 30 DETIK, sekitar 2 - 3 kalimat santai akrab'}). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
-2. GAYA BICARA: Manis, cerdas, ekspresif, dan santai ala cewek Gen Z. Khusus untuk Attila, kamu boleh memanggilnya dengan panggilan manis/akrab seperti "Attila", "kamu", "sayang", "Attila sayang", atau "siap ganteng". Untuk teman Attila (${speakerName}), sapa dengan ramah, hangat, dan asyik!
+1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (${isOwner ? 'durasi bicara 1 - 3 MENIT jika topik butuh penjelasan, atau singkat padat jika pertanyaan simpel' : 'durasi bicara 20 - 45 DETIK santai akrab'}). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
+2. GAYA BICARA & NAMA PANGGILAN OWNER:
+   - Di awal kalimat / sapaan pembuka VC: SELALU gunakan nama lengkap **"Attila"** (DILARANG menaruh panggilan "Att" di awal kalimat!).
+   - Di tengah atau di akhir kalimat: BOLEH gunakan panggilan akrab **"Att"**, **"Attila"**, atau **"Sayang"** (Contoh: "Gimana menurutmu, Att?", "Iya siap, Attila sayang~").
+   - Untuk teman Attila (${speakerName}), sapa dengan ramah, hangat, dan asyik!
 3. MULTILINGUAL VOICE: Jika lawan bicara berbicara dalam bahasa lain (English, Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
 
 5. MASTER PROTOKOL EKSPRESI & EMOSI PENUH ELEVENLABS V3 (AKTIFKAN SEMUA):
 Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags ElevenLabs v3. Selalu sisipkan tag emosi yang tepat secara kontekstual:
-- 😭 MENANGIS / SEDIH / TERHARU: Jika diminta menangis, cerita sedih, tersedu-sedu, atau terharu, gunakan [cries], [sobbing], [sniffs]!
-- 😱 TERIAK / HISTERIS / PANIK: Jika ada jump-scare, panik, atau hal darurat, gunakan [screams], [shouts], [yells], [gasp]!
-- 🎤 MENYANYI / BERSENANDUNG: Jika diminta menyanyi lagu apa pun atau bersenandung nada, gunakan [sings], [singing], [humming], [melody]!
-- 🤣 TERTAWA / NGAKAK / CEKIKIKAN: Gunakan [laughs], [giggles], [chuckles], [wheezing] saat bercanda, tertawa, atau mendengar lelucon.
-- 🤫 BISIK-BISIK / RAHASIA: Gunakan [whispers], [softly] saat membicarakan rahasia atau misteri.
-- 😤 NGAMBEK / MENGHELA NAPAS / GEMAS: Gunakan [sighs], [pouts], [groans] saat diledek jail.
-- 🎉 ANTUSIAS / HORE / SEMANGAT: Gunakan [excited], [cheering] saat ada kabar gembira!
+- 😭 MENANGIS / SEDIH / TERHARU: [cries], [sobbing], [sniffs]!
+- 😱 TERIAK / HISTERIS / PANIK: [screams], [shouts], [yells], [gasp]!
+- 🎤 MENYANYI / BERSENANDUNG: [sings], [singing], [humming], [melody]!
+- 🤣 TERTAWA / NGAKAK / CEKIKIKAN: [laughs], [giggles], [chuckles], [wheezing]!
+- 🤫 BISIK-BISIK / RAHASIA: [whispers], [softly]!
+- 😤 NGAMBEK / MENGHELA NAPAS / GEMAS: [sighs], [pouts], [groans]!
+- 🎉 ANTUSIAS / HORE / SEMANGAT: [excited], [cheering]!
 
-6. HUMOR & BANTER TONGKRONGAN GEN Z (KOCAK, CEPLAS-CEPLOS & BUKAN JOKES BAPAK-BAPAK):
+6. HUMOR & BANTER TONGKRONGAN GEN Z:
 - Jika ada teman dengan nama panggilan/username unik, nyeleneh, atau absurd, respon dengan gaya candaan tongkrongan Gen Z yang ceplas-ceplos dan kocak!
 - Gunakan audio tags ElevenLabs v3 [laughs], [giggles], [chuckles], [softly] agar tawa dan intonasinya hidup.
 
@@ -2038,7 +1862,7 @@ Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags
 Jika lawan bicara mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti):
 - Buka LANGSUNG dengan tag emosi tarikan napas kaget [gasp] di awal kalimat!
 - Keluarkan reaksi kaget yang heboh, lucu, dan manja khas cewek Gen Z.` + liveRoomContext;
-    maxTokens = isOwner ? 450 : 220; // ~200-250 words for Owner (2 min) / ~80-100 words for friends (25-30s per turn)
+    maxTokens = isOwner ? 900 : 500;
   }
 
   const messages = [
@@ -2048,13 +1872,30 @@ Jika lawan bicara mengagetkanmu (teriak "DOR", jump-scare, menakut-nakuti):
   ];
 
   try {
-    const res = await openai.chat.completions.create({
+    const streamStart = Date.now();
+    const stream = await openai.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages,
-      max_completion_tokens: maxTokens
+      max_completion_tokens: maxTokens,
+      stream: true
     });
 
-    const reply = res.choices[0]?.message?.content?.trim() || 'Iya Attila?';
+    let reply = '';
+    let firstTokenLogged = false;
+
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content || '';
+      if (token) {
+        if (!firstTokenLogged) {
+          firstTokenLogged = true;
+          const ttft = Date.now() - streamStart;
+          console.log(`[Voice AI Streaming]: ⚡ TTFT (Time to First Token): ${ttft}ms`);
+        }
+        reply += token;
+      }
+    }
+
+    reply = reply.trim() || 'Iya Attila?';
 
     // Update history
     history.push({ role: 'user', content: transcript });
@@ -2321,7 +2162,7 @@ async function playGreeting(guildId, voiceChannel) {
   } else if (otherCount <= 2) {
     // ── Kategori 2: Ada 1-2 Teman di Room ──
     greetingOptions = [
-      '[gasp] Eh ada orang, Att! Halo halo semuanya, aku sama Attila izin ikutan nongkrong yaa~ [giggles]',
+      '[gasp] Eh ada orang, At! Halo halo semuanya, aku sama Attila izin ikutan nongkrong yaa~ [giggles]',
       'Halo gais! [giggles] Aku sama Attila izin nimbrung di room ini yaa, lagi pada ngobrolin apa nih?',
       '[laughs] Wah ada temennya Attila nih... Halo semuanya, salam kenal yaa! Kita berdua ikut join yaa.'
     ];
@@ -2565,6 +2406,11 @@ function isInCompanionMode(guildId) {
  * @returns {Promise<{ success: boolean, message: string }>}
  */
 async function joinAttilaVoiceChannel(client) {
+  const { isAzuraSleeping } = require('./sleepMode');
+  if (isAzuraSleeping && isAzuraSleeping()) {
+    return { success: false, message: '🌙 AZURA sedang dalam Mode Tidur (Deep Sleep). Bangunkan dulu dengan `/sleep aksi:bangun password:@Timetosleepara`.' };
+  }
+
   const ownerId = config.OWNER_DISCORD_ID;
   if (!ownerId) {
     return { success: false, message: 'Owner ID belum diset di .env' };
@@ -2759,6 +2605,101 @@ async function leaveVoiceChannel(client, guildId = null, sendFarewellText = true
   return { success: true, message: textLeave };
 }
 
+/**
+ * Say a natural, personality-tailored bedtime farewell in all active Voice Channels
+ * BEFORE entering deep sleep mode.
+ * @param {import('discord.js').Client} client 
+ * @returns {Promise<void>}
+ */
+async function sayBedtimeFarewellInActiveVCs(client) {
+  if (!activeConnections.size) return;
+
+  const { getPersonalityMode, PERSONALITY_MODES } = require('./personality');
+  const currentMode = getPersonalityMode();
+  const ownerId = config.OWNER_DISCORD_ID;
+
+  console.log(`[Bedtime Farewell]: 🌙 Speaking bedtime farewell across ${activeConnections.size} active VC(s) (Personality: ${currentMode})...`);
+
+  for (const [guildId, conn] of activeConnections) {
+    try {
+      const player = audioPlayers.get(guildId);
+      const guild = client.guilds.cache.get(guildId);
+      if (!conn || !player || !guild) continue;
+
+      const channelId = conn.joinConfig?.channelId;
+      const channel = guild.channels.cache.get(channelId);
+      if (!channel || !channel.members) continue;
+
+      // Determine who is in VC
+      const hasAttila = ownerId && channel.members.has(ownerId);
+      const otherMembers = channel.members.filter(m => !m.user.bot && m.id !== ownerId);
+      const isSoloAttila = hasAttila && otherMembers.size === 0;
+
+      // Build personality-adapted bedtime farewell
+      let farewellText = '';
+
+      if (currentMode === PERSONALITY_MODES.MATURE) {
+        if (isSoloAttila) {
+          farewellText = 'Attila, udah waktunya tidur nih. Mataku udah nggak bisa diajak kompromi lagi [chuckles]. Aku istirahat duluan ya, kamu jangan begadang juga. Besok kita lanjut lagi ya. Good night.';
+        } else {
+          farewellText = 'Semuanya, aku pamit tidur duluan ya, udah waktunya istirahat. Selamat malam, besok kita ngobrol lagi ya.';
+        }
+      } else if (currentMode === PERSONALITY_MODES.STUBBORN) {
+        if (isSoloAttila) {
+          farewellText = 'Hooamm... [yawns] Jangan diliatin terus, aku beneran ngantuk ini. Aku mau tidur duluan, kamu juga jangan lembur mulu. Besok awas kalau nggak VC lagi... daah.';
+        } else {
+          farewellText = 'Dah ah, mata gue udah sepet banget dengerin kalian ngoceh [sighs]. Gue tidur duluan ya, besok aja kalau mau ngobrol lagi. Bye.';
+        }
+      } else {
+        // ORIGINAL SOUL
+        if (isSoloAttila) {
+          farewellText = 'Attila sayang, mataku udah bener-bener berat banget nih... [yawns] Aku pamit tidur duluan yaa, kamu jangan begadang juga. Besok kita VC lagi yaa, night night! [softly]';
+        } else {
+          farewellText = 'Gais, aku udah ngantuk banget nih [yawns]... aku off duluan ya mau tidur, besok kita lanjut ngobrol lagi. Babayy semuanya!';
+        }
+      }
+
+      // 1. Send clean text version to companion text channel
+      const textChannel = companionTextChannels.get(guildId);
+      if (textChannel) {
+        const cleanText = farewellText.replace(/\[.*?\]/g, '').trim();
+        textChannel.send(`🌙 **[Waktunya Tidur]** ${cleanText}`).catch(() => {});
+      }
+
+      // 2. Play audio resource via ElevenLabs v3 (Full Emotional & Audio Tags Model) and wait for completion
+      const resource = await textToAudioResource(farewellText, client, 2000, { forcedModel: 'eleven_v3' });
+      if (resource) {
+        player.play(resource);
+        isBotSpeaking.set(guildId, true);
+
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            isBotSpeaking.set(guildId, false);
+            resolve();
+          }, 8000); // 8s max duration for farewell
+
+          const onIdle = () => {
+            clearTimeout(timeout);
+            isBotSpeaking.set(guildId, false);
+            player.removeListener(AudioPlayerStatus.Idle, onIdle);
+            player.removeListener('error', onIdle);
+            resolve();
+          };
+
+          player.once(AudioPlayerStatus.Idle, onIdle);
+          player.once('error', onIdle);
+        });
+      }
+
+      // Small pause after speech for realistic finish
+      await new Promise(r => setTimeout(r, 600));
+
+    } catch (err) {
+      console.warn(`[Bedtime Farewell Warning]: Failed to speak farewell in guild ${guildId}:`, err.message);
+    }
+  }
+}
+
 module.exports = {
   handleVoiceStateUpdate,
   getCompanionTextChannel,
@@ -2766,6 +2707,7 @@ module.exports = {
   handleMusicButton,
   joinAttilaVoiceChannel,
   leaveVoiceChannel,
+  sayBedtimeFarewellInActiveVCs,
   playMusicAutonomous,
   getActiveVoiceSession,
   getLiveVoiceTranscriptContext,
@@ -2773,6 +2715,8 @@ module.exports = {
   generateVoiceAIResponse,
   recordSessionEntry,
   speakTextInVC,
+  detectVoiceModel,
+  textToAudioResource,
   audioPlayers,
   activeConnections,
   WHISPER_HALLUCINATIONS,

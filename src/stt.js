@@ -10,6 +10,26 @@ function getOpenAI() {
   return _openai;
 }
 
+// Subtitle & YouTube phantom hallucination filter
+const HALLUCINATION_PATTERNS = [
+  /terima\s+kasih\s+(?:telah|sudah|banyak\s+telah|banyak\s+sudah)?\s*(?:menonton|menyaksikan)/i,
+  /menonton\s+video\s+ini/i,
+  /jangan\s+lupa\s+(?:like|comment|share|subscribe)/i,
+  /subtitles?\s+(?:by|oleh)/i,
+  /amara\.org/i,
+  /transcribed?\s+by/i,
+  /translated?\s+by/i,
+  /sampai\s+jumpa\s+(?:lagi|di\s+video)/i,
+  /video\s+selanjutnya/i
+];
+
+function isHallucination(text) {
+  if (!text || typeof text !== 'string') return true;
+  const clean = text.toLowerCase().replace(/[.,!?;:'"()\[\]]+/g, ' ').trim();
+  if (clean.length < 2) return true;
+  return HALLUCINATION_PATTERNS.some(pat => pat.test(clean));
+}
+
 /**
  * Download an audio attachment URL and transcribe it in-memory using OpenAI Whisper API
  * @param {string} audioUrl 
@@ -36,7 +56,12 @@ async function transcribeAudioAttachment(audioUrl) {
       language: 'id'
     });
 
-    return transcription.text?.trim() || null;
+    const resultText = transcription.text?.trim() || null;
+    if (!resultText || isHallucination(resultText)) {
+      return null;
+    }
+
+    return resultText;
   } catch (err) {
     console.error('[Whisper STT Error]:', err.message || err);
     return null;
@@ -44,5 +69,6 @@ async function transcribeAudioAttachment(audioUrl) {
 }
 
 module.exports = {
-  transcribeAudioAttachment
+  transcribeAudioAttachment,
+  isHallucination
 };

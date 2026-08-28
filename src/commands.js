@@ -5,7 +5,7 @@ const budgetGuard = require('./budget');
 const { addReminder } = require('./reminder');
 const { askAzura } = require('./azura');
 const { generateVoiceNote } = require('./tts');
-const { getUserFacts, clearUserMemory, addFact } = require('./memory');
+const { getUserFacts, clearUserMemory, addFact, buildMemoryEmbedAndDropdown } = require('./memory');
 const { getCryptoPrice, getExchangeRate } = require('./finance');
 const { getTopAnime, searchAnime, getAnimeRecommendations } = require('./media');
 const { handleSendDmCommand, handleListScheduledCommand } = require('./ownerDm');
@@ -88,15 +88,24 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('memory')
-    .setDescription('Melihat, mengaudit relevansi, atau mengelola memori jangka panjang AZURA')
+    .setDescription('Kelola sistem memori AI hierarkis AZURA (Fakta Kunci & Ringkasan Permanen)')
     .addStringOption(option =>
       option.setName('aksi')
-        .setDescription('Pilih aksi memori')
+        .setDescription('Pilih aksi memori yang ingin dijalankan')
         .setRequired(false)
         .addChoices(
-          { name: '📋 Lihat Fakta & Arsip Ringkasan', value: 'lihat' },
+          { name: '👀 Lihat Memori (Dropdown Scope Selector)', value: 'lihat' },
+          { name: '➕ Tambah Fakta Baru', value: 'tambah' },
           { name: '🧠 Audit AI & Rekomendasi Pembersihan', value: 'audit' },
-          { name: '🗑️ Hapus Semua Memori', value: 'hapus' }
+          { name: '🗑️ Hapus Memori', value: 'hapus' }
+        ))
+    .addStringOption(option =>
+      option.setName('lingkup')
+        .setDescription('Pilih Lingkup Memori: Privat (Personal/DM) atau Publik (Server)')
+        .setRequired(false)
+        .addChoices(
+          { name: '🔒 Privat (Personal / DM Khusus Kamu)', value: 'private' },
+          { name: '🌐 Publik (Server Bersama)', value: 'public' }
         ))
     .addStringOption(option =>
       option.setName('fakta')
@@ -459,7 +468,43 @@ const commands = [
       sub.setName('reset')
         .setDescription('Reset kuota suara harian teman menjadi 0/120s secara manual')
         .addStringOption(opt => opt.setName('target').setDescription('Discord User ID teman').setRequired(true))
-        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false)))
+        .addStringOption(opt => opt.setName('password').setDescription('Master Security Password').setRequired(false))),
+
+  new SlashCommandBuilder()
+    .setName('bots')
+    .setDescription('Tampilkan dashboard status kesehatan & direktori seluruh bot di server')
+    .addStringOption(opt => opt.setName('kategori').setDescription('Filter berdasarkan kategori (Music, Moderasi, Game, dll)').setRequired(false))
+    .addStringOption(opt => opt.setName('server').setDescription('Nama server (Khusus jika dijalankan di DM oleh Owner)').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('sleep')
+    .setDescription('Aktifkan Mode Tidur (Deep Sleep) AZURA untuk optimasi & meredakan beban VPS (Khusus Owner)')
+    .addSubcommand(sub =>
+      sub.setName('start')
+        .setDescription('Tidurkan AZURA dan nonaktifkan seluruh fitur sementara')
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true))
+        .addStringOption(opt => opt.setName('alasan').setDescription('Alasan optimasi/istirahat').setRequired(false)))
+    .addSubcommand(sub =>
+      sub.setName('wake')
+        .setDescription('Bangunkan AZURA dan aktifkan kembali seluruh fitur secara normal')
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('schedule')
+        .setDescription('Atur jadwal tidur otomatis dengan fase mengantuk 1 jam sebelumnya')
+        .addStringOption(opt => opt.setName('waktu_tidur').setDescription('Waktu tidur WIB (contoh: 20:00, 8 malam, 21.30, atau 1h)').setRequired(true))
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true))
+        .addStringOption(opt => opt.setName('waktu_bangun').setDescription('Waktu bangun WIB (contoh: 06:00, opsional)').setRequired(false))
+        .addStringOption(opt => opt.setName('tipe').setDescription('Tipe jadwal').setRequired(false).addChoices(
+          { name: '⏳ Sekali (Hari Ini Saja)', value: 'once' },
+          { name: '🔁 Setiap Hari (Rutin)', value: 'daily' }
+        )))
+    .addSubcommand(sub =>
+      sub.setName('cancel_schedule')
+        .setDescription('Batalkan jadwal tidur otomatis yang sedang aktif')
+        .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('status')
+        .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA'))
 ];
 
 const fs = require('fs');
@@ -518,17 +563,14 @@ async function registerSlashCommands(client) {
     );
     console.log(`[AZURA]: Global Slash commands (${commandBody.length} perintah) berhasil terdaftar!`);
 
-    // 2. Also register directly to all active Guilds for INSTANT 0-second availability in Discord UI
+    // 2. Clean up legacy guild-specific commands to prevent duplicate command UI in servers
     if (client && client.guilds && client.guilds.cache.size > 0) {
       for (const guildId of client.guilds.cache.keys()) {
         await rest.put(
           Routes.applicationGuildCommands(config.DISCORD_CLIENT_ID, guildId),
-          { body: commandBody }
-        ).catch(err => {
-          console.warn(`[AZURA Warning]: Gagal mendaftarkan guild commands di guild ${guildId}:`, err.message);
-        });
+          { body: [] }
+        ).catch(() => {});
       }
-      console.log(`[AZURA]: Guild Slash commands instan berhasil disinkronkan ke ${client.guilds.cache.size} server!`);
     }
   } catch (error) {
     console.error('[AZURA Error]: Gagal mendaftarkan slash commands:', error.message || error);
@@ -547,31 +589,46 @@ async function handleSlashCommand(interaction, startTime) {
   const { commandName, user } = interaction;
 
   if (commandName === 'help') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
     const helpEmbed = new EmbedBuilder()
-      .setTitle('✨ AZURA Assistant - Pusat Panduan & Fitur')
-      .setDescription('Selamat datang di panduan **AZURA (v3.0)**! Pilih kategori fitur dari menu dropdown di bawah ini untuk melihat daftar perintah lengkap:')
-      .setColor(0x9B59B6) // Gen Z Purple
+      .setTitle('✨ AZURA Assistant - Pusat Panduan & Navigasi Perintah')
+      .setDescription(
+        'Selamat datang di pusat panduan **AZURA (v3.0)**!\n' +
+        'Perintah slash telah dikelompokkan secara rapi berdasarkan **lingkup hak akses & lokasi penggunaan**.\n\n' +
+        'Pilih kategori dari dropdown di bawah untuk melihat daftar perintah selengkapnya:'
+      )
+      .setColor(0x9B59B6)
+      .addFields(
+        {
+          name: '👑 1. DM Khusus Owner (Attila)',
+          value: '`/send` • `/dm` • `/friend` • `/personality` • `/todo` • `/user` • `/sleep` • `/scheduled`\n*Kontrol penuh remote server, whitelist teman, personality switcher, & sleep engine.*'
+        },
+        {
+          name: '👥 2. DM Member Lain (Non-Owner)',
+          value: '`/reset` • `/behavior` • `/report` • `/memory` • `/remindme`\n*Reset memori percakapan privat, cek rekaman sifat diri, & saran/lapor rahasia.*'
+        },
+        {
+          name: '🛡️ 3. Server Khusus Owner',
+          value: '`/bots` • `/personality` • `/sleep` • `/friend` • `/user`\n*Dashboard kesehatan bot server, ganti mode soul live, & manajemen izin.*'
+        },
+        {
+          name: '🌐 4. Fitur Global (Server & DM untuk Semua)',
+          value: '`/help` • `/image` • `/activity` • `/search` • `/crypto` • `/anime` • `/remindme` • `/vn` • `/status` • `/report`\n*AI image generator, nobar YouTube VC, game catur, riset web, crypto, & status bot.*'
+        }
+      )
+      .setFooter({ text: 'AZURA Modular Command System • Hak Akses Terisolasi Aman' })
       .setTimestamp();
 
-    helpEmbed.addFields(
-      { name: '💬 Obrolan, AI & Image', value: 'Chat santai cerdas • Multimodal Vision 📸 • Voice Note 🎙️ • `/image` (Portrait/Landscape/Square)' },
-      { name: '🎮 Aktivitas VC & Musik', value: '`/activity` (YouTube Watch Together 📺, Catur ♟️, Letter League 🔤) • Direct Music Streaming 🎵' },
-      { name: '💡 Advice & Lapor Bug', value: '`/report` (Kirim saran & masukan atau lapor kendala teknis secara rahasia ke Creator 🔒)' },
-      { name: '🌐 Pencarian Live & Utility', value: '`/search` (Tavily AI Engine) • `/crypto` (Harga koin/USD) • `/anime` (Info Anime)' },
-      { name: '⏰ Produktivitas & Memori', value: '`/remindme` • `/memory` • `/vn` • `/status` • `/reset`' }
-    );
-
     const options = [
-      { label: '💬 Obrolan & AI Engine', value: 'cat_ai', description: 'Vision, Whisper Voice Note, & /image' },
-      { label: '🎮 Aktivitas VC & Musik', value: 'cat_activity', description: 'YouTube Nobar, Catur, Game VC & Music Streaming' },
-      { label: '💡 Advice & Lapor Bug', value: 'cat_feedback', description: '/report (Saran & Bug Report Rahasia ke Creator)' },
-      { label: '🌐 Pencarian Live & Utility', value: 'cat_search', description: 'Tavily Search, Crypto/USD, & Anime Info' },
-      { label: '⏰ Produktivitas & Pengingat', value: 'cat_prod', description: 'Reminder, Memory Management, Status, & Reset' }
+      { label: '👑 DM Khusus Owner (Attila)', value: 'cat_owner_dm', description: 'Remote dispatch, DM bot, Friend access, Sleep mode, To-Do' },
+      { label: '👥 DM Member Lain (Non-Owner)', value: 'cat_member_dm', description: 'Reset percakapan, Profil sifat diri, Saran & Laporan rahasia' },
+      { label: '🛡️ Server Khusus Owner', value: 'cat_owner_server', description: 'Bot Health Guardian, Personality live, Sleep scheduler' },
+      { label: '🌐 Fitur Global (Server & DM)', value: 'cat_global_all', description: '/image, /activity VC, /search, /crypto, /anime, /remindme, /status' }
     ];
 
     const menu = new StringSelectMenuBuilder()
       .setCustomId('help_category_select')
-      .setPlaceholder('Pilih Kategori Fitur Lengkap...')
+      .setPlaceholder('Pilih Lingkup Hak Akses & Kategori Perintah...')
       .addOptions(options);
 
     const row = new ActionRowBuilder().addComponents(menu);
@@ -745,13 +802,14 @@ async function handleSlashCommand(interaction, startTime) {
 
   } else if (commandName === 'memory') {
     const aksi = interaction.options.getString('aksi');
+    const lingkup = interaction.options.getString('lingkup') || 'private';
     const faktaBaru = interaction.options.getString('fakta');
     const passwordInput = interaction.options.getString('password');
 
     const safetyBanner = `⚠️ **[PERINGATAN KEAMANAN & PRIVASI MEMORI]**\n` +
       `*Dilarang keras memasukkan informasi penting atau krusial (seperti kata sandi, PIN ATM, nomor rekening, NIK/KTP, data rahasia). Hanya cantumkan informasi ringan seputar hobi, preferensi, atau obrolan santai.*`;
 
-    // 1. Handling New Fact Insertion with Sacred Data Protection
+    // 1. Handling New Fact Insertion with Sacred Data Protection & Scope
     if (faktaBaru) {
       if (isSacredData(faktaBaru)) {
         const warnEmbed = new EmbedBuilder()
@@ -766,13 +824,15 @@ async function handleSlashCommand(interaction, startTime) {
         return interaction.reply({ embeds: [warnEmbed], flags: 64 });
       }
 
-      const res = addFact(user.id, faktaBaru);
+      const res = addFact(user.id, faktaBaru, lingkup, interaction.guildId);
       if (res && res.success) {
+        const isPub = res.scope === 'public';
         const successEmbed = new EmbedBuilder()
           .setColor(0x57F287)
-          .setTitle('🧠 Fakta Baru Berhasil Dicatat!')
+          .setTitle(`🧠 Fakta Baru Dicatat (${isPub ? '🌐 Publik Server' : '🔒 Privat Personal'})!`)
           .setDescription(
             `AZURA bakal selalu ingat bahwa:\n👉 **"${faktaBaru}"**\n\n` +
+            `📂 **Lingkup Memori:** \`${isPub ? '🌐 Publik Server (Terekam untuk server ini)' : '🔒 Privat (Khusus obrolan personal kamu & Azura)'}\`\n\n` +
             `${safetyBanner}`
           )
           .setFooter({ text: 'AZURA Memory Engine' })
@@ -826,13 +886,13 @@ async function handleSlashCommand(interaction, startTime) {
         return interaction.reply({ embeds: [auth.embed], flags: 64 });
       }
 
-      clearUserMemory(user.id);
+      clearUserMemory(user.id, lingkup, interaction.guildId);
       try {
         const { clearPermanentSummaries } = require('./permanentMemory');
         clearPermanentSummaries(contextKey);
       } catch (_) {}
       return interaction.reply({
-        content: `🗑️ **Semua memori jangka panjang & ringkasan permanen tentang kamu sudah dibersihkan secara aman!**\n\n${safetyBanner}`,
+        content: `🗑️ **Semua memori (${lingkup === 'public' ? 'Publik Server' : 'Privat Personal'}) tentang kamu sudah dibersihkan secara aman!**\n\n${safetyBanner}`,
         flags: 64
       });
     }
@@ -897,45 +957,15 @@ async function handleSlashCommand(interaction, startTime) {
       }
     }
 
-    // 5. Default: View Facts & Permanent Summaries (With Safety Warning Banner)
-    const facts = getUserFacts(user.id);
-    const summaries = getPermanentSummaries(contextKey);
+    // 5. Default: View Facts & Permanent Summaries with Interactive Scope Dropdown Menu
+    const { embed, row } = buildMemoryEmbedAndDropdown(
+      user.id,
+      interaction.guildId,
+      interaction.channelId,
+      lingkup || 'private'
+    );
 
-    const factsList = facts.length > 0
-      ? facts.map((f, i) => `${i + 1}. ${f}`).join('\n')
-      : '*(Belum ada fakta khusus yang tersimpan)*';
-
-    const summariesList = summaries.length > 0
-      ? summaries.slice(0, 5).map((s, i) => {
-          const pTag = s.isPriority ? ' ⭐ `[Prioritas]`' : '';
-          return `**${i + 1}. ${s.title}** (\`${s.id}\` - ${s.dateFormatted})${pTag}\n📝 *${s.summary}*`;
-        }).join('\n\n')
-      : '*(Belum ada ringkasan sesi yang dipermanenkan)*';
-
-    const embed = new EmbedBuilder()
-      .setColor(0x00FFB2)
-      .setTitle(`🧠 Sistem Memori & Arsip Terenkripsi AZURA`)
-      .setDescription(
-        `${safetyBanner}\n\n` +
-        `AZURA menyimpan memori hierarkis (Fakta Kunci + Ringkasan Eksekutif Permanen hingga **5.000 Pesan**):`
-      )
-      .addFields(
-        {
-          name: `📌 Fakta & Kebiasaan Kunci (${facts.length}/20)`,
-          value: factsList,
-          inline: false
-        },
-        {
-          name: `💾 Arsip Sesi Percakapan Permanen (${summaries.length}/${MAX_SUMMARIES_PER_CONTEXT} Summary Keys)`,
-          value: summariesList,
-          inline: false
-        }
-      )
-      .setFooter({ text: 'Gunakan /memory aksi:audit untuk konsultasi relevansi memori dengan AZURA' })
-      .setTimestamp();
-
-    return interaction.reply({ embeds: [embed], flags: 64 });
-
+    return interaction.reply({ embeds: [embed], components: [row], flags: 64 });
   } else if (commandName === 'search') {
     const query = interaction.options.getString('query');
     await interaction.deferReply();
@@ -946,10 +976,11 @@ async function handleSlashCommand(interaction, startTime) {
       if (typeof cardResult === 'object' && cardResult.embeds) {
         await interaction.editReply(cardResult);
       } else {
+        const safeDesc = String(cardResult || '');
         const infoEmbed = new EmbedBuilder()
           .setColor(0x2B82EA)
           .setTitle(`🔍 Hasil Pencarian: ${query}`)
-          .setDescription(String(cardResult))
+          .setDescription(safeDesc.length > 3950 ? safeDesc.slice(0, 3950) + '...' : safeDesc)
           .setFooter({ text: 'AZURA Live Web Intelligence' })
           .setTimestamp();
         await interaction.editReply({ embeds: [infoEmbed] });
@@ -1400,17 +1431,21 @@ async function handleSlashCommand(interaction, startTime) {
           interaction.client
         );
 
+        const nameSourceNote = record.isSelfRegistered
+          ? `*(Otomatis menggunakan nama yang didaftarkan sendiri oleh member)*`
+          : `*(Diset oleh Attila)*`;
+
         const embed = new EmbedBuilder()
           .setColor(0x57F287) // Green success
           .setTitle('✨ [AKSES TEMAN BERHASIL DIBERIKAN]')
           .setDescription(
             `Pengguna <@${targetId}> (\`UID: ${targetId}\` | \`@${username}\`) telah resmi di-ACC sebagai **Approved Friend**! 🎉\n\n` +
-            `• 🏷️ **Nama Panggilan Resmi**: **${record.customNickname}**\n` +
+            `• 🏷️ **Nama Panggilan**: **${record.customNickname}** ${nameSourceNote}\n` +
             `• 🎙️ **Batas Kuota Voice**: \`${MAX_DAILY_VOICE_SECONDS} detik (2 menit output bicara AZURA) per 24 jam realtime\`\n` +
             `• 👑 **Aturan Khusus**: Hanya aktif saat **Attila** berada di Voice Channel yang sama.\n` +
             `• 📩 **Onboarding DM**: ${fetchedUser ? `Azura telah otomatis mengirimkan DM sambutan estetik ke <@${targetId}>!` : `*(User ID valid terdaftar, DM terkirim otomatis saat online)*`}`
           )
-          .setFooter({ text: 'AZURA Approved Friends Engine' })
+          .setFooter({ text: 'AZURA Approved Friends Engine • Smart Name Binding' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [embed] });
@@ -1453,13 +1488,11 @@ async function handleSlashCommand(interaction, startTime) {
                `   • 📊 **Total Voice All-Time**: \`${f.totalSecondsAllTime}s\` | 📅 Di-ACC: \`${dateStr}\``;
       }).join('\n\n');
 
+      const rawDesc = `Daftar teman yang di-ACC oleh Attila untuk interaksi Voice Channel (Batas: 2 Menit output AZURA / 24 Jam realtime):\n\n` + formatted;
       const embed = new EmbedBuilder()
         .setColor(0x8A2BE2)
         .setTitle(`⭐ Direktori Approved Friends AZURA (${list.length} Teman)`)
-        .setDescription(
-          `Daftar teman yang di-ACC oleh Attila untuk interaksi Voice Channel (Batas: 2 Menit output AZURA / 24 Jam realtime):\n\n` +
-          formatted
-        )
+        .setDescription(rawDesc.length > 3950 ? rawDesc.slice(0, 3950) + '...' : rawDesc)
         .setFooter({ text: 'Gunakan /friend add untuk menambah atau /friend remove untuk mencabut' })
         .setTimestamp();
 
@@ -1774,6 +1807,111 @@ async function handleSlashCommand(interaction, startTime) {
           : `❌ Tugas dengan ID \`${id}\` tidak ditemukan.`
       });
     }
+
+  } else if (commandName === 'bots') {
+    const { buildBotStatusEmbed } = require('./botOrchestrator');
+    const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+    const filterCategory = interaction.options.getString('kategori');
+    const serverInput = interaction.options.getString('server');
+
+    let targetGuild = interaction.guild;
+
+    // If executed in DM by Owner
+    if (!targetGuild) {
+      if (!isOwner) {
+        return interaction.reply({
+          content: '⚠️ Pemindaian status bot server dari DM hanya dapat dilakukan oleh **Owner (Attila)**.',
+          flags: 64
+        });
+      }
+
+      if (serverInput) {
+        targetGuild = interaction.client.guilds.cache.find(g =>
+          g.name.toLowerCase().includes(serverInput.toLowerCase()) || g.id === serverInput
+        );
+      } else {
+        // Default to the first available guild
+        targetGuild = interaction.client.guilds.cache.first();
+      }
+
+      if (!targetGuild) {
+        return interaction.reply({
+          content: `❌ Server "${serverInput || 'utama'}" tidak ditemukan di cache AZURA. Pastikan nama server benar!`,
+          flags: 64
+        });
+      }
+    }
+
+    await interaction.deferReply({ ephemeral: false });
+    const { embed, components } = await buildBotStatusEmbed(targetGuild, interaction.client, !interaction.guild, filterCategory);
+    return interaction.editReply({ embeds: [embed], components });
+
+  } else if (commandName === 'sleep') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({
+        content: '⛔ **[Akses Ditolak]** Fitur Sleep Mode secara prosedural hanya boleh dioperasikan oleh Owner (Attila).',
+        flags: 64
+      });
+    }
+
+    const { enterSleepMode, wakeUpAzura, getSleepState, scheduleSleep, cancelScheduledSleep } = require('./sleepMode');
+    const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === 'start') {
+      const password = interaction.options.getString('password');
+      const reason = interaction.options.getString('alasan') || 'Manual VPS Optimization by Owner';
+      const res = await enterSleepMode(interaction.client, password, user.id, reason);
+      if (res.success && res.embed) {
+        return interaction.reply({ embeds: [res.embed] });
+      } else {
+        return interaction.reply({ content: res.message, flags: 64 });
+      }
+    } else if (subcommand === 'wake') {
+      const password = interaction.options.getString('password');
+      const res = await wakeUpAzura(interaction.client, password, user.id);
+      if (res.success && res.embed) {
+        return interaction.reply({ embeds: [res.embed] });
+      } else {
+        return interaction.reply({ content: res.message, flags: 64 });
+      }
+    } else if (subcommand === 'schedule') {
+      const sleepTime = interaction.options.getString('waktu_tidur');
+      const wakeTime = interaction.options.getString('waktu_bangun');
+      const type = interaction.options.getString('tipe') || 'once';
+      const password = interaction.options.getString('password');
+      const res = await scheduleSleep(interaction.client, sleepTime, wakeTime, type === 'daily', password, user.id);
+      if (res.success && res.embed) {
+        return interaction.reply({ embeds: [res.embed] });
+      } else {
+        return interaction.reply({ content: res.message, flags: 64 });
+      }
+    } else if (subcommand === 'cancel_schedule') {
+      const password = interaction.options.getString('password');
+      const res = await cancelScheduledSleep(password, user.id);
+      return interaction.reply({ content: res.message, flags: 64 });
+    } else if (subcommand === 'status') {
+      const state = getSleepState();
+      const memUsage = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
+      const sched = state.scheduledSleep || {};
+      const schedStr = sched.enabled && sched.targetTimeStr
+        ? `⏰ Terjadwal: **${sched.targetTimeStr}** (${sched.isDaily ? 'Setiap Hari' : 'Sekali'})`
+        : '❌ Tidak Ada Jadwal Aktif';
+
+      const embed = new EmbedBuilder()
+        .setColor(state.isSleeping ? 0x2C2F33 : 0x57F287)
+        .setTitle(`💤 Status Sleep Mode & Resource AZURA`)
+        .setDescription(
+          `• **Status Saat Ini:** ${state.isSleeping ? '🌙 **SEDANG TIDUR (Deep Sleep Active)**' : '🟢 **AKTIF / ONLINE**'}\n` +
+          `• **Jadwal Tidur Otomatis:** ${schedStr}\n` +
+          `• **Penggunaan RAM VPS:** \`${memUsage} MB\`\n` +
+          `• **Waktu Mulai Tidur:** ${state.sleepStartedAt ? new Date(state.sleepStartedAt).toLocaleString('id-ID') : '-'}\n` +
+          `• **Alasan:** ${state.reason || '-'}`
+        )
+        .setFooter({ text: 'AZURA System Health Engine' })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
   }
 }
 
@@ -1788,54 +1926,63 @@ async function handleHelpSelectMenu(interaction) {
   const value = interaction.values[0];
   let embed = new EmbedBuilder().setColor(0x9B59B6);
 
-  if (value === 'cat_ai') {
+  if (value === 'cat_owner_dm') {
     embed
-      .setTitle('💬 Fitur Obrolan, AI & Image Generation')
-      .setDescription('AZURA dilengkapi dengan kemampuan AI generatif canggih:')
+      .setTitle('👑 Fitur DM Khusus Owner (Attila)')
+      .setColor(0xF1C40F)
+      .setDescription(
+        'Berikut perintah administratif & kontrol privat yang hanya dapat dijalankan di **DM Pribadi oleh Owner (Attila)**:'
+      )
       .addFields(
-        { name: '🎨 /image prompt:<...> [orientasi]', value: 'Generate gambar AI resolusi tinggi dalam format **Portrait (9:16)**, **Landscape (16:9)**, atau **Square (1:1)** dengan OpenAI Engine.' },
-        { name: '📸 Multimodal Vision', value: 'Kirimkan gambar/foto di chat/DM, AZURA akan menganalisis dan menanggapi isi gambar tersebut.' },
-        { name: '🎙️ Voice Message STT (Whisper)', value: 'Kirimkan pesan suara/voice note di Discord, AZURA akan mendengarkan & membalas pesan kamu!' }
+        { name: '📨 /send', value: 'Kirim pesan ke channel server mana pun langsung dari DM dengan AI Rephraser.' },
+        { name: '💬 /dm', value: 'Kirim pesan DM langsung ke member/user tertentu melalui AZURA.' },
+        { name: '🤝 /friend <add|remove|reset|list>', value: 'Beri izin akses suara (*whitelist*), atur nama panggilan akrab, atau reset kuota harian teman.' },
+        { name: '🎭 /personality mode:<original|mature|stubborn>', value: 'Ganti *Soul* kepribadian AZURA (Original Gen Z, Wanita Dewasa, atau Jual Mahal/Tsundere).' },
+        { name: '📝 /todo aksi:<web|list|selesai>', value: 'Buka Web Dashboard To-Do List interaktif atau kelola daftar tugas / feature request.' },
+        { name: '👤 /user <profile|setname|lockname|block|unblock>', value: 'Kelola profile vault member, tetapkan nama panggilan resmi, atau blokir pengguna.' },
+        { name: '🌙 /sleep <start|wake|schedule|cancel_schedule|status>', value: 'Aktifkan Mode Tidur (Deep Sleep) dengan password `@Timetosleepara` untuk optimasi VPS.' },
+        { name: '⏰ /scheduled', value: 'Cek daftar pesan terjadwal atau agenda otomatis yang sedang menunggu eksekusi.' }
       );
-  } else if (value === 'cat_activity') {
+  } else if (value === 'cat_member_dm') {
     embed
-      .setTitle('🎮 Aktivitas Voice Channel & Pemutaran Musik')
-      .setDescription('AZURA mendukung sesi kebersamaan dan hiburan di Voice Channel:')
+      .setTitle('👥 Fitur DM Member Lain (Non-Owner)')
+      .setColor(0x3498DB)
+      .setDescription('Perintah eksklusif yang dapat digunakan oleh seluruh member saat mengobrol di **Direct Message (DM Pribadi)**:')
       .addFields(
-        { name: '📺 /activity jenis:youtube', value: 'Luncurkan sesi **YouTube Watch Together (Nobar)** tersinkronisasi langsung di Voice Channel.' },
-        { name: '♟️ /activity jenis:chess', value: 'Mainkan game **Chess in the Park (Catur)** bersama teman di Voice Channel.' },
-        { name: '🎨 /activity jenis:sketch', value: 'Game tebak gambar interaktif **Sketch Heads** (ala Gartic) di Voice Channel.' },
-        { name: '🔤 /activity jenis:letterleague', value: 'Game susun kata resmi Discord **Letter League (Wordle-style)** di Voice Channel.' },
-        { name: '🎵 Pemutaran Lagu Langsung di VC', value: 'Cukup ketik di chat *"Ara setel lagu [judul]"* atau *"putar musik [judul]"*, AZURA langsung memutar audionya ke Voice Channel!' }
+        { name: '🔄 /reset', value: 'Bersihkan riwayat percakapan sesi DM kamu dengan AZURA secara instan untuk memulai obrolan baru dari awal.' },
+        { name: '🔍 /behavior aksi:lihat_saya', value: 'Lihat transparansi profil dan rekaman sifat/kebiasaan kamu yang dipelajari oleh AZURA secara objektif.' },
+        { name: '💡 /report kategori:Advice pesan:<...>', value: 'Kirim ide, saran, dan masukan pengembangan AZURA secara rahasia langsung ke Creator (Attila).' },
+        { name: '🐛 /report kategori:Report pesan:<...>', value: 'Laporkan kendala teknis atau bug secara privat (bisa melampirkan screenshot/file).' },
+        { name: '🧠 /memory', value: 'Cek fakta jangka panjang tentang dirimu yang diingat oleh AZURA.' },
+        { name: '⏰ /remindme waktu:<...> pesan:<...>', value: 'Pasang alarm/pengingat privat langsung di DM.' }
       );
-  } else if (value === 'cat_feedback') {
+  } else if (value === 'cat_owner_server') {
     embed
-      .setTitle('💡 Advice & Report System (Rahasia & Ephemeral)')
-      .setDescription('Sampaikan ide atau laporkan kendala teknis langsung ke Creator:')
+      .setTitle('🛡️ Fitur Server Khusus Owner')
+      .setColor(0xE67E22)
+      .setDescription('Perintah manajerial yang hanya dapat dijalankan oleh **Owner (Attila)** di dalam **Server Discord**:')
       .addFields(
-        { name: '💡 /report kategori:Advice pesan:<...>', value: 'Kirim saran dan masukan pengembangan AZURA secara privat ke DM Creator (Attila).' },
-        { name: '🐛 /report kategori:Report pesan:<...>', value: 'Laporkan bug, error, atau kendala teknis secara rahasia (bisa melampirkan screenshot).' },
-        { name: '🔒 Jaminan Kerahasiaan Penuh', value: 'Semua masukan/laporan bersifat rahasia, terenkripsi, dan balasan AZURA hanya bisa dilihat oleh kamu (*Ephemeral*).' }
+        { name: '🤖 /bots [kategori] [server]', value: 'Tampilkan **Bot Health Guardian Dashboard** untuk memantau status kesehatan & online/offline seluruh bot di server.' },
+        { name: '🎭 /personality mode:<...>', value: 'Ubah mode kepribadian (*soul*) AZURA secara live di dalam server.' },
+        { name: '🌙 /sleep <start|schedule|status>', value: 'Jadwalkan atau tidurkan AZURA langsung dari channel server dengan password `@Timetosleepara`.' },
+        { name: '🤝 /friend <add|remove|reset|list>', value: 'Kelola izin akses voice dan kuota teman langsung di server.' },
+        { name: '👤 /user setname target:<...> nama:<...>', value: 'Kunci dan tetapkan panggilan resmi member di server.' }
       );
-  } else if (value === 'cat_search') {
+  } else if (value === 'cat_global_all') {
     embed
-      .setTitle('🌐 Fitur Pencarian Live & Utility')
-      .setDescription('Akses data real-time dari internet & media:')
+      .setTitle('🌐 Fitur Global (Server & DM untuk Semua Member)')
+      .setColor(0x2ECC71)
+      .setDescription('Perintah yang dapat digunakan secara bebas oleh **siapa saja di Server maupun di DM**:')
       .addFields(
-        { name: '🔍 /search <query>', value: 'Cari berita, cuaca, atau info terkini dari internet menggunakan Tavily AI Engine.' },
-        { name: '🪙 /crypto <koin/usd>', value: 'Cek harga kripto (BTC, ETH, SOL) atau kurs USD ke IDR real-time.' },
-        { name: '🎬 /anime <judul/rekomendasi>', value: 'Cari detail anime atau rekomendasi anime terpopuler di MyAnimeList.' }
-      );
-  } else if (value === 'cat_prod') {
-    embed
-      .setTitle('⏰ Produktivitas & Pengingat')
-      .setDescription('Kelola pengingat dan memori pribadi kamu:')
-      .addFields(
-        { name: '⏰ /remindme waktu:<5m/1h> pesan:<...>', value: 'Minta AZURA mengingatkan kamu setelah durasi waktu tertentu.' },
-        { name: '🧠 /memory', value: 'Lihat atau kelola fakta jangka panjang tentang kamu yang disimpan AZURA.' },
-        { name: '🎙️ /vn teks:<...>', value: 'Minta AZURA merespon dalam bentuk Voice Note (suara).' },
-        { name: '⚡ /status', value: 'Cek status bot, latency, uptime, dan AI engine.' },
-        { name: '🔄 /reset (Khusus di DM)', value: 'Mereset riwayat percakapan sesi DM kamu dengan AZURA.' }
+        { name: '🎨 /image prompt:<...> [orientasi]', value: 'Generate gambar AI beresolusi tinggi format Portrait (9:16), Landscape (16:9), atau Square (1:1).' },
+        { name: '🎮 /activity jenis:<youtube|chess|sketch|letterleague>', value: 'Luncurkan sesi Nobar YouTube bersama, game Catur, Sketch Heads, atau Letter League di Voice Channel.' },
+        { name: '🔍 /search query:<...>', value: 'Lakukan riset web & cari berita aktual terverifikasi menggunakan Tavily AI Engine.' },
+        { name: '🪙 /crypto koin:<...>', value: 'Cek harga aset kripto (BTC, ETH, SOL, dll) atau kurs nilai tukar USD ke IDR real-time.' },
+        { name: '🎬 /anime judul:<...>', value: 'Cari informasi detail, skor rating, dan sinopsis anime dari MyAnimeList.' },
+        { name: '⏰ /remindme waktu:<5m/1h> pesan:<...>', value: 'Minta AZURA mengingatkan agenda tertentu setelah durasi waktu yang ditentukan.' },
+        { name: '🎙️ /vn teks:<...>', value: 'Generate Voice Note suara jernih menggunakan ElevenLabs AI Voice Engine.' },
+        { name: '⚡ /status', value: 'Cek latensi jaringan, uptime, dan kondisi performa sistem real-time.' },
+        { name: '💡 /report', value: 'Kirim saran atau laporkan bug teknis secara rahasia ke Creator.' }
       );
   }
 

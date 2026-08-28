@@ -687,7 +687,6 @@ async function handleBotOrchestratorSelectMenu(interaction) {
       return interaction.editReply({ content: res.message });
     }
   }
-  }
 }
 
 /**

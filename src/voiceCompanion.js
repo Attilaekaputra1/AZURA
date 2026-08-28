@@ -446,6 +446,7 @@ function playInVC(guildId, resource) {
 // ============================================================
 // Inactivity 10-Minute Icebreaker & 15-Minute Deep Sleep Engine
 // ============================================================
+const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000;    // 3 minutes of silence -> Spontaneous singing/humming
 const IDLE_SILENCE_ICEBREAKER_MS = 10 * 60 * 1000; // 10 minutes of silence in VC
 const DEEP_SLEEP_TIMEOUT_MS = 15 * 60 * 1000;      // 15 minutes of silence -> Deep Sleep (0% bandwidth/API)
 

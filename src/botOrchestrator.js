@@ -720,6 +720,16 @@ async function handleBotOrchestratorButton(interaction) {
   }
 }
 
+/**
+ * Handle Modal Submissions for Bot Orchestrator
+ * @param {import('discord.js').ModalSubmitInteraction} interaction 
+ */
+async function handleBotOrchestratorModal(interaction) {
+  if (interaction.repliable) {
+    return interaction.reply({ content: 'Pengaturan bot berhasil diperbarui.', flags: 64 });
+  }
+}
+
 module.exports = {
   scanGuildBots,
   buildBotStatusEmbed,

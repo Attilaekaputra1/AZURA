@@ -974,12 +974,16 @@ client.on('interactionCreate', async (interaction) => {
     return handleSendDmButton(interaction);
   }
 
-  // Handle Modal Submissions (e.g. Feedback Rejection Reason)
+  // Handle Modal Submissions (e.g. Feedback Rejection Reason, Bot Orchestrator)
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('modal_fb_reject:')) {
       const ticketId = interaction.customId.split(':')[1];
       const { handleFeedbackRejectModalSubmit } = require('./feedback');
       return handleFeedbackRejectModalSubmit(interaction, ticketId);
+    }
+    if (interaction.customId.startsWith('modal_orch_') || interaction.customId.startsWith('modal_orchestrator_')) {
+      const { handleBotOrchestratorModal } = require('./botOrchestrator');
+      return handleBotOrchestratorModal(interaction);
     }
   }
 

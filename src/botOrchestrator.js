@@ -370,8 +370,8 @@ async function buildBotDetailEmbed(guild, bot, client) {
     : 'Tidak ada template perintah khusus.';
 
   const embed = new EmbedBuilder()
-    .setColor(bot.isOnline ? 0x57F287 : 0xED4245)
-    .setTitle(`${bot.statusEmoji} [DETAIL BOT & PERINTAH] • ${bot.displayName}`)
+    .setColor(bot.isOnline ? 0x2ECC71 : 0xED4245)
+    .setTitle(`${bot.statusEmoji} Detail & Kesehatan Bot: @${bot.displayName}`)
     .setDescription(
       `🤖 **Profil & Status Aplikasi:**\n` +
       `• **Nama Tampilan:** ${bot.displayName}\n` +
@@ -381,11 +381,11 @@ async function buildBotDetailEmbed(guild, bot, client) {
       `• **Server Asal:** **${guild.name}**\n` +
       `• **Roles:** ${bot.roles.length > 0 ? bot.roles.map(r => `\`${r}\``).join(', ') : '*Tidak ada role khusus*'}\n\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 **Fitur & Perintah Cepat Siap Pakai:**\n${commandListText}\n\n` +
-      `💡 *Pilih perintah langsung dari dropdown di bawah, atau klik tombol untuk mengetik kustom!*`
+      `📋 **Daftar Perintah Umum Bot:**\n${commandListText}\n\n` +
+      `💡 *Gunakan tombol di bawah untuk mengubah status manual atau kembali ke daftar bot.*`
     )
     .setFooter({
-      text: `AZURA Master Bot Orchestrator • Auto-Learner Active`,
+      text: `AZURA Server Bot Guardian • Health & Status Dashboard`,
       iconURL: client?.user?.displayAvatarURL()
     })
     .setTimestamp();
@@ -396,40 +396,8 @@ async function buildBotDetailEmbed(guild, bot, client) {
 
   const components = [];
 
-  // Dropdown Menu: Quick Command Preset Selector
-  if (commands.length > 0 && bot.isOnline) {
-    const cmdOptions = commands.map(c => ({
-      label: c.label.slice(0, 100),
-      value: `orch_cmd_${guild.id}_${bot.id}_${Buffer.from(c.command).toString('base64url')}`,
-      description: c.description.slice(0, 50),
-      emoji: c.emoji || '⚡'
-    }));
-
-    // Add custom text input option
-    cmdOptions.push({
-      label: '✏️ Ketik Perintah Kustom Sendiri...',
-      value: `orch_custom_${guild.id}_${bot.id}`,
-      description: 'Ketik perintah bebas via formulir pop-up',
-      emoji: '✏️'
-    });
-
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`select_orch_cmd_${guild.id}_${bot.id}`)
-          .setPlaceholder(`⚡ Pilih & Jalankan Perintah ke @${bot.displayName}...`)
-          .addOptions(cmdOptions.slice(0, 25))
-      )
-    );
-  }
-
   // Action Row Buttons
   const buttonRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`btn_orch_modal_${guild.id}_${bot.id}`)
-      .setLabel(`✏️ Ketik Bebas`)
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(!bot.isOnline),
     new ButtonBuilder()
       .setCustomId(`btn_orch_toggle_status_${guild.id}_${bot.id}`)
       .setLabel(bot.isOnline ? '🔴 Set Offline/Mati' : '🟢 Set Online/Aktif')
@@ -679,63 +647,6 @@ async function handleBotOrchestratorSelectMenu(interaction) {
     const { embed, components } = await buildBotDetailEmbed(targetGuild, targetBot, interaction.client);
     return interaction.editReply({ embeds: [embed], components });
 
-  } else if (customId.startsWith('select_orch_cmd_')) {
-    const selectedVal = values[0];
-    if (selectedVal.startsWith('orch_custom_')) {
-      const parts = selectedVal.split('_');
-      const guildId = parts[2];
-      const botId = parts[3];
-
-      const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
-      const bots = await scanGuildBots(targetGuild, interaction.client);
-      const targetBot = bots.find(b => b.id === botId);
-      const botName = targetBot ? targetBot.displayName : 'Bot';
-
-      const modal = new ModalBuilder()
-        .setCustomId(`modal_orch_dispatch:${guildId}:${botId}`)
-        .setTitle(`Operasikan @${botName}`.slice(0, 45));
-
-      const commandInput = new TextInputBuilder()
-        .setCustomId('bot_cmd_text')
-        .setLabel(`Perintah Teks ke @${botName}`.slice(0, 45))
-        .setPlaceholder('Contoh: !play lofi, $daily, .rank, $marry')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(300);
-
-      modal.addComponents(new ActionRowBuilder().addComponents(commandInput));
-      return interaction.showModal(modal);
-
-    } else if (selectedVal.startsWith('orch_cmd_')) {
-      await interaction.deferReply({ ephemeral: false });
-
-      const parts = selectedVal.split('_');
-      const guildId = parts[2];
-      const botId = parts[3];
-      const b64Cmd = parts[4];
-      const commandText = Buffer.from(b64Cmd, 'base64url').toString('utf8');
-
-      const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
-      if (!targetGuild) {
-        return interaction.editReply({ content: '❌ Server tidak ditemukan.' });
-      }
-
-      let targetChannel = interaction.channel;
-      if (!targetChannel || !targetChannel.isTextBased?.() || !interaction.guild) {
-        targetChannel = targetGuild.channels.cache.find(c =>
-          c.isTextBased?.() && c.permissionsFor(targetGuild.members.me)?.has(PermissionFlagsBits.SendMessages)
-        );
-      }
-
-      if (!targetChannel) {
-        return interaction.editReply({
-          content: '❌ Tidak dapat menemukan text channel yang sesuai di server tersebut untuk mengirimkan perintah.'
-        });
-      }
-
-      const res = await operateBot(targetGuild, targetChannel, botId, commandText, interaction.user, isOwner);
-      return interaction.editReply({ content: res.message });
-    }
   }
 }
 
@@ -750,30 +661,37 @@ async function handleBotOrchestratorButton(interaction) {
   if (customId === 'btn_orch_cancel') {
     try {
       await interaction.message.delete().catch(() => {
-        return interaction.update({ content: '🔒 *Menu orkestrator bot telah ditutup.*', embeds: [], components: [] });
+        return interaction.update({ content: '🔒 *Menu status bot telah ditutup.*', embeds: [], components: [] });
       });
     } catch (_) {
-      return interaction.update({ content: '🔒 *Menu orkestrator bot telah ditutup.*', embeds: [], components: [] });
+      return interaction.update({ content: '🔒 *Menu status bot telah ditutup.*', embeds: [], components: [] });
     }
     return;
   }
 
   if (customId.startsWith('btn_orch_toggle_status_')) {
     if (!isOwner) {
-      return interaction.reply({ content: '❌ Hanya Owner (Attila) yang dapat mengubah status kesehatan bot.', flags: 64 });
+      return interaction.reply({
+        content: '⛔ **[Akses Ditolak]** Hanya **Owner (Attila)** yang dapat mengubah status kesehatan bot secara manual.',
+        flags: 64
+      });
     }
-    const parts = customId.split('_');
-    const guildId = parts[4];
-    const botId = parts[5];
-    const stateKey = `${guildId}_${botId}`;
+
+    const parts = customId.replace('btn_orch_toggle_status_', '').split('_');
+    const guildId = parts[0];
+    const botId = parts[1];
 
     const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
-    const currentStatus = botHealthStates[stateKey]?.status || 'online';
-    const newStatus = (currentStatus === 'offline') ? 'online' : 'offline';
+    if (!targetGuild) {
+      return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
+    }
+
+    const stateKey = `${guildId}:${botId}`;
+    const current = botHealthStates[stateKey] || { status: 'online' };
+    const newStatus = current.status === 'offline' ? 'online' : 'offline';
 
     botHealthStates[stateKey] = {
-      botId,
-      guildId,
+      ...current,
       status: newStatus,
       lastChecked: Date.now()
     };
@@ -799,66 +717,7 @@ async function handleBotOrchestratorButton(interaction) {
     await interaction.deferUpdate();
     const { embed, components } = await buildBotStatusEmbed(targetGuild, interaction.client, !interaction.guild);
     return interaction.editReply({ embeds: [embed], components });
-
-  } else if (customId.startsWith('btn_orch_modal_')) {
-    const parts = customId.replace('btn_orch_modal_', '').split('_');
-    const guildId = parts[0];
-    const botId = parts[1];
-
-    const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
-    const bots = await scanGuildBots(targetGuild, interaction.client);
-    const targetBot = bots.find(b => b.id === botId);
-    const botName = targetBot ? targetBot.displayName : 'Bot';
-
-    const modal = new ModalBuilder()
-      .setCustomId(`modal_orch_dispatch:${guildId}:${botId}`)
-      .setTitle(`Operasikan @${botName}`.slice(0, 45));
-
-    const commandInput = new TextInputBuilder()
-      .setCustomId('bot_cmd_text')
-      .setLabel(`Perintah Teks ke @${botName}`.slice(0, 45))
-      .setPlaceholder('Contoh: !play lofi, $daily, .rank, $marry')
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true)
-      .setMaxLength(300);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(commandInput));
-    return interaction.showModal(modal);
   }
-}
-
-/**
- * Handle Modal Submit for Bot Orchestrator
- * @param {import('discord.js').ModalSubmitInteraction} interaction 
- */
-async function handleBotOrchestratorModal(interaction) {
-  const [prefix, guildId, botId] = interaction.customId.split(':');
-  const commandText = interaction.fields.getTextInputValue('bot_cmd_text');
-  const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
-
-  const targetGuild = interaction.client.guilds.cache.get(guildId) || interaction.guild;
-  if (!targetGuild) {
-    return interaction.reply({ content: '❌ Server tidak ditemukan.', flags: 64 });
-  }
-
-  // Find suitable text channel (either current channel or first viewable channel)
-  let targetChannel = interaction.channel;
-  if (!targetChannel || !targetChannel.isTextBased?.() || !interaction.guild) {
-    targetChannel = targetGuild.channels.cache.find(c =>
-      c.isTextBased?.() && c.permissionsFor(targetGuild.members.me)?.has(PermissionFlagsBits.SendMessages)
-    );
-  }
-
-  if (!targetChannel) {
-    return interaction.reply({
-      content: '❌ Tidak dapat menemukan text channel yang sesuai di server tersebut untuk mengirimkan perintah.',
-      flags: 64
-    });
-  }
-
-  await interaction.deferReply({ ephemeral: false });
-  const res = await operateBot(targetGuild, targetChannel, botId, commandText, interaction.user, isOwner);
-  return interaction.editReply({ content: res.message });
 }
 
 module.exports = {

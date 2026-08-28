@@ -969,16 +969,12 @@ client.on('interactionCreate', async (interaction) => {
     return handleSendDmButton(interaction);
   }
 
-  // Handle Modal Submissions (e.g. Feedback Rejection Reason, Bot Orchestrator Command)
+  // Handle Modal Submissions (e.g. Feedback Rejection Reason)
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('modal_fb_reject:')) {
       const ticketId = interaction.customId.split(':')[1];
       const { handleFeedbackRejectModalSubmit } = require('./feedback');
       return handleFeedbackRejectModalSubmit(interaction, ticketId);
-    }
-    if (interaction.customId.startsWith('modal_orch_dispatch:')) {
-      const { handleBotOrchestratorModal } = require('./botOrchestrator');
-      return handleBotOrchestratorModal(interaction);
     }
   }
 

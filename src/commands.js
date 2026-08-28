@@ -463,18 +463,9 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('bots')
-    .setDescription('Kelola, pantau status kesehatan, dan operasikan bot-bot di server')
-    .addSubcommand(sub =>
-      sub.setName('scan')
-        .setDescription('Tampilkan dashboard status kesehatan seluruh bot di server')
-        .addStringOption(opt => opt.setName('kategori').setDescription('Filter berdasarkan kategori (Music, Moderasi, Game, dll)').setRequired(false))
-        .addStringOption(opt => opt.setName('server').setDescription('Nama server (Khusus jika dijalankan di DM oleh Owner)').setRequired(false)))
-    .addSubcommand(sub =>
-      sub.setName('operate')
-        .setDescription('Kirim perintah teks ke bot lain dan pantau responnya')
-        .addUserOption(opt => opt.setName('bot').setDescription('Tag atau pilih @bot target (contoh: @Mudae, @Rythm, @Lofi Radio)').setRequired(true))
-        .addStringOption(opt => opt.setName('command').setDescription('Perintah teks yang ingin dikirim (contoh: !play lofi, $daily, .rank)').setRequired(true))
-        .addChannelOption(opt => opt.setName('channel').setDescription('Channel target (Default: channel saat ini)').setRequired(false))),
+    .setDescription('Tampilkan dashboard status kesehatan & direktori seluruh bot di server')
+    .addStringOption(opt => opt.setName('kategori').setDescription('Filter berdasarkan kategori (Music, Moderasi, Game, dll)').setRequired(false))
+    .addStringOption(opt => opt.setName('server').setDescription('Nama server (Khusus jika dijalankan di DM oleh Owner)').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('sleep')
@@ -1821,63 +1812,42 @@ async function handleSlashCommand(interaction, startTime) {
     }
 
   } else if (commandName === 'bots') {
-    const sub = interaction.options.getSubcommand();
-    const { buildBotStatusEmbed, operateBot } = require('./botOrchestrator');
+    const { buildBotStatusEmbed } = require('./botOrchestrator');
     const isOwner = config.OWNER_DISCORD_ID && interaction.user.id === config.OWNER_DISCORD_ID;
+    const filterCategory = interaction.options.getString('kategori');
+    const serverInput = interaction.options.getString('server');
 
-    if (sub === 'scan') {
-      const filterCategory = interaction.options.getString('kategori');
-      const serverInput = interaction.options.getString('server');
+    let targetGuild = interaction.guild;
 
-      let targetGuild = interaction.guild;
-
-      // If executed in DM by Owner
-      if (!targetGuild) {
-        if (!isOwner) {
-          return interaction.reply({
-            content: '⚠️ Pemindaian bot server dari DM hanya dapat dilakukan oleh **Owner (Attila)**.',
-            flags: 64
-          });
-        }
-
-        if (serverInput) {
-          targetGuild = interaction.client.guilds.cache.find(g =>
-            g.name.toLowerCase().includes(serverInput.toLowerCase()) || g.id === serverInput
-          );
-        } else {
-          // Default to the first available guild
-          targetGuild = interaction.client.guilds.cache.first();
-        }
-
-        if (!targetGuild) {
-          return interaction.reply({
-            content: `❌ Server "${serverInput || 'utama'}" tidak ditemukan di cache AZURA. Pastikan nama server benar!`,
-            flags: 64
-          });
-        }
-      }
-
-      await interaction.deferReply({ ephemeral: false });
-      const { embed, components } = await buildBotStatusEmbed(targetGuild, interaction.client, !interaction.guild, filterCategory);
-      return interaction.editReply({ embeds: [embed], components });
-
-    } else if (sub === 'operate') {
-      if (!interaction.guild) {
+    // If executed in DM by Owner
+    if (!targetGuild) {
+      if (!isOwner) {
         return interaction.reply({
-          content: '⚠️ Operasi bot (`/bots operate`) harus dijalankan di dalam channel server tempat bot tersebut berada!',
+          content: '⚠️ Pemindaian status bot server dari DM hanya dapat dilakukan oleh **Owner (Attila)**.',
           flags: 64
         });
       }
 
-      const targetUser = interaction.options.getUser('bot');
-      const botQuery = targetUser ? targetUser.id : (interaction.options.getString('bot') || '');
-      const commandText = interaction.options.getString('command');
-      const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+      if (serverInput) {
+        targetGuild = interaction.client.guilds.cache.find(g =>
+          g.name.toLowerCase().includes(serverInput.toLowerCase()) || g.id === serverInput
+        );
+      } else {
+        // Default to the first available guild
+        targetGuild = interaction.client.guilds.cache.first();
+      }
 
-      await interaction.deferReply({ ephemeral: false });
-      const res = await operateBot(interaction.guild, targetChannel, botQuery, commandText, interaction.user, isOwner);
-      return interaction.editReply({ content: res.message });
+      if (!targetGuild) {
+        return interaction.reply({
+          content: `❌ Server "${serverInput || 'utama'}" tidak ditemukan di cache AZURA. Pastikan nama server benar!`,
+          flags: 64
+        });
+      }
     }
+
+    await interaction.deferReply({ ephemeral: false });
+    const { embed, components } = await buildBotStatusEmbed(targetGuild, interaction.client, !interaction.guild, filterCategory);
+    return interaction.editReply({ embeds: [embed], components });
 
   } else if (commandName === 'sleep') {
     const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;

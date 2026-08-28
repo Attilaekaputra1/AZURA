@@ -232,6 +232,48 @@ function needsSearch(prompt) {
 }
 
 /**
+ * Resolve follow-up search queries by extracting previous topic/subject from conversation history
+ * (e.g. "Kapan rilisnya?" -> "Astrae Oratio kapan rilis")
+ * @param {string} prompt 
+ * @param {Array<object>} history 
+ * @returns {string}
+ */
+function resolveContextualSearchQuery(prompt, history = []) {
+  if (!prompt || typeof prompt !== 'string') return prompt;
+  if (/https?:\/\/[^\s]+/i.test(prompt)) return prompt;
+
+  const lower = prompt.toLowerCase().trim();
+  const words = lower.split(/\s+/);
+  const isShortFollowUp = words.length <= 4 && (
+    /\b(?:kapan|siapa|berapa|apa|dimana|bagaimana|bisa\s+gak|rilisnya|rilis|harganya|developernya|genrenya|tentang\s+apa|linknya|link)\b/i.test(lower) ||
+    /\b(?:itu|ini|dia|tersebut|game\s+itu|web\s+itu|proyek\s+itu|aplikasi\s+ini)\b/i.test(lower)
+  );
+
+  if (isShortFollowUp && history && history.length > 0) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg = history[i];
+      const text = typeof msg.content === 'string' ? msg.content : '';
+
+      // 1. Check for prominent URLs in previous context
+      const urlMatch = text.match(/https?:\/\/([^/\s]+)(?:\/[^\s]*)?/i);
+      if (urlMatch) {
+        const domainParts = urlMatch[1].split('.');
+        const domainName = domainParts.length > 2 ? domainParts[domainParts.length - 2] : domainParts[0];
+        return `${domainName} ${prompt}`;
+      }
+
+      // 2. Check for named entities or titles (e.g. Astrae Oratio, Dynamis One)
+      const titleMatch = text.match(/\b([A-Z][a-z0-9]+(?:\s+[A-Z][a-z0-9]+){1,3})\b/);
+      if (titleMatch && !/^(?:Halo|Selamat|Makasih|Attila|Azura|Pengguna|Bisa|Situs|Dokumen|Ekstraksi|Rangkuman)/i.test(titleMatch[1])) {
+        return `${titleMatch[1]} ${prompt}`;
+      }
+    }
+  }
+
+  return prompt;
+}
+
+/**
  * Main AI Query Handler for AZURA
  * @param {string} userId
  * @param {string} userPrompt
@@ -412,8 +454,9 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   let searchContext = scrapedDataContent;
   if (!searchContext && needsSearch(userPrompt) && imageUrls.length === 0) {
-    console.log(`[AZURA Web Search]: Auto-triggering Tavily search for prompt: "${userPrompt}"`);
-    searchContext = await searchWeb(userPrompt);
+    const contextualQuery = resolveContextualSearchQuery(userPrompt, history);
+    console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${userPrompt}")`);
+    searchContext = await searchWeb(contextualQuery);
   }
 
   // Check Verified Route & Distance Engine (KRL / MRT / Road Distance)
@@ -451,8 +494,9 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       `1. Gunakan data aktual di atas untuk menjawab secara tuntas, cerdas, akurat, dan percaya diri.\n` +
       `2. DILARANG KERAS berkata "aku tidak punya akses internet" atau "tidak bisa mengecek data terbaru". Kamu SUDAH memiliki data internet di atas!\n` +
       `3. Jika user melampirkan tautan link URL atau file dokumen, analisis isinya secara mendalam, jelaskan poin-poin krusialnya, dan diskusikan bersama lawan bicara secara asyik.\n` +
-      `4. Susun jawaban secara estetik, rapi, dan mudah dibaca (gunakan poin-poin jika menjelaskan beberapa fakta).\n` +
-      `5. Cantumkan tautan link sumber terpercaya jika relevan.`;
+      `4. RELEVANSI KETAT: Gunakan HANYA informasi yang relevan dengan pertanyaan spesifik lawan bicara. JANGAN PERNAH menyalin, mencampuradukkan, atau menampilkan berita/artikel yang tidak ada hubungannya dengan topik obrolan (misalnya jangan menyertakan review game lain atau berita gerhana bulan saat lawan bicara hanya menanyakan tanggal rilis game yang sedang dibahas).\n` +
+      `5. Susun jawaban secara estetik, rapi, dan mudah dibaca.\n` +
+      `6. Cantumkan tautan link sumber terpercaya jika relevan.`;
   }
 
   const messages = [

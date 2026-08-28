@@ -689,6 +689,98 @@ async function handleTextBrowserCommands(message, client) {
   return false;
 }
 
+/**
+ * Autonomous Headless Web Scraper (Playwright Chromium)
+ * Capable of rendering full client-side JavaScript, Single Page Apps (SPA/React/Next/PlayNC),
+ * extracting clean markdown text, headings, meta descriptions, and structured DOM data.
+ * @param {string} targetUrl 
+ * @param {number} [timeoutMs=20000] 
+ * @returns {Promise<{ success: boolean, title: string, url: string, content: string, error?: string }>}
+ */
+async function scrapeWebWithBrowser(targetUrl, timeoutMs = 20000) {
+  let browser = null;
+  let context = null;
+  let page = null;
+
+  try {
+    browser = await getBrowser();
+    context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 800 }
+    });
+    page = await context.newPage();
+
+    // Abort heavy media assets for 5x faster scraping
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,mp4,mp3,wav}', route => route.abort());
+
+    console.log(`[Headless Scraper]: 🌐 Navigating to ${targetUrl} via Playwright Chromium...`);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+
+    // Wait slightly for dynamic React / SPA / Next.js hydration
+    await page.waitForTimeout(2200);
+
+    const title = await page.title().catch(() => 'Halaman Web');
+    const finalUrl = page.url();
+
+    const extracted = await page.evaluate(() => {
+      const clone = document.body.cloneNode(true);
+      const toRemove = clone.querySelectorAll('script, style, noscript, iframe, svg, [role="dialog"], [aria-hidden="true"]');
+      toRemove.forEach(el => el.remove());
+
+      const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content') ||
+                       document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
+
+      const headings = Array.from(clone.querySelectorAll('h1, h2, h3, h4'))
+        .map(h => h.innerText.trim())
+        .filter(Boolean)
+        .slice(0, 10);
+
+      const rawText = clone.innerText || clone.textContent || '';
+      const cleanLines = rawText
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+
+      const uniqueLines = [];
+      for (const line of cleanLines) {
+        if (uniqueLines.length === 0 || uniqueLines[uniqueLines.length - 1] !== line) {
+          uniqueLines.push(line);
+        }
+      }
+
+      return {
+        metaDesc,
+        headings: headings.join(' | '),
+        bodyText: uniqueLines.join('\n')
+      };
+    });
+
+    const fullContent = [
+      extracted.metaDesc ? `📌 **Deskripsi Situs:** ${extracted.metaDesc}` : '',
+      extracted.headings ? `🏷️ **Topik & Navigasi Utama:** ${extracted.headings}` : '',
+      `📝 **Isi Konten Halaman Terbaca:**\n${extracted.bodyText}`
+    ].filter(Boolean).join('\n\n');
+
+    return {
+      success: true,
+      title,
+      url: finalUrl,
+      content: fullContent.slice(0, 4500)
+    };
+  } catch (err) {
+    console.error('[Headless Scraper Error]:', err.message);
+    return {
+      success: false,
+      title: 'Gagal Ekstrak',
+      url: targetUrl,
+      error: err.message
+    };
+  } finally {
+    if (page) await page.close().catch(() => {});
+    if (context) await context.close().catch(() => {});
+  }
+}
+
 module.exports = {
   getBrowser,
   openWebpage,
@@ -702,5 +794,6 @@ module.exports = {
   sendVisualSnapshotCard,
   setVisualDocumentationMode,
   isVisualDocumentationEnabled,
-  handleTextBrowserCommands
+  handleTextBrowserCommands,
+  scrapeWebWithBrowser
 };

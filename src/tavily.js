@@ -172,10 +172,24 @@ function setCachedTavily(key, data) {
  */
 function cleanSearchQuery(prompt) {
   if (!prompt || typeof prompt !== 'string') return '';
-  return prompt
-    .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong|coba|dong|plis|please)?\s*(?:cariin|carikan|cari|search|googling|info|berita|kabar|apa\s+itu|siapa\s+itu|gimana|bagaimana)\s+(?:tentang|soal|terbaru|terkini|mengenai)?\s*/i, '')
+  let clean = prompt
+    // 1. Strip reply context headers like [Konteks Membalas Pesan @Ara]: "..."
+    .replace(/\[Konteks\s+[^\]]+\]:\s*"[^"]*"\s*/gi, '')
+    .replace(/\[Konteks\s+[^\]]+\]\s*/gi, '')
+    // 2. Strip Discord raw user mention tags <@123456>
+    .replace(/<@!?[0-9]+>/g, '')
+    // 3. Strip bot mention prefix
+    .replace(/@(?:azura|ara|zura|ajur|ajura|asura)\b/gi, '')
+    .trim();
+
+  // 4. Strip search filler verbs and conversational phrases
+  clean = clean
+    .replace(/^(?:azura|ara|zura|ajur|ajura|asura)?\s*(?:tolong|coba|dong|plis|please|bisa\s+gak|mau\s+nanya)?\s*(?:cariin|carikan|cari|search|googling|info|berita|kabar|apa\s+itu|siapa\s+itu|gimana|bagaimana|cek\s+info|cek|lihat)\s+(?:tentang|soal|terbaru|terkini|mengenai|kondisi|update)?\s*/i, '')
+    .replace(/\s+(?:dong|ya|yuk|plis|please|deh|kan)$/i, '')
     .replace(/[?!.]+$/, '')
-    .trim() || prompt.trim();
+    .trim();
+
+  return clean || prompt.trim();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -200,19 +214,25 @@ async function searchTavily(query, topicMode = 'general') {
       recordDailyMetric('webSearches', 1);
     } catch (_) {}
 
-    // Pass 1: Advanced search
-    let response = await tavilyApiCall('/search', {
+    const isNews = topicMode === 'news' || /\b(?:hari\s+ini|terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
+
+    // Pass 1: Advanced search with temporal freshness
+    const payload = {
       query: cleanQ,
-      topic: topicMode,
+      topic: isNews ? 'news' : topicMode,
       search_depth: 'advanced',
       include_answer: true,
       max_results: 4
-    });
+    };
+    if (isNews) {
+      payload.days = 7;
+    }
 
+    let response = await tavilyApiCall('/search', payload);
     let safeResults = filterSafeResults(response.results);
 
     // Pass 2 Fallback: If 0 safe results in news mode, retry general
-    if ((!safeResults || safeResults.length === 0) && topicMode === 'news') {
+    if ((!safeResults || safeResults.length === 0) && isNews) {
       console.log(`[Tavily Search]: Pass 2 - Retrying query with general topic for "${cleanQ}"...`);
       response = await tavilyApiCall('/search', {
         query: cleanQ,
@@ -302,14 +322,21 @@ async function searchTavilyCard(query, topicMode = 'news', userName = 'Pengguna'
     const cleanQ = cleanSearchQuery(query);
     console.log(`[Tavily Card]: Generating aesthetic search card for "${cleanQ}"...`);
 
-    let response = await tavilyApiCall('/search', {
+    const isNews = topicMode === 'news' || /\b(?:hari\s+ini|terkini|terbaru|update|minggu\s+ini|bulan\s+ini|2026)\b/i.test(query);
+
+    const payload = {
       query: cleanQ,
-      topic: topicMode,
+      topic: isNews ? 'news' : topicMode,
       search_depth: 'advanced',
       include_answer: true,
       include_images: true,
       max_results: 3
-    });
+    };
+    if (isNews) {
+      payload.days = 7;
+    }
+
+    let response = await tavilyApiCall('/search', payload);
 
     let safeResults = filterSafeResults(response.results);
 

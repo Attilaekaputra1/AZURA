@@ -87,15 +87,17 @@ client.once(Events.ClientReady, async () => {
 // Track passive 3rd-person mentions across channels (Requires 3 mentions within 5 mins before chiming in)
 const thirdPersonTracker = new Map(); // channelId -> { count: number, lastTime: number, messages: string[] }
 
-// Event: Message Created (@AZURA mention listener & DM listener)
-client.on('messageCreate', async (message) => {
+// Main Message Handler (Handles both new messages and edited messages)
+async function handleIncomingMessage(message, isEdit = false) {
   // Track channel activity for Autonomous Dead-Chat Catalyst
-  if (message.guild && message.channel && !message.author.bot) {
+  if (message.guild && message.channel && !message.author.bot && !isEdit) {
     recordChannelActivity(message.channel.id, message);
   }
 
   // Track owner mentions and start 5-minute countdown auto-reply
-  handleOwnerMentionTracking(message);
+  if (!isEdit) {
+    handleOwnerMentionTracking(message);
+  }
 
   // Ignore messages from bots or mass mentions (@everyone / @here)
   if (message.author.bot || message.mentions.everyone) return;
@@ -637,6 +639,34 @@ client.on('messageCreate', async (message) => {
   } catch (error) {
     console.error('[AZURA Message Error]:', error.message || error);
     await message.reply('bentar, otak gw lagi error dikit. coba bentar lagi ya!');
+  }
+}
+
+// Event: Message Created
+client.on('messageCreate', async (message) => {
+  await handleIncomingMessage(message, false);
+});
+
+// Event: Message Updated / Edited (Handles edited messages when user forgot to tag/call Azura initially)
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+  try {
+    if (!newMessage) return;
+    if (newMessage.partial) {
+      try {
+        newMessage = await newMessage.fetch();
+      } catch (_) {
+        return;
+      }
+    }
+    if (newMessage.author?.bot) return;
+
+    // Ignore if content did not change (e.g. Discord embed preview expansion or pin event)
+    if (oldMessage && oldMessage.content === newMessage.content) return;
+
+    console.log(`[Message Edit Listener]: User @${newMessage.author?.tag} edited message in #${newMessage.channel?.name || 'DM'}: "${newMessage.content.slice(0, 50)}..."`);
+    await handleIncomingMessage(newMessage, true);
+  } catch (err) {
+    console.error('[Message Update Error]:', err.message);
   }
 });
 

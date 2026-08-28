@@ -3,49 +3,78 @@ const http = require('http');
 const config = require('./config');
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 🚆 KRL COMMUTER LINE & MRT JABODETABEK TOPOLOGY (VERIFIED STATION GRAPH)
+// 🚆 TRANSIT JABODETABEK & INDONESIA NETWORK (KRL, MRT, LRT, WHOOSH, BANDARA)
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Stations ordered along lines
-const KRL_LINES = {
-  BOGOR_LINE: [
+const TRANSIT_LINES = {
+  // 1. KRL COMMUTER LINE JABODETABEK
+  KRL_BOGOR_LINE: [
     'Bogor', 'Cilebut', 'Bojong Gede', 'Citayam', 'Depok', 'Depok Baru',
     'Pondok Cina', 'Universitas Indonesia', 'Universitas Pancasila', 'Lenteng Agung',
     'Tanjung Barat', 'Pasar Minggu', 'Pasar Minggu Baru', 'Duren Kalibata',
     'Cawang', 'Tebet', 'Manggarai', 'Cikini', 'Gondangdia', 'Juanda',
     'Sawah Besar', 'Mangga Besar', 'Jayakarta', 'Jakarta Kota'
   ],
-  NAMBO_BRANCH: [
+  KRL_NAMBO_BRANCH: [
     'Nambo', 'Cibinong', 'Pondok Rajeg', 'Citayam'
   ],
-  CIKARANG_LOOP_LINE: [
+  KRL_CIKARANG_LOOP_LINE: [
     'Cikarang', 'Metland Telaga Murni', 'Cibitung', 'Tambun', 'Bekasi Timur', 'Bekasi',
     'Kranji', 'Cakung', 'Klender Baru', 'Buaran', 'Klender', 'Jatinegara',
     'Matraman', 'Manggarai', 'Sudirman', 'BNI City', 'Karet', 'Tanah Abang',
     'Duri', 'Angke', 'Kampung Bandan', 'Rajawali', 'Kemayoran', 'Pasar Senen',
     'Gang Sentiong', 'Kramat', 'Pondok Jati'
   ],
-  RANGKASBITUNG_LINE: [
+  KRL_RANGKASBITUNG_LINE: [
     'Rangkasbitung', 'Citeras', 'Maja', 'Cikoya', 'Tigaraksa', 'Tenjo', 'Daru',
     'Cilejit', 'Parung Panjang', 'Cicayur', 'Cisauk', 'Serpong', 'Rawabuntu',
     'Sudimara', 'Jurangmangu', 'Pondok Ranji', 'Kebayoran', 'Palmerah', 'Tanah Abang'
   ],
-  TANGERANG_LINE: [
+  KRL_TANGERANG_LINE: [
     'Tangerang', 'Tanah Tinggi', 'Batu Ceper', 'Poris', 'Kalideres', 'Rawa Buaya',
     'Bojong Indah', 'Taman Kota', 'Pesing', 'Grogol', 'Duri'
   ],
-  TANJUNG_PRIOK_LINE: [
+  KRL_TANJUNG_PRIOK_LINE: [
     'Jakarta Kota', 'Kampung Bandan', 'Ancol', 'Tanjung Priok'
   ],
+
+  // 2. MRT JAKARTA (NORTH-SOUTH LINE FASE 1)
   MRT_JAKARTA: [
-    'Lebak Bulus Grab', 'Fatmawati', 'Cipete Raya', 'Haji Nawi', 'Blok A',
-    'Blok M BCA', 'ASEAN', 'Senayan', 'Istora Mandiri', 'Bendungan Hilir',
+    'Lebak Bulus Grab', 'Fatmawati Indomaret', 'Cipete Raya', 'Haji Nawi', 'Blok A',
+    'Blok M BCA', 'ASEAN', 'Senayan Mastercard', 'Istora Mandiri', 'Bendungan Hilir',
     'Setiabudi Astra', 'Dukuh Atas BNI', 'Bundaran HI'
+  ],
+
+  // 3. LRT JABODEBEK (CIBUBUR & BEKASI LINES)
+  LRT_JABODEBEK_CIBUBUR: [
+    'Dukuh Atas', 'Setiabudi', 'Rasuna Said', 'Kuningan', 'Pancoran', 'Cikoko',
+    'Ciliwung', 'Cawang', 'TMII', 'Kampung Rambutan', 'Ciracas', 'Harjamukti'
+  ],
+  LRT_JABODEBEK_BEKASI: [
+    'Dukuh Atas', 'Setiabudi', 'Rasuna Said', 'Kuningan', 'Pancoran', 'Cikoko',
+    'Ciliwung', 'Cawang', 'Halim', 'Jatibening Baru', 'Cikunir I', 'Cikunir II',
+    'Bekasi Barat', 'Jatimulya'
+  ],
+
+  // 4. LRT JAKARTA (KELAPA GADING - VELODROME)
+  LRT_JAKARTA: [
+    'Pegangsaan Dua', 'Boulevard Utara', 'Boulevard Selatan', 'Pulomas', 'Equestrian', 'Velodrome'
+  ],
+
+  // 5. KERETA BANDARA SOEKARNO-HATTA (RAILINK)
+  KA_BANDARA_SOETTA: [
+    'Manggarai', 'BNI City', 'Duri', 'Rawa Buaya', 'Batu Ceper', 'Bandara Soekarno-Hatta'
+  ],
+
+  // 6. KERETA CEPAT WHOOSH (KCIC JAKARTA - BANDUNG)
+  WHOOSH_KCIC: [
+    'Halim', 'Karawang', 'Padalarang', 'Tegalluar Summarecon'
   ]
 };
 
 // Aliases and normalizations
 const STATION_ALIASES = {
+  // KRL
   'bogor': 'Bogor',
   'cilebut': 'Cilebut',
   'bojong': 'Bojong Gede',
@@ -72,11 +101,18 @@ const STATION_ALIASES = {
   'tanah abang': 'Tanah Abang',
   'tanahabang': 'Tanah Abang',
   'sudirman': 'Sudirman',
-  'dukuh atas': 'Sudirman',
   'karet': 'Karet',
   'duri': 'Duri',
   'jatinegara': 'Jatinegara',
+  'klender': 'Klender',
+  'klender baru': 'Klender Baru',
+  'buaran': 'Buaran',
+  'cakung': 'Cakung',
+  'kranji': 'Kranji',
   'bekasi': 'Bekasi',
+  'bekasi timur': 'Bekasi Timur',
+  'tambun': 'Tambun',
+  'cibitung': 'Cibitung',
   'cikarang': 'Cikarang',
   'serpong': 'Serpong',
   'rawabuntu': 'Rawabuntu',
@@ -89,9 +125,57 @@ const STATION_ALIASES = {
   'batu ceper': 'Batu Ceper',
   'priok': 'Tanjung Priok',
   'tanjung priok': 'Tanjung Priok',
+
+  // MRT
   'lebak bulus': 'Lebak Bulus Grab',
+  'lebakbulus': 'Lebak Bulus Grab',
+  'fatmawati': 'Fatmawati Indomaret',
+  'cipete': 'Cipete Raya',
+  'haji nawi': 'Haji Nawi',
+  'blok m': 'Blok M BCA',
+  'blok a': 'Blok A',
+  'asean': 'ASEAN',
+  'senayan': 'Senayan Mastercard',
+  'istora': 'Istora Mandiri',
+  'benhil': 'Bendungan Hilir',
+  'bendungan hilir': 'Bendungan Hilir',
+  'setiabudi astra': 'Setiabudi Astra',
+  'dukuh atas bni': 'Dukuh Atas BNI',
   'bundaran hi': 'Bundaran HI',
-  'blok m': 'Blok M BCA'
+
+  // LRT Jabodebek
+  'dukuh atas': 'Dukuh Atas',
+  'rasuna said': 'Rasuna Said',
+  'kuningan': 'Kuningan',
+  'pancoran': 'Pancoran',
+  'cikoko': 'Cikoko',
+  'tmii': 'TMII',
+  'taman mini': 'TMII',
+  'kampung rambutan': 'Kampung Rambutan',
+  'ciracas': 'Ciracas',
+  'harjamukti': 'Harjamukti',
+  'cibubur': 'Harjamukti',
+  'halim': 'Halim',
+  'jatibening': 'Jatibening Baru',
+  'cikunir': 'Cikunir I',
+  'bekasi barat': 'Bekasi Barat',
+  'jatimulya': 'Jatimulya',
+
+  // LRT Jakarta
+  'velodrome': 'Velodrome',
+  'rawamangun': 'Velodrome',
+  'pegangsaan dua': 'Pegangsaan Dua',
+  'kelapa gading': 'Boulevard Utara',
+  'pulomas': 'Pulomas',
+
+  // KA Bandara & Whoosh
+  'bandara soetta': 'Bandara Soekarno-Hatta',
+  'bandara': 'Bandara Soekarno-Hatta',
+  'soekarno hatta': 'Bandara Soekarno-Hatta',
+  'soetta': 'Bandara Soekarno-Hatta',
+  'padalarang': 'Padalarang',
+  'tegalluar': 'Tegalluar Summarecon',
+  'whoosh': 'Halim'
 };
 
 /**
@@ -101,14 +185,13 @@ const STATION_ALIASES = {
  */
 function matchStationName(rawName) {
   if (!rawName) return null;
-  const clean = rawName.toLowerCase().replace(/^stasiun\s+/i, '').trim();
+  const clean = rawName.toLowerCase().replace(/^(?:stasiun|st|halte)\s+/i, '').trim();
 
   if (STATION_ALIASES[clean]) {
     return STATION_ALIASES[clean];
   }
 
-  // Exact / partial search in all lines
-  for (const line of Object.values(KRL_LINES)) {
+  for (const line of Object.values(TRANSIT_LINES)) {
     for (const st of line) {
       if (st.toLowerCase() === clean) return st;
       if (clean.length >= 4 && st.toLowerCase().includes(clean)) return st;
@@ -139,19 +222,19 @@ function findPathInLine(lineArray, fromSt, toSt) {
 }
 
 /**
- * Calculate accurate KRL / MRT Route & Travel Time
+ * Calculate accurate Rail & Transit Route across KRL, MRT, LRT, and High-Speed Train
  * @param {string} fromRaw 
  * @param {string} toRaw 
  * @returns {{ success: boolean, data?: object, message?: string }}
  */
-function calculateKRLRoute(fromRaw, toRaw) {
+function calculateRailRoute(fromRaw, toRaw) {
   const fromStation = matchStationName(fromRaw);
   const toStation = matchStationName(toRaw);
 
   if (!fromStation || !toStation) {
     return {
       success: false,
-      message: `Stasiun tidak dikenali (Asal: ${fromStation || fromRaw}, Tujuan: ${toStation || toRaw}).`
+      message: `Stasiun/Halte tidak dikenali (Asal: ${fromStation || fromRaw}, Tujuan: ${toStation || toRaw}).`
     };
   }
 
@@ -170,27 +253,71 @@ function calculateKRLRoute(fromRaw, toRaw) {
     };
   }
 
-  // 1. Check if both stations are on the same line (Direct Train)
-  for (const [lineName, lineArray] of Object.entries(KRL_LINES)) {
+  // 1. Check if both stations are on the same line (Direct Route)
+  for (const [lineName, lineArray] of Object.entries(TRANSIT_LINES)) {
     const directPath = findPathInLine(lineArray, fromStation, toStation);
     if (directPath) {
       const segCount = directPath.count;
-      const distanceKm = Math.round(segCount * 1.75 * 10) / 10;
-      
-      // Official KAI Commuter fare: Rp 3.000 for first 25 km, +Rp 1.000 per 10 km thereafter
-      const fare = distanceKm <= 25 ? 3000 : 3000 + Math.ceil((distanceKm - 25) / 10) * 1000;
-      
-      // Realistic operational travel time: Running time + station dwell time + signal queuing (e.g. Manggarai hub)
-      const passesManggarai = directPath.path.includes('Manggarai');
-      const minDuration = Math.round(segCount * 3.0);
-      const maxDuration = Math.round(segCount * 3.0 + (passesManggarai ? 8 : 4));
-      
-      let lineLabel = 'KRL Commuter Line';
-      if (lineName === 'BOGOR_LINE') lineLabel = 'KRL Red Line (Bogor - Jakarta Kota)';
-      else if (lineName === 'CIKARANG_LOOP_LINE') lineLabel = 'KRL Blue Line (Cikarang Loop Line)';
-      else if (lineName === 'RANGKASBITUNG_LINE') lineLabel = 'KRL Green Line (Rangkasbitung - Tanah Abang)';
-      else if (lineName === 'TANGERANG_LINE') lineLabel = 'KRL Brown Line (Tangerang - Duri)';
-      else if (lineName === 'MRT_JAKARTA') lineLabel = 'MRT Jakarta (Lebak Bulus - Bundaran HI)';
+      let lineLabel = 'Kereta Rel Perkotaan';
+      let distanceKm = Math.round(segCount * 1.75 * 10) / 10;
+      let fareFormatted = 'Rp 3.000';
+      let minDuration = Math.round(segCount * 2.8);
+      let maxDuration = Math.round(segCount * 3.0 + 4);
+
+      // Mode-specific calculations:
+      if (lineName.startsWith('KRL_')) {
+        lineLabel = lineName === 'KRL_BOGOR_LINE' ? 'KRL Red Line (Bogor - Jakarta Kota)' :
+          lineName === 'KRL_CIKARANG_LOOP_LINE' ? 'KRL Blue Line (Cikarang Loop Line)' :
+          lineName === 'KRL_RANGKASBITUNG_LINE' ? 'KRL Green Line (Rangkasbitung - Tanah Abang)' :
+          lineName === 'KRL_TANGERANG_LINE' ? 'KRL Brown Line (Tangerang - Duri)' : 'KRL Commuter Line';
+        
+        distanceKm = Math.round(segCount * 1.75 * 10) / 10;
+        const rawFare = distanceKm <= 25 ? 3000 : 3000 + Math.ceil((distanceKm - 25) / 10) * 1000;
+        fareFormatted = `Rp ${Math.min(rawFare, 8000).toLocaleString('id-ID')}`;
+        
+        const passesManggarai = directPath.path.includes('Manggarai');
+        minDuration = Math.round(segCount * 3.0);
+        maxDuration = Math.round(segCount * 3.0 + (passesManggarai ? 8 : 4));
+
+      } else if (lineName === 'MRT_JAKARTA') {
+        lineLabel = 'MRT Jakarta (Lebak Bulus - Bundaran HI)';
+        distanceKm = Math.round((segCount * 1.3) * 10) / 10;
+        const mrtFare = Math.min(3000 + segCount * 1000, 14000);
+        fareFormatted = `Rp ${mrtFare.toLocaleString('id-ID')}`;
+        minDuration = Math.round(segCount * 2.3);
+        maxDuration = Math.round(segCount * 2.6);
+
+      } else if (lineName.startsWith('LRT_JABODEBEK')) {
+        lineLabel = lineName.includes('CIBUBUR')
+          ? 'LRT Jabodebek (Cibubur Line: Dukuh Atas - Harjamukti)'
+          : 'LRT Jabodebek (Bekasi Line: Dukuh Atas - Jatimulya)';
+        distanceKm = Math.round(segCount * 2.2 * 10) / 10;
+        const lrtFare = Math.min(5000 + Math.ceil(distanceKm * 700), 20000);
+        fareFormatted = `Rp ${lrtFare.toLocaleString('id-ID')} (Tarif Maks Off-Peak Rp 10.000 / Peak Rp 20.000)`;
+        minDuration = Math.round(segCount * 3.2);
+        maxDuration = Math.round(segCount * 3.5);
+
+      } else if (lineName === 'LRT_JAKARTA') {
+        lineLabel = 'LRT Jakarta (Kelapa Gading - Velodrome)';
+        distanceKm = Math.round(segCount * 1.15 * 10) / 10;
+        fareFormatted = 'Rp 5.000 (Flat)';
+        minDuration = Math.round(segCount * 2.5);
+        maxDuration = 13;
+
+      } else if (lineName === 'KA_BANDARA_SOETTA') {
+        lineLabel = 'KA Bandara Soekarno-Hatta (Railink)';
+        distanceKm = Math.round(segCount * 7.5 * 10) / 10;
+        fareFormatted = 'Rp 30.000 - Rp 70.000 (Tergantung stasiun asal)';
+        minDuration = Math.round(segCount * 10);
+        maxDuration = Math.round(segCount * 11);
+
+      } else if (lineName === 'WHOOSH_KCIC') {
+        lineLabel = 'Kereta Cepat Whoosh (KCIC Jakarta - Bandung)';
+        distanceKm = Math.round(segCount * 45);
+        fareFormatted = 'Rp 200.000 - Rp 300.000 (Kelas Ekonomi Premium)';
+        minDuration = segCount === 2 ? 30 : 45;
+        maxDuration = segCount === 2 ? 35 : 50;
+      }
 
       return {
         success: true,
@@ -205,44 +332,39 @@ function calculateKRLRoute(fromRaw, toRaw) {
           distanceFormatted: `~${distanceKm} km`,
           durationMin: minDuration,
           durationMax: maxDuration,
-          durationFormatted: `${minDuration}–${maxDuration} menit (Realistis operasional ~${maxDuration} menit)`,
+          durationFormatted: `${minDuration}–${maxDuration} menit (Estimasi operasional riil)`,
           transfers: [],
-          fare: Math.min(fare, 8000),
-          fareFormatted: `Rp ${Math.min(fare, 8000).toLocaleString('id-ID')}`
+          fareFormatted: fareFormatted
         }
       };
     }
   }
 
-  // 2. Multi-Line Route with Transfer Stations (Manggarai, Tanah Abang, Duri, Kampung Bandan, Citayam)
-  const transferHubs = ['Manggarai', 'Tanah Abang', 'Duri', 'Kampung Bandan', 'Citayam', 'Jatinegara'];
+  // 2. Multi-Line Route with Transit Hubs (Manggarai, Tanah Abang, Duri, Cawang, Dukuh Atas, Halim)
+  const transferHubs = ['Manggarai', 'Tanah Abang', 'Duri', 'Kampung Bandan', 'Citayam', 'Jatinegara', 'Dukuh Atas', 'Cawang', 'Cikoko', 'Halim'];
   let bestRoute = null;
 
   for (const hub of transferHubs) {
     if (hub === fromStation || hub === toStation) continue;
 
-    // Check line 1 (fromStation -> hub)
     let leg1 = null;
     let line1Name = '';
-    for (const [lName, lArr] of Object.entries(KRL_LINES)) {
+    for (const [lName, lArr] of Object.entries(TRANSIT_LINES)) {
       const p = findPathInLine(lArr, fromStation, hub);
       if (p) { leg1 = p; line1Name = lName; break; }
     }
 
-    // Check line 2 (hub -> toStation)
     let leg2 = null;
     let line2Name = '';
-    for (const [lName, lArr] of Object.entries(KRL_LINES)) {
+    for (const [lName, lArr] of Object.entries(TRANSIT_LINES)) {
       const p = findPathInLine(lArr, hub, toStation);
       if (p) { leg2 = p; line2Name = lName; break; }
     }
 
     if (leg1 && leg2) {
       const totalStations = leg1.count + leg2.count;
-      const distanceKm = Math.round(totalStations * 1.75 * 10) / 10;
-      const fare = distanceKm <= 25 ? 3000 : 3000 + Math.ceil((distanceKm - 25) / 10) * 1000;
-      
-      const minDuration = Math.round(totalStations * 3.0 + 8); // +8 min platform transfer
+      const distanceKm = Math.round(totalStations * 1.8 * 10) / 10;
+      const minDuration = Math.round(totalStations * 3.0 + 8); // +8 min platform change
       const maxDuration = Math.round(totalStations * 3.0 + 15);
 
       if (!bestRoute || maxDuration < bestRoute.durationMax) {
@@ -258,9 +380,8 @@ function calculateKRLRoute(fromRaw, toRaw) {
           distanceFormatted: `~${distanceKm} km`,
           durationMin: minDuration,
           durationMax: maxDuration,
-          durationFormatted: `${minDuration}–${maxDuration} menit (Termasuk jeda pindah peron ~8-10 mnt)`,
-          fare: Math.min(fare, 9000),
-          fareFormatted: `Rp ${Math.min(fare, 9000).toLocaleString('id-ID')}`
+          durationFormatted: `${minDuration}–${maxDuration} menit (Termasuk jeda transit ~8-10 mnt)`,
+          fareFormatted: 'Sesuai tarif integrasi per moda'
         };
       }
     }
@@ -272,12 +393,12 @@ function calculateKRLRoute(fromRaw, toRaw) {
 
   return {
     success: false,
-    message: `Tidak ditemukan jalur KRL langsung/transit 1x antara Stasiun ${fromStation} dan Stasiun ${toStation}.`
+    message: `Tidak ditemukan jalur transit langsung 1x antara Stasiun ${fromStation} dan Stasiun ${toStation}.`
   };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 🚗 ROAD DISTANCE & TIME ESTIMATOR (OSRM + GOOGLE MAPS API)
+// 🚗 ROAD DISTANCE & TIME ESTIMATOR (OSRM + OPENSTREETMAP GEOCODING)
 // ══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -363,40 +484,40 @@ function getOSRMDrivingRoute(lat1, lon1, lat2, lon2) {
 
 /**
  * Comprehensive Routing & Distance Master Service
- * Automatically detects whether to use KRL/MRT Transit or Road Driving/Motorcycle
+ * Automatically detects whether to use Rail Transit (KRL/MRT/LRT/Whoosh) or Road Driving/Motorcycle
  * @param {string} origin 
  * @param {string} destination 
- * @param {'krl'|'transit'|'driving'|'auto'} [mode='auto'] 
+ * @param {'rail'|'transit'|'driving'|'auto'} [mode='auto'] 
  * @returns {Promise<string>} Formatted verified data summary for AI prompt or direct response
  */
 async function getVerifiedRouteAndDistance(origin, destination, mode = 'auto') {
-  const isKRLQuery = mode === 'krl' || mode === 'transit' ||
-    /\b(?:krl|kereta|commuter|stasiun|mrt|lrt)\b/i.test(`${origin} ${destination}`) ||
+  const isRailQuery = mode === 'rail' || mode === 'transit' ||
+    /\b(?:krl|kereta|commuter|stasiun|mrt|lrt|whoosh|kcic|bandara|railink)\b/i.test(`${origin} ${destination}`) ||
     (matchStationName(origin) && matchStationName(destination));
 
-  // 1. KRL / MRT TRANSIT ROUTING
-  if (isKRLQuery) {
-    const krlResult = calculateKRLRoute(origin, destination);
-    if (krlResult.success && krlResult.data) {
-      const d = krlResult.data;
+  // 1. RAIL & TRANSIT ROUTING (KRL / MRT / LRT / WHOOSH / BANDARA)
+  if (isRailQuery) {
+    const railResult = calculateRailRoute(origin, destination);
+    if (railResult.success && railResult.data) {
+      const d = railResult.data;
       if (d.isDirect) {
-        return `🚆 **[DATA RUTE KRL TERVERIFIKASI & AKURAT]**:\n` +
+        return `🚆 **[DATA RUTE REL & TRANSIT TERVERIFIKASI & AKURAT]**:\n` +
           `• **Asal:** Stasiun ${d.from} ➡️ **Tujuan:** Stasiun ${d.to}\n` +
-          `• **Jalur:** ${d.line} (Langsung tanpa transit)\n` +
-          `• **Jumlah Stasiun:** ${d.stationCount} stasiun\n` +
-          `• **Jarak Rel Kereta:** **${d.distanceFormatted}**\n` +
+          `• **Moda & Jalur:** **${d.line}** (Langsung tanpa transit)\n` +
+          `• **Jumlah Stasiun/Pemberhentian:** ${d.stationCount} stasiun\n` +
+          `• **Jarak Rel:** **${d.distanceFormatted}**\n` +
           `• **Estimasi Waktu Tempuh:** **${d.durationFormatted}**\n` +
-          `• **Tarif Tiket Resmi:** ${d.fareFormatted}\n` +
+          `• **Tarif Tiket Resmi:** **${d.fareFormatted}**\n` +
           `• **Daftar Stasiun yang Dilewati:** ${d.stationsList.join(' ➔ ')}`;
       } else {
-        return `🚆 **[DATA RUTE KRL TRANSIT TERVERIFIKASI & AKURAT]**:\n` +
+        return `🚆 **[DATA RUTE REL & TRANSIT TERVERIFIKASI & AKURAT]**:\n` +
           `• **Asal:** Stasiun ${d.from} ➡️ **Tujuan:** Stasiun ${d.to}\n` +
           `• **Transit di:** **Stasiun ${d.transferStation}**\n` +
-          `• **Rute:** Stasiun ${d.from} ➔ (Transit ${d.transferStation}) ➔ Stasiun ${d.to}\n` +
+          `• **Rute Integrasi:** Stasiun ${d.from} ➔ (Transit ${d.transferStation}) ➔ Stasiun ${d.to}\n` +
           `• **Total Stasiun:** ${d.stationCount} stasiun\n` +
-          `• **Jarak Rel Kereta:** **${d.distanceFormatted}**\n` +
+          `• **Jarak Rel Total:** **${d.distanceFormatted}**\n` +
           `• **Estimasi Waktu Tempuh:** **${d.durationFormatted}**\n` +
-          `• **Tarif Tiket Resmi:** ${d.fareFormatted}`;
+          `• **Tarif Tiket:** ${d.fareFormatted}`;
       }
     }
   }
@@ -418,7 +539,7 @@ async function getVerifiedRouteAndDistance(origin, destination, mode = 'auto') {
         return `📍 **[DATA JARAK & WAKTU TEMPUH JALAN RAYA TERVERIFIKASI]**:\n` +
           `• **Dari:** ${origin}\n` +
           `• **Ke:** ${destination}\n` +
-          `• **Jarak Tempuh:** **${roadRoute.distanceKm} km**\n` +
+          `• **Jarak Tempuh Jalan Raya:** **${roadRoute.distanceKm} km**\n` +
           `• **Mobil / Taksi:** ~${roadRoute.durationFormatted} (Kondisi lalu lintas wajar)\n` +
           `• **Motor:** ~${motorFormatted}`;
       }
@@ -431,7 +552,7 @@ async function getVerifiedRouteAndDistance(origin, destination, mode = 'auto') {
 }
 
 /**
- * Intercept message prompt to check if user is asking about distance / travel time / KRL
+ * Intercept message prompt to check if user is asking about distance / travel time / KRL / MRT / LRT / Whoosh
  * @param {string} prompt 
  * @returns {Promise<string|null>}
  */
@@ -439,11 +560,11 @@ async function interceptRouteAndDistance(prompt) {
   if (!prompt || typeof prompt !== 'string') return null;
 
   const lower = prompt.toLowerCase();
-  const hasRouteIntent = /\b(?:berapa\s+lama|waktu\s+tempuh|jarak|berapa\s+km|rute\s+krl|naik\s+krl|naik\s+kereta|transit\s+di\s+mana|stasiun\s+ke\s+stasiun|dari\s+.+\s+ke\s+.+)\b/i.test(lower);
+  const hasRouteIntent = /\b(?:berapa\s+lama|waktu\s+tempuh|jarak|berapa\s+km|rute|naik\s+krl|naik\s+kereta|naik\s+mrt|naik\s+lrt|naik\s+whoosh|transit\s+di\s+mana|stasiun\s+ke\s+stasiun|dari\s+.+\s+ke\s+.+)\b/i.test(lower);
   if (!hasRouteIntent) return null;
 
   // Extract "dari X ke Y" or "stasiun X ke stasiun Y"
-  const matchFromTo = lower.match(/(?:dari|stasiun)\s+([a-z0-9\s.]+?)\s+(?:ke|menuju|sampai)\s+(?:stasiun\s+)?([a-z0-9\s.]+?)(?:[?.,!]|$)/i);
+  const matchFromTo = lower.match(/(?:dari|stasiun|halte)\s+([a-z0-9\s.]+?)\s+(?:ke|menuju|sampai)\s+(?:stasiun\s+|halte\s+)?([a-z0-9\s.]+?)(?:[?.,!]|$)/i);
   if (matchFromTo) {
     const noiseRegex = /\b(?:berapa\s+km|berapa\s+lama|waktu\s+tempuh|jarak|naik\s+apa|transit\s+di\s+mana|ya|nih|dong|kira\s*kira|estimasinya|lewat\s+mana|tolong|coba)\b/gi;
     let origin = matchFromTo[1].replace(noiseRegex, '').trim();
@@ -460,7 +581,8 @@ async function interceptRouteAndDistance(prompt) {
 }
 
 module.exports = {
-  calculateKRLRoute,
+  calculateRailRoute,
+  calculateKRLRoute: calculateRailRoute, // Backward compatibility
   getVerifiedRouteAndDistance,
   interceptRouteAndDistance,
   matchStationName

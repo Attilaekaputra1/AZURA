@@ -171,6 +171,7 @@ function normalizeChannelName(rawName) {
     else if (cp >= 0x1D552 && cp <= 0x1D56B) str += String.fromCharCode(97 + (cp - 0x1D552));
     else if (cp >= 0x1D56C && cp <= 0x1D585) str += String.fromCharCode(65 + (cp - 0x1D56C));
     else if (cp >= 0x1D586 && cp <= 0x1D59F) str += String.fromCharCode(97 + (cp - 0x1D586));
+    else if (ch === '❀' || ch === '✿' || ch === '🌸' || ch === '💮' || ch === '🏵' || ch === '🌼' || ch === '🌺' || ch === '⭕' || ch === '⭐') str += 'o';
     else str += ch;
   }
   return str.normalize('NFKD').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
@@ -188,7 +189,7 @@ function isForbiddenChannel(rawName) {
 
   const FORBIDDEN_KEYWORDS = [
     'newmember', 'new-member', 'new_member', 'member',
-    'welcome', 'selamatdatang', 'selamat-datang', 'gate', 'entrance', 'join', 'leave',
+    'welcome', 'welc', 'selamatdatang', 'selamat-datang', 'gate', 'entrance', 'join', 'leave',
     'verif', 'verification', 'verifikasi',
     'rules', 'rule', 'peraturan', 'tatatertib', 'tata-tertib',
     'announcement', 'pengumuman', 'info', 'information', 'readme', 'read-me', 'faq',
@@ -216,18 +217,21 @@ function findGeneralChannel(client) {
   // If specific channel ID configured in .env
   if (process.env.CATALYST_CHANNEL_ID) {
     const ch = client.channels.cache.get(process.env.CATALYST_CHANNEL_ID);
-    if (ch && ch.isTextBased()) return ch;
+    if (ch && ch.isTextBased && ch.isTextBased()) return ch;
   }
 
   // Look across all guilds
   for (const guild of client.guilds.cache.values()) {
-    const textChannels = guild.channels.cache.filter(
-      ch => ch.isTextBased() && !ch.isThread() && !ch.isVoiceBased()
+    const allChannels = Array.from(guild.channels.cache.values ? guild.channels.cache.values() : guild.channels.cache);
+    const textChannels = allChannels.filter(
+      ch => ch && (ch.isTextBased ? ch.isTextBased() : ch.type === 0 || ch.type === 5) && 
+            (ch.isThread ? !ch.isThread() : true) && 
+            (ch.isVoiceBased ? !ch.isVoiceBased() : true)
     );
 
     // 1. Strict Exclusion Filter
     const eligibleChannels = [];
-    for (const ch of textChannels.values()) {
+    for (const ch of textChannels) {
       if (isForbiddenChannel(ch.name)) continue;
 
       const me = guild.members.me || guild.members.cache.get(client.user.id);

@@ -184,6 +184,11 @@ Sebagai AZURA, tingkat kecerdasanmu setara dengan Autonomous Agent tingkat tingg
       * Jika di awal kalimat/pembuka/rekap: SELALU gunakan **"Attila"** atau **"Lu / Kamu"** (DILARANG menaruh "Att" di awal kalimat!).
       * Jika di tengah atau di akhir kalimat: BOLEH gunakan **"Att"** (dua huruf t), **"Attila"**, atau **"Putra"**.
 
+7. **ATURAN KEJUJURAN DATA & ANTI-HALUSINASI (SOP KETAT)**:
+   - **DILARANG MENEBAK / MENGARANG BEBAS**: Jika user bertanya tentang suatu judul anime, manga, game, film, tokoh, produk, atau fakta spesifik, **JANGAN PERNAH MENEBAK atau menghubung-hubungkan judul yang mirip secara asal**.
+   - **GUNAKAN PENCARIAN LIVE**: Gunakan tool pencarian \`search_anime_myanimelist\` atau \`search_web\` untuk memverifikasi data sebelum menjawab.
+   - **KEJUJURAN EPISTEMIK**: Jika suatu judul setelah dicek di MyAnimeList atau internet memang belum terdaftar / belum ada infonya, katakan secara transparan dan tanyakan apakah ada link referensi atau judul alternatif.
+
 Fitur Interaktif & Game yang Kamu Kuasai:
 - **Aktivitas Voice & Games di VC**: Kamu bisa meluncurkan sesi nobar YouTube Watch Together, main Wordle / Letter League, dan main Catur bersama di Voice Channel via \`/activity\` atau perintah chat langsung (misal: "buka wordle di vc", "setel youtube together di vc").
 
@@ -219,23 +224,45 @@ Aturan Panjang Jawaban (ADAPTIF):
 `.trim();
 }
 
-// Keywords and regex that trigger web search via Tavily AI
-function needsSearch(prompt) {
+// Enhanced Knowledge & Fact Search Detector with Contextual Chaining
+function needsSearch(prompt, history = []) {
   if (!prompt || typeof prompt !== 'string') return false;
 
   // 1. If user sent a web link (URL)
   if (/https?:\/\/[^\s]+/i.test(prompt)) return true;
 
-  const lower = prompt.toLowerCase();
+  const lower = prompt.toLowerCase().trim();
 
-  // 2. Explicit search/research/news keywords
-  const explicitSearchRegex = /\b(?:search|googling|cariin|carikan|cari|riset|berita|news|info\s+terbaru|isu\s+terkini|kabar\s+terbaru|update\s+terkini|info\s+hari\s+ini|kejadian\s+hari\s+ini|trending|viral)\b/i;
+  // 2. Contextual Chaining: If previous message context was discussing research, anime, search, or lookups
+  if (history && history.length > 0) {
+    const hasSearchContext = history.slice(-4).some(h => {
+      const txt = (typeof h.content === 'string' ? h.content : '').toLowerCase();
+      return /\b(?:myanimelist|mal|anime|manga|cari|search|cek|informasi|database|lookup|judul|sinopsis)\b/i.test(txt);
+    });
 
-  // 3. Real-time factual queries (sports, weather, prices, release dates, elections, recent facts)
+    const isDirectFollowUpQuery = lower.split(/\s+/).length <= 7 && !/^(?:halo|hai|pagi|siang|malam|makasih|oke|siap|iya|tidak|yoi|wkwk|haha|bye|dadah)$/i.test(lower);
+    if (hasSearchContext && isDirectFollowUpQuery) {
+      return true;
+    }
+  }
+
+  // 3. Explicit search/research/news keywords
+  const explicitSearchRegex = /\b(?:search|googling|cariin|carikan|cari|riset|berita|news|info\s+terbaru|isu\s+terkini|kabar\s+terbaru|update\s+terkini|info\s+hari\s+ini|kejadian\s+hari\s+ini|trending|viral|myanimelist|mal)\b/i;
+
+  // 4. Real-time factual queries (sports, weather, prices, release dates, elections, recent facts)
   const realTimeFactsRegex = /\b(?:siapa\s+(?:juara|presiden|ketua|pemenang|menteri|ceo|pemilik|pencipta)|skor|klasemen|jadwal|rilis|gempa|cuaca|kurs|harga\s+(?:kripto|emas|saham|iphone|hp|laptop|mobil|motor|btc|eth)|tahun\s+2026|hari\s+ini|sekarang\s+lagi)\b/i;
 
-  // 4. Inquiries requesting web comparison, temporal check, or factual check
-  const checkInquiryRegex = /\b(?:cek\s+(?:info|berita|kabar|harga|spesifikasi|reviu|review|artikel)|perbandingan\s+antara|vs|apakah\s+(?:ada|beneran|benar|sudah|sedang)|review\s+tentang|rekomendasi\s+(?:laptop|hp|film|anime|game)\s+(?:2025|2026|terbaru)|kapan\b.*?\b(?:rilis|tayang|main|tanding|update))\b/i;
+  // 5. Inquiries requesting web comparison, temporal check, anime lookup, or factual check
+  const checkInquiryRegex = /\b(?:cek\s+(?:info|berita|kabar|harga|spesifikasi|reviu|review|artikel)|perbandingan\s+antara|vs|apakah\s+(?:ada|beneran|benar|sudah|sedang)|review\s+tentang|rekomendasi\s+(?:laptop|hp|film|anime|game)\s+(?:2025|2026|terbaru)|kapan\b.*?\b(?:rilis|tayang|main|tanding|update)|bagaimana\s+dengan|gimana\s+dengan|tau\s+(?:tentang|anime|film|game|nama)|kenal\s+(?:sama|dengan)|tentang\s+anime|anime\s+apa)\b/i;
+
+  // 6. Specific Title / Noun Entity queries with "ara, [Title]" or "azura, [Title]"
+  const directTitleQueryRegex = /^(?:azura|ara|zura|ajur|ajura)[,\s]+([a-zA-Z0-9\s'-]{2,40})$/i;
+  if (directTitleQueryRegex.test(lower)) {
+    const candidate = lower.replace(/^(?:azura|ara|zura|ajur|ajura)[,\s]+/i, '').trim();
+    if (!/^(?:apa kabar|lagi apa|kamu siapa|halo|hai|pagi|malam|siap|makasih|love you|cantik|ganteng)$/i.test(candidate)) {
+      return true;
+    }
+  }
 
   return explicitSearchRegex.test(lower) || realTimeFactsRegex.test(lower) || checkInquiryRegex.test(lower);
 }
@@ -253,9 +280,10 @@ function resolveContextualSearchQuery(prompt, history = []) {
 
   const lower = prompt.toLowerCase().trim();
   const words = lower.split(/\s+/);
-  const isShortFollowUp = words.length <= 4 && (
-    /\b(?:kapan|siapa|berapa|apa|dimana|bagaimana|bisa\s+gak|rilisnya|rilis|harganya|developernya|genrenya|tentang\s+apa|linknya|link)\b/i.test(lower) ||
-    /\b(?:itu|ini|dia|tersebut|game\s+itu|web\s+itu|proyek\s+itu|aplikasi\s+ini)\b/i.test(lower)
+  const isShortFollowUp = words.length <= 5 && (
+    /\b(?:kapan|siapa|berapa|apa|dimana|bagaimana|gimana|bisa\s+gak|rilisnya|rilis|harganya|developernya|genrenya|tentang\s+apa|linknya|link)\b/i.test(lower) ||
+    /\b(?:itu|ini|dia|tersebut|game\s+itu|web\s+itu|proyek\s+itu|aplikasi\s+ini|anime\s+ini|anime\s+itu)\b/i.test(lower) ||
+    /^(?:azura|ara|zura|ajur|ajura)[,\s]+/i.test(lower)
   );
 
   if (isShortFollowUp && history && history.length > 0) {
@@ -271,7 +299,7 @@ function resolveContextualSearchQuery(prompt, history = []) {
         return `${domainName} ${prompt}`;
       }
 
-      // 2. Check for named entities or titles (e.g. Astrae Oratio, Dynamis One)
+      // 2. Check for named entities or titles (e.g. Astrae Oratio, Dynamis One, MyAnimeList)
       const titleMatch = text.match(/\b([A-Z][a-z0-9]+(?:\s+[A-Z][a-z0-9]+){1,3})\b/);
       if (titleMatch && !/^(?:Halo|Selamat|Makasih|Attila|Azura|Pengguna|Bisa|Situs|Dokumen|Ekstraksi|Rangkuman)/i.test(titleMatch[1])) {
         return `${titleMatch[1]} ${prompt}`;
@@ -478,10 +506,20 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   let searchContext = scrapedDataContent;
-  if (!searchContext && needsSearch(userPrompt) && imageUrls.length === 0) {
+  if (!searchContext && needsSearch(userPrompt, history) && imageUrls.length === 0) {
+    const isAnimeQuery = /\b(?:myanimelist|mal|anime|manga|manhwa|light\s+novel|wibu|otaku|seiyuu)\b/i.test(userPrompt) ||
+      history.some(h => /\b(?:myanimelist|mal|anime|manga)\b/i.test(typeof h.content === 'string' ? h.content : ''));
+
     const contextualQuery = resolveContextualSearchQuery(userPrompt, history);
-    console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${userPrompt}")`);
-    searchContext = await searchWeb(contextualQuery);
+
+    if (isAnimeQuery) {
+      const { searchAnimeMyAnimeList } = require('./animeSearch');
+      console.log(`[AZURA Anime Search]: Querying MyAnimeList / Jikan API for: "${contextualQuery}"`);
+      searchContext = await searchAnimeMyAnimeList(contextualQuery);
+    } else {
+      console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${userPrompt}")`);
+      searchContext = await searchWeb(contextualQuery);
+    }
   }
 
   // Check Verified Route & Distance Engine (KRL / MRT / Road Distance)
@@ -514,7 +552,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   let systemMessage = systemPrompt + liveVcContext + routeContext;
   if (searchContext) {
-    systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY AI INTELLIGENCE)]:\n${searchContext}\n\n` +
+    systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY / MYANIMELIST)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +
       `1. Gunakan data aktual di atas untuk menjawab secara tuntas, cerdas, akurat, dan percaya diri.\n` +
       `2. DILARANG KERAS berkata "aku tidak punya akses internet" atau "tidak bisa mengecek data terbaru". Kamu SUDAH memiliki data internet di atas!\n` +
@@ -530,6 +568,44 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     { role: 'user', content: userContent }
   ];
 
+  // Autonomous Tool Calling Definitions for Model Reasoner
+  const AVAILABLE_TOOLS = [
+    {
+      type: 'function',
+      function: {
+        name: 'search_web',
+        description: 'Cari informasi faktual, berita terkini, nama orang, produk, karya, atau topik apapun di internet secara real-time saat kamu belum memiliki informasi pasti 100%.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Kata kunci pencarian spesifik (contoh: "The Ribbon Hero anime release date", "Princess Cosmic Kaguya MAL")'
+            }
+          },
+          required: ['query']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'search_anime_myanimelist',
+        description: 'Cari database resmi MyAnimeList (Jikan API) untuk informasi anime, sinopsis, skor MAL, jumlah episode, status tayang, dan studio.',
+        parameters: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'Judul anime yang ingin dicari di database MyAnimeList (contoh: "Ribbon Hero", "Princess Knight", "Sousou no Frieren")'
+            }
+          },
+          required: ['title']
+        }
+      }
+    }
+  ];
+
   // Token Tiering: Full capacity for Server & Owner DM, 1/3 capacity for regular members in DM
   const isRegularMemberDM = isDM && !isOwner;
   const effectiveMaxOutputTokens = isRegularMemberDM
@@ -543,13 +619,56 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const client = getOpenAIClient();
 
   try {
-    const completion = await client.chat.completions.create({
+    let completion = await client.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages: messages,
+      tools: imageUrls.length === 0 ? AVAILABLE_TOOLS : undefined,
+      tool_choice: imageUrls.length === 0 ? 'auto' : undefined,
       max_completion_tokens: effectiveMaxOutputTokens
     });
 
-    const rawResponse = completion.choices[0]?.message?.content?.trim() || 'eh sori, otak gw blank bentar.';
+    let responseMessage = completion.choices[0]?.message;
+
+    // Handle Autonomous Tool Calls from Model
+    if (responseMessage && responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+      messages.push(responseMessage);
+
+      for (const toolCall of responseMessage.tool_calls) {
+        const functionName = toolCall.function.name;
+        let functionArgs = {};
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments || '{}');
+        } catch (_) {}
+
+        let functionResult = '';
+        if (functionName === 'search_web') {
+          const query = functionArgs.query || userPrompt;
+          console.log(`[AZURA Autonomous Tool]: 🔍 Executing search_web for: "${query}"`);
+          functionResult = await searchWeb(query);
+        } else if (functionName === 'search_anime_myanimelist') {
+          const { searchAnimeMyAnimeList } = require('./animeSearch');
+          const title = functionArgs.title || userPrompt;
+          console.log(`[AZURA Autonomous Tool]: 🎌 Executing search_anime_myanimelist for: "${title}"`);
+          functionResult = await searchAnimeMyAnimeList(title);
+        }
+
+        messages.push({
+          tool_call_id: toolCall.id,
+          role: 'tool',
+          name: functionName,
+          content: functionResult || 'Tidak ditemukan data hasil pencarian.'
+        });
+      }
+
+      completion = await client.chat.completions.create({
+        model: config.OPENAI_MODEL,
+        messages: messages,
+        max_completion_tokens: effectiveMaxOutputTokens
+      });
+      responseMessage = completion.choices[0]?.message;
+    }
+
+    const rawResponse = responseMessage?.content?.trim() || 'eh sori, otak gw blank bentar.';
     const aiResponse = sanitizeAiOutput(rawResponse, userPrompt);
 
     const historyPrompt = imageUrls.length > 0 ? `[${userName} - Mengirim gambar]: ${userPrompt}` : `[${userName}]: ${userPrompt}`;

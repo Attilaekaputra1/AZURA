@@ -127,7 +127,7 @@ function buildTttGridComponents(board, disabled = false, gameKey = '') {
     for (let c = 0; c < 3; c++) {
       const idx = r * 3 + c;
       const val = board[idx];
-      let label = ' ';
+      let label = '➖';
       let style = ButtonStyle.Secondary;
 
       if (val === 'X') {

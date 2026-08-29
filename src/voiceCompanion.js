@@ -76,8 +76,7 @@ const {
   WAKE_WORDS,
   hasWakeWord,
   analyzeVoiceIntent,
-  isWakeWordInvoked,
-  isSoloAttilaSession
+  isWakeWordInvoked
 } = require('./voiceIntentRouter');
 
 const {

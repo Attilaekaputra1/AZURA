@@ -136,13 +136,25 @@ async function extractPdfDocument(url) {
       return { success: false, error: 'Gagal mengunduh file PDF dari server sumber.' };
     }
 
-    const pdfData = await pdfParse(buffer);
+    let cleanText = '';
+    let numPages = 1;
+    let title = path.basename(url) || 'Dokumen PDF';
+    let author = 'Tidak tercantum';
 
-    const title = pdfData.info?.Title || path.basename(url) || 'Dokumen PDF';
-    const author = pdfData.info?.Author || 'Tidak tercantum';
-    const numPages = pdfData.numpages || 1;
+    if (typeof pdfParse === 'function') {
+      const pdfData = await pdfParse(buffer);
+      cleanText = pdfData.text || '';
+      numPages = pdfData.numpages || 1;
+      title = pdfData.info?.Title || title;
+      author = pdfData.info?.Author || author;
+    } else if (pdfParse.PDFParse) {
+      const parser = new pdfParse.PDFParse({ data: buffer });
+      const textResult = await parser.getText();
+      cleanText = textResult.text || '';
+      numPages = textResult.total || (textResult.pages ? textResult.pages.length : 1);
+    }
 
-    let cleanText = pdfData.text ? pdfData.text.replace(/\r\n/g, '\n').replace(/\n\s+\n/g, '\n\n').trim() : '';
+    cleanText = cleanText.replace(/\r\n/g, '\n').replace(/\n\s+\n/g, '\n\n').trim();
     if (isHarmfulText(cleanText)) {
       return { success: false, error: 'Konten dokumen terdeteksi melanggar filter keamanan AZURA.' };
     }

@@ -152,7 +152,7 @@ function isMasterResetRequested(prompt, isOwner) {
   const clean = prompt.trim().toLowerCase();
 
   const resetPatterns = [
-    /\b(?:ara|azura)?\s*(?:reset\s+emosi|damai\s+yuk|balik\s+normal|jangan\s+ngambek\s+lagi|udah\s+damai|kembali\s+idle|normal\s+lagi|hapus\s+emosi|jangan\s+marah\s+lagi)\b/i,
+    /\b(?:ara|azura)?\s*(?:reset\s+emosi|damai\s+yuk|balik\s+normal|kembali\s+normal|jangan\s+ngambek|udah\s+damai|kembali\s+idle|normal\s+lagi|hapus\s+emosi|jangan\s+marah)\b/i,
     /\b(?:maafin\s+aku|aku\s+minta\s+maaf|damai\s+ya\s+ara|sayang\s+ara)\b/i
   ];
 
@@ -171,10 +171,10 @@ function analyzeAutonomousEmotionalTrigger(prompt, isOwner, context = 'CHAT') {
   const clean = prompt.trim().toLowerCase();
 
   // 1. Comparison & Jealousy Trigger (Introspective Smart Pout)
-  const comparisonPattern = /\b(?:chatgpt|gpt|claude|gemini|siri|copilot|ai\s+lain|bot\s+lain)\b.*\b(?:lebih\s+(?:pinter|hebat|bagus|keren|asik|paham|canggih|cepet)|mending|daripada\s+(?:kamu|ara|azura))\b/i;
-  const comparisonPattern2 = /\b(?:kamu|ara|azura)\b.*\b(?:kalah\s+(?:sama|dari)|kalah\s+jauh|ga\s+sepinter|ga\s+sehebat|kurang\s+pinter)\b.*\b(?:chatgpt|gpt|claude|gemini|siri|copilot|ai\s+lain)\b/i;
+  const isAICompetitor = /\b(?:chatgpt|gpt|claude|gemini|siri|copilot|deepseek|ai\s+lain|bot\s+lain)\b/i.test(clean);
+  const isComparing = /\b(?:dibanding(?:kan)?|dibandingin|daripada|kalah|lebih|ga\s+se|kurang|mending)\b/i.test(clean);
 
-  if (comparisonPattern.test(clean) || comparisonPattern2.test(clean)) {
+  if (isAICompetitor && isComparing) {
     const reason = 'Attila membandingkan Azura dengan AI lain';
     triggerEmotionalMood('JEALOUS_INTROSPECTIVE', reason, 2);
     return { triggered: true, mood: 'JEALOUS_INTROSPECTIVE', reason, intensity: 2 };

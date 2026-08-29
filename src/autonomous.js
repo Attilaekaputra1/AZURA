@@ -171,7 +171,7 @@ function normalizeChannelName(rawName) {
     else if (cp >= 0x1D552 && cp <= 0x1D56B) str += String.fromCharCode(97 + (cp - 0x1D552));
     else if (cp >= 0x1D56C && cp <= 0x1D585) str += String.fromCharCode(65 + (cp - 0x1D56C));
     else if (cp >= 0x1D586 && cp <= 0x1D59F) str += String.fromCharCode(97 + (cp - 0x1D586));
-    else if (ch === '❀' || ch === '✿' || ch === '🌸' || ch === '💮' || ch === '🏵' || ch === '🌼' || ch === '🌺' || ch === '⭕' || ch === '⭐') str += 'o';
+    else if (ch === '❀' || ch === '✿' || ch === '⭕') str += 'o';
     else str += ch;
   }
   return str.normalize('NFKD').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();

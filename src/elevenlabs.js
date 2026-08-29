@@ -261,6 +261,7 @@ module.exports = {
   generateElevenLabsTTS,
   streamElevenLabsTTS,
   getModelVoiceSettings,
+  normalizePhonetics,
   ELEVENLABS_MODELS,
   DEFAULT_VOICE_ID
 };

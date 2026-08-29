@@ -591,6 +591,11 @@ if (vnReq) {
   }
 }
 
+// ── ON-DEMAND OWNER STICKER REQUEST ──
+const { handleOwnerStickerRequest } = require('./stickers');
+const stickerHandled = await handleOwnerStickerRequest(message, rawPrompt || message.content);
+if (stickerHandled) return;
+
 let finalPrompt = rawPrompt;
   if (mentionContextPrompt) {
     finalPrompt = `${finalPrompt}${mentionContextPrompt}`;

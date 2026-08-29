@@ -706,6 +706,8 @@ function startWordChainGame(userId, userName, channel) {
   };
   activeWordChainGames.set(channelId, state);
 
+  const expiresAtUnix = Math.floor((Date.now() + 45 * 1000) / 1000);
+
   const embed = new EmbedBuilder()
     .setColor(0x9B59B6)
     .setTitle('🔤 [SAMBUNG KATA KBBI: USER VS AZURA]')
@@ -713,7 +715,8 @@ function startWordChainGame(userId, userName, channel) {
       `Permainan dimulai oleh <@${userId}>!\n\n` +
       `Kata Pembuka dari Azura: **"${startingWord.toUpperCase()}"**\n` +
       `👉 **Tantanganmu:** Balas dengan kata bahasa Indonesia berawalan huruf **"${lastChar.toUpperCase()}"**!\n\n` +
-      `⏱️ *Waktu berpikir: 45 detik. Ketik \`nyerah\` atau \`stop\` untuk mengakhiri.*`
+      `⏱️ **Sisa Waktu Giliran:** <t:${expiresAtUnix}:R> *(Berakhir <t:${expiresAtUnix}:T>)*\n` +
+      `💡 *Ketik \`nyerah\` atau \`stop\` untuk mengakhiri.*`
     )
     .setFooter({ text: 'Sambung Kata Azura • Validasi KBBI & Kosa Kata Asli' })
     .setTimestamp();
@@ -827,6 +830,8 @@ function handleWordChainMessage(message) {
     stopWordChainGame(channelId, 'TIMEOUT', message.channel);
   }, 45 * 1000);
 
+  const turnExpiresAtUnix = Math.floor((Date.now() + 45 * 1000) / 1000);
+
   const replyEmbed = new EmbedBuilder()
     .setColor(0x2ECC71)
     .setTitle(`🔥 [Rantai Kata: ${state.streak} Sukses!]`)
@@ -834,7 +839,7 @@ function handleWordChainMessage(message) {
       `💬 <@${message.author.id}>: **"${text.toUpperCase()}"** ✅\n\n` +
       `🌸 **Azura:** **"${botWord.toUpperCase()}"**\n\n` +
       `👉 **Giliran Berikutnya:** Cari kata berawalan huruf **"${state.expectedChar.toUpperCase()}"**!\n` +
-      `⏱️ *Sisa waktu: 45 Detik*`
+      `⏱️ **Sisa Waktu Giliran:** <t:${turnExpiresAtUnix}:R> *(Berakhir <t:${turnExpiresAtUnix}:T>)*`
     )
     .setFooter({ text: `Total kata terpakai: ${state.usedWords.size}` });
 
@@ -997,6 +1002,8 @@ function startTriviaGame(userId, userName, channel, category = null) {
   };
   activeTriviaGames.set(channelId, state);
 
+  const expiresAtUnix = Math.floor((Date.now() + 20 * 1000) / 1000);
+
   const embed = new EmbedBuilder()
     .setColor(0xF39C12)
     .setTitle(`🏆 [KUIS TRIVIA AZURA: ${q.category}]`)
@@ -1004,7 +1011,8 @@ function startTriviaGame(userId, userName, channel, category = null) {
       `Pertanyaan untuk semua member di channel ini:\n\n` +
       `❓ **"${q.question}"**\n\n` +
       shuffledOptions.map((opt, idx) => `**${['🅰️', '🅱️', '🅲', '🅳'][idx]}** ${opt}`).join('\n') +
-      `\n\n⏱️ **Waktu Menjawab:** **20 Detik!** Klik tombol pilihanmu di bawah:`
+      `\n\n⏱️ **Sisa Waktu Menjawab:** <t:${expiresAtUnix}:R> *(Berakhir <t:${expiresAtUnix}:T>)*\n` +
+      `👉 *Klik tombol pilihanmu di bawah:*`
     )
     .setFooter({ text: 'Jawaban benar pertama mendapatkan +10 Poin di Leaderboard!' })
     .setTimestamp();

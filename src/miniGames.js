@@ -999,10 +999,10 @@ function startTriviaGame(userId, userName, channel, category = null) {
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`trivia_${channelId}_0`).setLabel('🅰️ Pilihan A').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`trivia_${channelId}_1`).setLabel('🅱️ Pilihan B').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`trivia_${channelId}_2`).setLabel('🅲 Pilihan C').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`trivia_${channelId}_3`).setLabel('🅳 Pilihan D').setStyle(ButtonStyle.Primary)
+    new ButtonBuilder().setCustomId('trivia_choice_0').setLabel('🅰️ Pilihan A').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('trivia_choice_1').setLabel('🅱️ Pilihan B').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('trivia_choice_2').setLabel('🅲 Pilihan C').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('trivia_choice_3').setLabel('🅳 Pilihan D').setStyle(ButtonStyle.Primary)
   );
 
   return { embeds: [embed], components: [row] };
@@ -1035,12 +1035,11 @@ function resolveTriviaTimeout(channelId, channel) {
 }
 
 async function handleTriviaButton(interaction) {
-  const parts = interaction.customId.split('_'); // 'trivia', channelId, choiceIndex
-  if (parts.length < 3) return;
-
-  const channelId = parts[1] || interaction.channelId;
+  const parts = interaction.customId.split('_'); // 'trivia', 'choice', choiceIndex
   const choiceIdx = parseInt(parts[parts.length - 1], 10);
+  if (isNaN(choiceIdx)) return;
 
+  const channelId = interaction.channelId || (interaction.channel && interaction.channel.id);
   const state = activeTriviaGames.get(channelId);
   if (!state) {
     return interaction.reply({

@@ -315,7 +315,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     } else if (naturalGame.game === 'sambungkata') {
       return startWordChainGame(userId, userName, { id: channelId });
     } else if (naturalGame.game === 'trivia') {
-      return startTriviaGame(userId, userName, { id: channelId });
+      return startTriviaGame(userId, userName, { id: channelId }, naturalGame.difficulty);
     } else if (naturalGame.game === 'leaderboard') {
       const embed = getLeaderboardEmbed();
       return { embeds: [embed] };

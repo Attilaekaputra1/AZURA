@@ -526,7 +526,16 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('trivia')
-    .setDescription('Mulai Kuis Trivia Cerdas Cermat melawan AZURA')
+    .setDescription('Mulai Kuis Trivia Cerdas Cermat 10 Rantai Soal melawan AZURA')
+    .addStringOption(opt =>
+      opt.setName('kesulitan')
+        .setDescription('Pilih tingkat kesulitan kuis')
+        .setRequired(false)
+        .addChoices(
+          { name: '🟢 Easy (Santai / Pemula)', value: 'easy' },
+          { name: '🟡 Medium (Kasual / Sedang)', value: 'medium' },
+          { name: '🔴 Hard (Tantangan / Ahli)', value: 'hard' }
+        ))
     .addStringOption(opt =>
       opt.setName('kategori')
         .setDescription('Pilih kategori kuis')
@@ -1960,8 +1969,9 @@ async function handleSlashCommand(interaction, startTime) {
       const res = startWordChainGame(user.id, user.displayName || user.username, interaction.channel);
       return interaction.reply({ embeds: res.embeds });
     } else if (commandName === 'trivia' || sub === 'trivia') {
+      const difficulty = interaction.options.getString('kesulitan');
       const category = interaction.options.getString('kategori');
-      const res = startTriviaGame(user.id, user.displayName || user.username, interaction.channel, category);
+      const res = startTriviaGame(user.id, user.displayName || user.username, interaction.channel, difficulty, category);
       return interaction.reply({ embeds: res.embeds, components: res.components });
     } else if (commandName === 'leaderboard' || sub === 'leaderboard') {
       const embed = getLeaderboardEmbed();

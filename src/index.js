@@ -566,7 +566,7 @@ if (naturalGame) {
     const res = startWordChainGame(message.author.id, userName, message.channel);
     return message.reply({ embeds: res.embeds });
   } else if (naturalGame.game === 'trivia') {
-    const res = startTriviaGame(message.author.id, userName, message.channel);
+    const res = startTriviaGame(message.author.id, userName, message.channel, naturalGame.difficulty);
     return message.reply({ embeds: res.embeds, components: res.components });
   } else if (naturalGame.game === 'leaderboard') {
     const embed = getLeaderboardEmbed();
@@ -882,7 +882,7 @@ client.on('interactionCreate', async (interaction) => {
       const { handleTicTacToeButton } = require('./miniGames');
       return handleTicTacToeButton(interaction);
     }
-    if (interaction.customId.startsWith('trivia_')) {
+    if (interaction.customId.startsWith('trivia_') || interaction.customId.startsWith('triviadiff_') || interaction.customId.startsWith('triviastop_')) {
       const { handleTriviaButton } = require('./miniGames');
       return handleTriviaButton(interaction);
     }

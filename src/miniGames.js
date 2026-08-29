@@ -467,26 +467,25 @@ async function handleTicTacToeButton(interaction) {
     return handleTicTacToeDifficultyButton(interaction);
   }
 
-  const parts = interaction.customId.split('_');
-  if (parts.length < 4) return;
+  const lastUnderscore = interaction.customId.lastIndexOf('_');
+  if (lastUnderscore === -1) return;
 
-  const cellIdx = parseInt(parts[parts.length - 1], 10);
-  const userId = parts[parts.length - 2];
-  const channelId = parts.slice(1, parts.length - 2).join('_');
-  const gameKey = `${channelId}_${userId}`;
+  const cellIdx = parseInt(interaction.customId.slice(lastUnderscore + 1), 10);
+  const gameKey = interaction.customId.slice(4, lastUnderscore);
+  const state = activeTttGames.get(gameKey);
   const guildId = interaction.guildId || interaction.guild?.id;
 
-  if (interaction.user.id !== userId) {
+  if (!state) {
     return interaction.reply({
-      content: '⚠️ Papan permainan ini sedang dimainkan oleh pemain lain! Gunakan `Azura main tictactoe` untuk membuat sesi bermainmu sendiri yaa! ✨',
+      content: '⌛ Sesi permainan Tic-Tac-Toe ini sudah kedaluwarsa atau selesai. Ayo mulai baru dengan `Azura main tictactoe`! 🎮',
       flags: 64
     });
   }
 
-  const state = activeTttGames.get(gameKey);
-  if (!state) {
+  const userId = state.userId;
+  if (interaction.user.id !== userId) {
     return interaction.reply({
-      content: '⌛ Sesi permainan Tic-Tac-Toe ini sudah kedaluwarsa atau selesai. Ayo mulai baru dengan `Azura main tictactoe`! 🎮',
+      content: '⚠️ Papan permainan ini sedang dimainkan oleh pemain lain! Gunakan `Azura main tictactoe` untuk membuat sesi bermainmu sendiri yaa! ✨',
       flags: 64
     });
   }
@@ -681,7 +680,7 @@ function startWordChainGame(userId, userName, channel) {
     .setFooter({ text: 'Sambung Kata Azura • Validasi KBBI Database & Real-Time Live Countdown' })
     .setTimestamp();
 
-  return { embeds: [embed] };
+  return { embeds: [embed], startWord: startingWord, expectedChar: lastChar };
 }
 
 function stopWordChainGame(channelId, reason = 'NORMAL', channel = null) {

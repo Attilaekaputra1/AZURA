@@ -549,7 +549,15 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('leaderboard')
-    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA')
+    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA'),
+
+  new SlashCommandBuilder()
+    .setName('vn')
+    .setDescription('Kirim Pesan Suara / Voice Note (VN) dari AZURA dengan suara Kak Ceria')
+    .addStringOption(opt =>
+      opt.setName('teks')
+        .setDescription('Teks atau kata-kata persis yang ingin diucapkan AZURA (Maks 700 karakter)')
+        .setRequired(true))
 ];
 
 const fs = require('fs');
@@ -1976,6 +1984,23 @@ async function handleSlashCommand(interaction, startTime) {
     } else if (commandName === 'leaderboard' || sub === 'leaderboard') {
       const embed = getLeaderboardEmbed();
       return interaction.reply({ embeds: [embed] });
+    }
+  } else if (commandName === 'vn' || commandName === 'voicenote') {
+    const rawTeks = interaction.options.getString('teks');
+    await interaction.deferReply();
+    const isOwner = (user.id === config.OWNER_ID);
+    const { parseVoiceNoteRequest, executeVoiceNote } = require('./voiceNote');
+    const vnReq = parseVoiceNoteRequest(`vn "${rawTeks}"`, isOwner);
+
+    if (vnReq.status === 'TOO_LONG') {
+      return interaction.editReply(vnReq.protestMessage);
+    }
+    const vnExec = await executeVoiceNote(vnReq.textToSpeak, user.id, user.displayName || user.username, isOwner, interaction.client);
+    if (vnExec.success) {
+      const prefixNotice = vnReq.notice ? `${vnReq.notice}\n\n` : '';
+      return interaction.editReply({ content: `${prefixNotice}${vnExec.caption}`, files: [vnExec.attachment] });
+    } else {
+      return interaction.editReply(`❌ Gagal merender Voice Note: ${vnExec.error}`);
     }
   }
 }

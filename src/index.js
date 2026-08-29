@@ -574,6 +574,23 @@ if (naturalGame) {
   }
 }
 
+// ── NATURAL VOICE NOTE (VN) ENGINE ──
+const { parseVoiceNoteRequest, executeVoiceNote } = require('./voiceNote');
+const vnReq = parseVoiceNoteRequest(rawPrompt || message.content, isOwner);
+if (vnReq) {
+  if (vnReq.status === 'EMPTY' || vnReq.status === 'TOO_LONG') {
+    return message.reply(vnReq.protestMessage);
+  }
+  await message.channel.sendTyping().catch(() => {});
+  const vnExec = await executeVoiceNote(vnReq.textToSpeak, message.author.id, userName, isOwner, client);
+  if (vnExec.success) {
+    const prefixNotice = vnReq.notice ? `${vnReq.notice}\n\n` : '';
+    return message.reply({ content: `${prefixNotice}${vnExec.caption}`, files: [vnExec.attachment] });
+  } else {
+    return message.reply(`❌ Gagal merender Voice Note: ${vnExec.error}`);
+  }
+}
+
 let finalPrompt = rawPrompt;
   if (mentionContextPrompt) {
     finalPrompt = `${finalPrompt}${mentionContextPrompt}`;

@@ -436,6 +436,12 @@ async function handleTicTacToeDifficultyButton(interaction) {
   });
 }
 
+let voiceCommentaryEmitter = null;
+
+function setVoiceCommentaryEmitter(emitter) {
+  voiceCommentaryEmitter = emitter;
+}
+
 /**
  * Helper to broadcast voice commentary to Voice Channel if active
  * @param {string} guildId 
@@ -444,6 +450,12 @@ async function handleTicTacToeDifficultyButton(interaction) {
  */
 function triggerGameVoiceCommentary(guildId, commentaryText, client) {
   if (!guildId || !commentaryText) return;
+  if (typeof voiceCommentaryEmitter === 'function') {
+    try {
+      voiceCommentaryEmitter(guildId, commentaryText, client);
+    } catch (_) {}
+    return;
+  }
   try {
     const { speakGameCommentary } = require('./voiceCompanion');
     speakGameCommentary(guildId, commentaryText, client);
@@ -1571,5 +1583,7 @@ module.exports = {
   TTT_DIFFICULTIES,
   TRIVIA_DIFFICULTIES,
   TRIVIA_BANK,
-  activeTriviaGauntlets
+  activeTriviaGauntlets,
+  setVoiceCommentaryEmitter,
+  triggerGameVoiceCommentary
 };

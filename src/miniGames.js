@@ -436,6 +436,20 @@ async function handleTicTacToeDifficultyButton(interaction) {
   });
 }
 
+/**
+ * Helper to broadcast voice commentary to Voice Channel if active
+ * @param {string} guildId 
+ * @param {string} commentaryText 
+ * @param {import('discord.js').Client} client 
+ */
+function triggerGameVoiceCommentary(guildId, commentaryText, client) {
+  if (!guildId || !commentaryText) return;
+  try {
+    const { speakGameCommentary } = require('./voiceCompanion');
+    speakGameCommentary(guildId, commentaryText, client);
+  } catch (_) {}
+}
+
 async function handleTicTacToeButton(interaction) {
   if (interaction.customId.startsWith('tttdiff_')) {
     return handleTicTacToeDifficultyButton(interaction);
@@ -448,6 +462,7 @@ async function handleTicTacToeButton(interaction) {
   const userId = parts[2];
   const cellIdx = parseInt(parts[3], 10);
   const gameKey = `${channelId}_${userId}`;
+  const guildId = interaction.guildId || interaction.guild?.id;
 
   if (interaction.user.id !== userId) {
     return interaction.reply({
@@ -477,6 +492,8 @@ async function handleTicTacToeButton(interaction) {
     activeTttGames.delete(gameKey);
     recordGameScore(userId, 'ttt', diffConfig.winPoints, true);
 
+    triggerGameVoiceCommentary(guildId, '[pouts] Aaaa kamu jago banget! Selamat yaa, kamu menang kali ini!', interaction.client);
+
     const embed = new EmbedBuilder()
       .setColor(0x2ECC71)
       .setTitle(`🎉 [TIC-TAC-TOE: KAMU MENANG! ${diffConfig.badge}]`)
@@ -497,6 +514,8 @@ async function handleTicTacToeButton(interaction) {
     clearTimeout(state.timeout);
     activeTttGames.delete(gameKey);
     recordGameScore(userId, 'ttt', diffConfig.drawPoints, false);
+
+    triggerGameVoiceCommentary(guildId, 'Wah sengit banget, kita seri! Pertahanan kita sama-sama kuat tadi!', interaction.client);
 
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F)
@@ -527,6 +546,8 @@ async function handleTicTacToeButton(interaction) {
     clearTimeout(state.timeout);
     activeTttGames.delete(gameKey);
 
+    triggerGameVoiceCommentary(guildId, '[laughs] Horeee aku yang menang! Hehe, seru banget tandingannya!', interaction.client);
+
     const embed = new EmbedBuilder()
       .setColor(0xED4245)
       .setTitle(`🤖 [TIC-TAC-TOE: AZURA MENANG! ${diffConfig.badge}]`)
@@ -548,6 +569,8 @@ async function handleTicTacToeButton(interaction) {
     activeTttGames.delete(gameKey);
     recordGameScore(userId, 'ttt', diffConfig.drawPoints, false);
 
+    triggerGameVoiceCommentary(guildId, 'Wah sengit banget, kita seri! Pertahanan kita sama-sama kuat tadi!', interaction.client);
+
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F)
       .setTitle(`🤝 [TIC-TAC-TOE: HASIL SERI! ${diffConfig.badge}]`)
@@ -565,7 +588,16 @@ async function handleTicTacToeButton(interaction) {
     });
   }
 
-  // Continue game
+  // Continue game: Playful in-game live commentary
+  const botLines = [
+    '[giggles] Giliran aku yaa, nih aku pasang di sini!',
+    '[laughs] Wah langkah yang cerdas, coba tahan langkahku yang ini!',
+    'Ayo coba pikirkan langkah selanjutnya!',
+    '[smiles] Jangan lengah ya, aku siap rebut kemenangan!'
+  ];
+  const chosenLine = botLines[Math.floor(Math.random() * botLines.length)];
+  triggerGameVoiceCommentary(guildId, chosenLine, interaction.client);
+
   const embed = new EmbedBuilder()
     .setColor(diffConfig.color)
     .setTitle(`🎮 [TIC-TAC-TOE: USER VS AZURA ${diffConfig.badge}]`)
@@ -684,6 +716,7 @@ function handleWordChainMessage(message) {
   if (!state) return false;
 
   const text = message.content.trim().toLowerCase();
+  const guildId = message.guildId || message.guild?.id;
 
   if (text === 'nyerah' || text === 'stop' || text === 'berhenti' || text === 'selesai') {
     stopWordChainGame(channelId, 'SURRENDER', message.channel);
@@ -700,11 +733,13 @@ function handleWordChainMessage(message) {
   }
 
   if (!isValidKbbiWord(text)) {
-    message.reply(`❌ Kata **"${text.toUpperCase()}"** tidak terdaftar dalam basis data resmi kosakata bahasa Indonesia / KBBI! Gunakan kata baku lainnya yaa! ✨`).catch(() => {});
+    triggerGameVoiceCommentary(guildId, 'Eits, kata itu belum ada di KBBI tuh! Coba kata lain yaa!', message.client);
+    message.reply(`❌ Kata **"${text.toUpperCase()}"** tidak ditemukan dalam database resmi KBBI! Coba cari kata baku lainnya yaa! 🧐`).catch(() => {});
     return true;
   }
 
   if (isWordAlreadyUsed(channelId, text)) {
+    triggerGameVoiceCommentary(guildId, 'Kata itu udah pernah dipakai sebelumnya! Cari kata lain yaa!', message.client);
     message.reply(`⚠️ Kata **"${text.toUpperCase()}"** sudah pernah dipakai sebelumnya dalam sesi ini! Cari kata lain yang belum keluar yaa! 📚`).catch(() => {});
     return true;
   }
@@ -719,6 +754,7 @@ function handleWordChainMessage(message) {
   const botWord = findAzuraNextWord(channelId, userLastChar);
 
   if (!botWord) {
+    triggerGameVoiceCommentary(guildId, '[pouts] Wah aku kehabisan kosa kata nih, kamu jago banget main sambung katanya!', message.client);
     stopWordChainGame(channelId, 'BOT_CORNERED', message.channel);
     message.channel.send(`🎉 **Azura Kehabisan Kata!** Kamu berhasil membuatku terpojok dengan huruf **"${userLastChar.toUpperCase()}"**! Kamu luar biasa! 🏆👑`).catch(() => {});
     return true;
@@ -1218,6 +1254,9 @@ function handleTriviaGauntletTimeout(channelId, channel) {
   if (!state || state.isResolved) return;
   state.isResolved = true;
 
+  const guildId = channel?.guildId || channel?.guild?.id;
+  triggerGameVoiceCommentary(guildId, '[sighs] Aduh sayang banget waktu habis! Ayo kita lanjut ke soal berikutnya!', channel?.client);
+
   const labels = ['🅰️', '🅱️', '🅲', '🅳'];
   const correctLabel = labels[state.currentCorrectIndex];
   const correctText = state.currentShuffledOptions[state.currentCorrectIndex];
@@ -1271,8 +1310,15 @@ function finishTriviaGauntlet(channelId, reason = 'COMPLETED', channel = null) {
   if (state.timer) clearTimeout(state.timer);
   activeTriviaGauntlets.delete(channelId);
 
+  const guildId = channel?.guildId || channel?.guild?.id;
   const diffConfig = state.diffConfig;
   const total = state.totalQuestions;
+
+  if (reason === 'SURRENDER') {
+    triggerGameVoiceCommentary(guildId, '[smiles] Oke sesi kuis kita sudahi dulu yaa, kamu udah main hebat banget tadi!', channel?.client);
+  } else {
+    triggerGameVoiceCommentary(guildId, '[cheering] Luar biasa! Seluruh rantai kuis trivia telah berhasil kamu selesaikan! Keren banget!', channel?.client);
+  }
 
   // Record points in Vault for all players
   const participants = Array.from(state.scoreByUser.entries());
@@ -1347,6 +1393,7 @@ async function handleTriviaButton(interaction) {
 
   const channelId = interaction.channelId || (interaction.channel && interaction.channel.id);
   const state = activeTriviaGauntlets.get(channelId);
+  const guildId = interaction.guildId || interaction.guild?.id;
 
   if (!state) {
     return interaction.reply({
@@ -1397,6 +1444,10 @@ async function handleTriviaButton(interaction) {
     state.scoreByUser.set(interaction.user.id, newScore);
     state.userNames.set(interaction.user.id, interaction.user.displayName || interaction.user.username);
 
+    if (qNum < total) {
+      triggerGameVoiceCommentary(guildId, '[cheering] Widih tepat banget! Poin kamu nambah dua, mantap!', interaction.client);
+    }
+
     const winEmbed = new EmbedBuilder()
       .setColor(0x2ECC71)
       .setTitle(`🎉 [JAWABAN BENAR: SOAL ${qNum}/${total}!]`)
@@ -1419,6 +1470,7 @@ async function handleTriviaButton(interaction) {
     advanceToNextQuestion(channelId, interaction.channel, 2500);
   } else {
     state.answeredInCurrentQuestion.add(interaction.user.id);
+    triggerGameVoiceCommentary(guildId, '[sighs] Aduh sayang banget masih kurang tepat! Semangat, ayo coba lagi!', interaction.client);
     return interaction.reply({
       content: `❌ Jawabanmu (**${userChoiceLabel}**) kurang tepat! Ayo member lain masih ada kesempatan menjawab soal ini! ⚡`,
       flags: 64

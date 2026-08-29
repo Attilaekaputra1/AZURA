@@ -2938,6 +2938,29 @@ async function sayBedtimeFarewellInActiveVCs(client) {
   }
 }
 
+/**
+ * Asynchronously broadcast Live Game Commentary in VC
+ * @param {string} guildId 
+ * @param {string} commentaryText 
+ * @param {import('discord.js').Client} [clientInstance] 
+ */
+async function speakGameCommentary(guildId, commentaryText, clientInstance = null) {
+  if (!guildId || !commentaryText) return;
+  const session = activeVoiceSessions.get(guildId);
+  if (!session || !session.connection || !session.player) return;
+
+  console.log(`[Voice Game Commentary] (${guildId}): 🎙️ "${commentaryText}"`);
+  try {
+    recordSessionEntry(guildId, 'AZURA', commentaryText);
+    const audioResource = await textToAudioResource(commentaryText, clientInstance || session.client, 2500, { forcedModel: 'eleven_v3' });
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+  } catch (err) {
+    console.error('[Voice Game Commentary Error]:', err.message);
+  }
+}
+
 module.exports = {
   handleVoiceStateUpdate,
   getCompanionTextChannel,
@@ -2953,6 +2976,7 @@ module.exports = {
   generateVoiceAIResponse,
   recordSessionEntry,
   speakTextInVC,
+  speakGameCommentary,
   detectVoiceModel,
   textToAudioResource,
   audioPlayers,

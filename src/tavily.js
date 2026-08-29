@@ -470,87 +470,24 @@ async function searchTavily(query, topicMode = 'general') {
 }
 
 /**
- * Extract content from a direct URL using a 3-Tier Multi-Pass Extractor:
- * 1. Tier 1: Fast Tavily Extract API
- * 2. Tier 2: Full Headless Playwright Chromium Engine (renders SPA/React/Next/PlayNC & executes client-side JS)
- * 3. Tier 3: Tavily Deep Search on URL topic/domain
+ * Extract rich web intelligence from URL using the Master Web Extractor Engine (Levels 1 - 5):
+ * 1. Level 1: Smart Playwright DOM & Fast Tavily API
+ * 2. Level 2: In-Memory Online PDF Engine (pdf-parse)
+ * 3. Level 3: Structured Data & Schema.org / Table Parser
+ * 4. Level 4: Vision-Augmented Web Reader
+ * 5. Level 5: Autonomous Sub-Link Deep Crawler
  * @param {string} rawUrl 
+ * @param {object} [options]
  * @returns {Promise<string>}
  */
-async function extractTavilyUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return 'URL tidak valid.';
-  const url = rawUrl.trim().replace(/[.,!?;:)>\]"']+$/, '');
-  const cleanUrl = url.toLowerCase().trim();
-  const cacheKey = `url:${cleanUrl}`;
-  const cached = getCachedTavily(cacheKey);
-  if (cached) return cached;
-
-  if (GAMBLING_DOMAINS.some(d => cleanUrl.includes(d)) || ADULT_DOMAINS.some(d => cleanUrl.includes(d))) {
-    return 'URL tersebut terdeteksi sebagai situs yang berpotensi bahaya atau melanggar filter keamanan AZURA.';
-  }
-
-  // ── PASS 1: Fast Tavily Extract API ──
+async function extractTavilyUrl(rawUrl, options = {}) {
   try {
-    console.log(`[Web Extractor]: Pass 1 (Tavily API) reading: ${url}`);
-    const response = await tavilyApiCall('/extract', { urls: [url] });
-    if (response.results && response.results.length > 0) {
-      const item = response.results[0];
-      const title = item.title || 'Dokumen Web';
-      const raw = item.raw_content ? cleanSpamFromText(item.raw_content) : '';
-
-      if (isHarmfulContent(raw) || isHarmfulContent(title)) {
-        return 'Konten halaman web tersebut diblokir oleh sistem keamanan AZURA.';
-      }
-
-      // If extracted text is rich (> 120 chars), return it immediately
-      if (raw && raw.length > 120) {
-        const cleanContent = raw.slice(0, 3500);
-        const extractedText = `📄 **Ekstraksi Artikel Web (Tavily Intelligence):**\n` +
-          `📌 **Judul:** ${title}\n` +
-          `🔗 **URL:** ${url}\n\n` +
-          `📝 **Rangkuman Konten Utama:**\n${cleanContent}`;
-        setCachedTavily(cacheKey, extractedText);
-        return extractedText;
-      }
-    }
-  } catch (tavilyErr) {
-    console.warn('[Web Extractor]: Pass 1 Tavily API failed, escalating to Pass 2 (Playwright Headless Browser)...', tavilyErr.message);
+    const { extractWebIntelligence } = require('./webExtractor');
+    return await extractWebIntelligence(rawUrl, options);
+  } catch (err) {
+    console.error('[Web Extractor Error]:', err.message);
+    return `Gagal mengekstrak isi halaman dari URL: ${err.message}`;
   }
-
-  // ── PASS 2: Playwright Chromium Headless Scraper (Executes JS, SPAs, React/Vue/Next/PlayNC) ──
-  try {
-    const { scrapeWebWithBrowser } = require('./headlessBrowser');
-    console.log(`[Web Extractor]: Pass 2 (Playwright Chromium) rendering DOM for: ${url}`);
-    const browserRes = await scrapeWebWithBrowser(url, 20000);
-
-    if (browserRes.success && browserRes.content && browserRes.content.length > 50) {
-      const extractedText = `🌐 **Ekstraksi Halaman Web (AZURA Chromium DOM Engine):**\n` +
-        `📌 **Judul Halaman:** ${browserRes.title}\n` +
-        `🔗 **URL:** ${browserRes.url}\n\n` +
-        `${browserRes.content}`;
-      setCachedTavily(cacheKey, extractedText);
-      return extractedText;
-    }
-  } catch (pwErr) {
-    console.warn('[Web Extractor]: Pass 2 Playwright failed, escalating to Pass 3 (Tavily Deep Search)...', pwErr.message);
-  }
-
-  // ── PASS 3: Deep Tavily Search on URL / Site Topic Fallback ──
-  try {
-    console.log(`[Web Extractor]: Pass 3 (Deep Search fallback) querying info about: ${url}`);
-    const searchRes = await searchTavily(url, 'general');
-    if (searchRes && !searchRes.includes('Tidak ditemukan')) {
-      const extractedText = `🔍 **Informasi Web Terverifikasi Terkait Tautan (Tavily Fallback):**\n` +
-        `🔗 **URL Target:** ${url}\n\n` +
-        `${searchRes}`;
-      setCachedTavily(cacheKey, extractedText);
-      return extractedText;
-    }
-  } catch (searchErr) {
-    console.error('[Web Extractor]: Pass 3 search error:', searchErr.message);
-  }
-
-  return `Gagal mengekstrak isi halaman dari URL (${url}). Situs tersebut mungkin memblokir akses bot otomatis atau memerlukan otentikasi login.`;
 }
 
 /**

@@ -507,32 +507,6 @@ const commands = [
         .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA')),
 
   new SlashCommandBuilder()
-    .setName('game')
-    .setDescription('Mainkan mini-games interaktif seru melawan AZURA (User vs Bot)')
-    .addSubcommand(sub =>
-      sub.setName('tictactoe')
-        .setDescription('Adu taktik Tic-Tac-Toe / XOXO dengan tombol interaktif'))
-    .addSubcommand(sub =>
-      sub.setName('sambungkata')
-        .setDescription('Tantangan Sambung Kata KBBI & kosa kata bahasa Indonesia'))
-    .addSubcommand(sub =>
-      sub.setName('trivia')
-        .setDescription('Kuis Cerdas Cermat Trivia 4 pilihan dengan timer 20 detik')
-        .addStringOption(opt =>
-          opt.setName('kategori')
-            .setDescription('Pilih kategori kuis trivia')
-            .setRequired(false)
-            .addChoices(
-              { name: '🎮 Gaming', value: 'Gaming' },
-              { name: '💻 Tech & Coding', value: 'Tech' },
-              { name: '🎌 Anime & Pop Culture', value: 'Anime' },
-              { name: '🇮🇩 Indonesia & Budaya', value: 'Indonesia' }
-            )))
-    .addSubcommand(sub =>
-      sub.setName('leaderboard')
-        .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA')),
-
-  new SlashCommandBuilder()
     .setName('tictactoe')
     .setDescription('Mulai permainan Tic-Tac-Toe / XOXO melawan AZURA'),
 

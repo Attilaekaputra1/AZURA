@@ -80,6 +80,9 @@ async function fetchAccessibleTextChannels(guild, client) {
       // Exclude dedicated bot configuration channel "#azura"
       if (ch.name.toLowerCase() === 'azura') continue;
 
+      const { isForbiddenChannel } = require('./autonomous');
+      if (isForbiddenChannel(ch.name)) continue;
+
       // Check bot permissions
       const perms = ch.permissionsFor(me);
       if (perms && perms.has('SendMessages') && perms.has('ViewChannel')) {
@@ -88,7 +91,7 @@ async function fetchAccessibleTextChannels(guild, client) {
     }
 
     // Sort channels: Priority general / development channels first, then alphabetically
-    const priorityKeywords = ['general', 'utama', 'development', 'obrol', 'chat', 'member'];
+    const priorityKeywords = ['general', 'utama', 'development', 'obrol', 'chat'];
     textChannels.sort((a, b) => {
       const aName = a.name.toLowerCase();
       const bName = b.name.toLowerCase();

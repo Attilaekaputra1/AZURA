@@ -146,7 +146,69 @@ function getTodayDateWIB() {
 }
 
 /**
- * Find the primary General / Main Chat channel
+ * Convert fancy decorated mathematical unicode fonts (Bold, Italic, Script, Fraktur, etc.) to standard ASCII lowercase
+ * @param {string} rawName 
+ * @returns {string}
+ */
+function normalizeChannelName(rawName) {
+  if (!rawName) return '';
+  let str = '';
+  for (const ch of rawName) {
+    const cp = ch.codePointAt(0);
+    if (cp >= 0x1D400 && cp <= 0x1D419) str += String.fromCharCode(65 + (cp - 0x1D400));
+    else if (cp >= 0x1D41A && cp <= 0x1D433) str += String.fromCharCode(97 + (cp - 0x1D41A));
+    else if (cp >= 0x1D434 && cp <= 0x1D44D) str += String.fromCharCode(65 + (cp - 0x1D434));
+    else if (cp >= 0x1D44E && cp <= 0x1D467) str += String.fromCharCode(97 + (cp - 0x1D44E));
+    else if (cp >= 0x1D468 && cp <= 0x1D481) str += String.fromCharCode(65 + (cp - 0x1D468));
+    else if (cp >= 0x1D482 && cp <= 0x1D49B) str += String.fromCharCode(97 + (cp - 0x1D482));
+    else if (cp >= 0x1D49C && cp <= 0x1D4B5) str += String.fromCharCode(65 + (cp - 0x1D49C));
+    else if (cp >= 0x1D4B6 && cp <= 0x1D4CF) str += String.fromCharCode(97 + (cp - 0x1D4B6));
+    else if (cp >= 0x1D4D0 && cp <= 0x1D4E9) str += String.fromCharCode(65 + (cp - 0x1D4D0));
+    else if (cp >= 0x1D4EA && cp <= 0x1D503) str += String.fromCharCode(97 + (cp - 0x1D4EA));
+    else if (cp >= 0x1D504 && cp <= 0x1D51D) str += String.fromCharCode(65 + (cp - 0x1D504));
+    else if (cp >= 0x1D51E && cp <= 0x1D537) str += String.fromCharCode(97 + (cp - 0x1D51E));
+    else if (cp >= 0x1D538 && cp <= 0x1D551) str += String.fromCharCode(65 + (cp - 0x1D538));
+    else if (cp >= 0x1D552 && cp <= 0x1D56B) str += String.fromCharCode(97 + (cp - 0x1D552));
+    else if (cp >= 0x1D56C && cp <= 0x1D585) str += String.fromCharCode(65 + (cp - 0x1D56C));
+    else if (cp >= 0x1D586 && cp <= 0x1D59F) str += String.fromCharCode(97 + (cp - 0x1D586));
+    else str += ch;
+  }
+  return str.normalize('NFKD').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+}
+
+/**
+ * Check if a channel is forbidden for autonomous topics (welcome, new-member, rules, logs, admin, etc.)
+ * @param {string} rawName 
+ * @returns {boolean}
+ */
+function isForbiddenChannel(rawName) {
+  if (!rawName) return true;
+  const normalized = normalizeChannelName(rawName);
+  const rawLower = rawName.toLowerCase();
+
+  const FORBIDDEN_KEYWORDS = [
+    'newmember', 'new-member', 'new_member', 'member',
+    'welcome', 'selamatdatang', 'selamat-datang', 'gate', 'entrance', 'join', 'leave',
+    'verif', 'verification', 'verifikasi',
+    'rules', 'rule', 'peraturan', 'tatatertib', 'tata-tertib',
+    'announcement', 'pengumuman', 'info', 'information', 'readme', 'read-me', 'faq',
+    'role', 'roles', 'selfrole', 'self-role', 'ambilrole', 'mengambil-role', 'autorole',
+    'log', 'logs', 'audit', 'botlog', 'bot-log', 'modlog', 'mod-log',
+    'admin', 'atmint', 'mod', 'staff', 'owner', 'internal',
+    'private', 'rahasia', 'donotsend', 'do_not_send', 'do-not-send',
+    'azura'
+  ];
+
+  for (const kw of FORBIDDEN_KEYWORDS) {
+    if (normalized.includes(kw) || rawLower.includes(kw)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Find the primary General / Main Chat channel with strict non-interaction filtering
  * @param {import('discord.js').Client} client 
  * @returns {import('discord.js').TextChannel | null}
  */
@@ -163,26 +225,39 @@ function findGeneralChannel(client) {
       ch => ch.isTextBased() && !ch.isThread() && !ch.isVoiceBased()
     );
 
-    // Exact matches first: 'general', 'chat', 'utama', 'lounge', 'ngobrol', 'umum'
-    const priorityRegex = /^(?:general|chat|utama|lounge|ngobrol|umum|public|chat-general|general-chat)$/i;
-    let match = textChannels.find(ch => priorityRegex.test(ch.name));
-    if (match) return match;
+    // 1. Strict Exclusion Filter
+    const eligibleChannels = [];
+    for (const ch of textChannels.values()) {
+      if (isForbiddenChannel(ch.name)) continue;
 
-    // Partial matches: contains 'general', 'utama', 'lounge'
-    const partialRegex = /(?:general|utama|lounge|ngobrol|chat)/i;
-    match = textChannels.find(ch => {
-      if (/log|admin|bot|command|rules|announcement|pengumuman|welcome/i.test(ch.name)) return false;
-      return partialRegex.test(ch.name);
-    });
-    if (match) return match;
+      const me = guild.members.me || guild.members.cache.get(client.user.id);
+      const perms = me ? ch.permissionsFor(me) : ch.permissionsFor(client.user);
+      if (!perms || !perms.has('SendMessages') || !perms.has('ViewChannel')) continue;
 
-    // Fallback: first text channel with SendMessages permission
-    const fallback = textChannels.find(ch => {
-      if (/log|admin|bot|command|rules|announcement|pengumuman|welcome/i.test(ch.name)) return false;
-      const perms = ch.permissionsFor(client.user);
-      return perms && perms.has('SendMessages') && perms.has('ViewChannel');
+      eligibleChannels.push(ch);
+    }
+
+    if (eligibleChannels.length === 0) continue;
+
+    // 2. Priority Sorting:
+    // Rank 1: exact normalized match 'general', 'chat', 'utama', 'lounge', 'ngobrol', 'umum', 'public'
+    const exactPriority = ['general', 'chat', 'utama', 'lounge', 'ngobrol', 'umum', 'public'];
+    const exactMatch = eligibleChannels.find(ch => {
+      const norm = normalizeChannelName(ch.name);
+      return exactPriority.includes(norm);
     });
-    if (fallback) return fallback;
+    if (exactMatch) return exactMatch;
+
+    // Rank 2: partial match containing 'general', 'chat', 'utama', 'lounge', 'ngobrol', 'diskusi'
+    const partialPriority = ['general', 'ngobrol', 'chat', 'utama', 'lounge', 'diskusi'];
+    const partialMatch = eligibleChannels.find(ch => {
+      const norm = normalizeChannelName(ch.name);
+      return partialPriority.some(p => norm.includes(p));
+    });
+    if (partialMatch) return partialMatch;
+
+    // Rank 3: First valid non-forbidden eligible channel
+    if (eligibleChannels.length > 0) return eligibleChannels[0];
   }
 
   return null;
@@ -655,6 +730,8 @@ module.exports = {
   handleChannelMessage,
   getCatalystStatus,
   findGeneralChannel,
+  normalizeChannelName,
+  isForbiddenChannel,
   isPeakHour,
   getCurrentWIBHour
 };

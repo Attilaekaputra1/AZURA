@@ -508,7 +508,17 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('tictactoe')
-    .setDescription('Mulai permainan Tic-Tac-Toe / XOXO melawan AZURA'),
+    .setDescription('Mulai permainan Tic-Tac-Toe / XOXO melawan AZURA')
+    .addStringOption(opt =>
+      opt.setName('kesulitan')
+        .setDescription('Pilih tingkat kecerdasan AI Azura')
+        .setRequired(false)
+        .addChoices(
+          { name: '🟢 Easy (Santai / Pemula)', value: 'easy' },
+          { name: '🟡 Medium (Kasual / Sedang)', value: 'medium' },
+          { name: '🔴 Hard (Taktis / Menantang)', value: 'hard' },
+          { name: '💀 Expert (Master / Unbeatable Minimax)', value: 'expert' }
+        )),
 
   new SlashCommandBuilder()
     .setName('sambungkata')
@@ -1943,7 +1953,8 @@ async function handleSlashCommand(interaction, startTime) {
     const sub = interaction.options.getSubcommand(false);
 
     if (commandName === 'tictactoe' || sub === 'tictactoe') {
-      const res = startTicTacToeGame(user.id, user.displayName || user.username, interaction.channel);
+      const difficulty = interaction.options.getString('kesulitan');
+      const res = startTicTacToeGame(user.id, user.displayName || user.username, interaction.channel, difficulty);
       return interaction.reply({ embeds: res.embeds, components: res.components });
     } else if (commandName === 'sambungkata' || sub === 'sambungkata') {
       const res = startWordChainGame(user.id, user.displayName || user.username, interaction.channel);

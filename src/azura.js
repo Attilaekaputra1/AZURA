@@ -311,7 +311,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const naturalGame = parseNaturalGameRequest(userPrompt);
   if (naturalGame && channelId) {
     if (naturalGame.game === 'tictactoe') {
-      return startTicTacToeGame(userId, userName, { id: channelId });
+      return startTicTacToeGame(userId, userName, { id: channelId }, naturalGame.difficulty);
     } else if (naturalGame.game === 'sambungkata') {
       return startWordChainGame(userId, userName, { id: channelId });
     } else if (naturalGame.game === 'trivia') {

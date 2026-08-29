@@ -2,6 +2,10 @@
  * AZURA Master Interactive Mini-Games Subsystem
  * 
  * 🎮 1. Tic-Tac-Toe / XOXO (User vs Azura via Discord Buttons)
+ *       - 🟢 Easy (Relaxed / Random Moves)
+ *       - 🟡 Medium (Casual / Block Checks)
+ *       - 🔴 Hard (Tactical / Rule-Based Heuristics)
+ *       - 💀 Expert (Master / Unbeatable Minimax Algorithm)
  * 🔤 2. Sambung Kata KBBI (Indonesian Word Chain Battle)
  * 🏆 3. Kuis Trivia Interaktif (Interactive 4-Choice Quiz + Leaderboard)
  * 
@@ -20,7 +24,7 @@ const {
 const { recordGameScore, getGameLeaderboard, getUserCallingName } = require('./vault');
 
 // ============================================================
-// 1. TIC-TAC-TOE (XOXO) ENGINE
+// 1. TIC-TAC-TOE (XOXO) ENGINE WITH 4 DIFFICULTY TIERS
 // ============================================================
 
 // activeTttGames: gameKey (channelId_userId) -> GameState
@@ -32,36 +36,151 @@ const TTT_WIN_PATTERNS = [
   [0, 4, 8], [2, 4, 6]             // Diagonals
 ];
 
-const TTT_BANTERS = {
-  START: [
-    'Siap adu taktik sama aku? Jangan nangis kalau kalah yaa! 💅✨',
-    'Ayo mulai! Giliranmu duluan nih, coba tunjukin jurus terbaikmu! 😎',
-    'Hehe, aku gak akan ngasih menang gampang lho! Let\'s go! 🚀'
-  ],
-  USER_MOVE: [
-    'Hmm... taktik yang menarik, tapi coba lewatin langkahku ini! 👀',
-    'Dih, mau coba ngejebak aku ya? Nih aku tahan! 💅',
-    'Boleh juga langkahmu, tapi aku masih selangkah lebih depan! 😼',
-    'Waduh, agresif banget mainnya! Bentar aku mikir... 🤔'
-  ],
-  BOT_WIN: [
-    'Yeyyy! Azura menang! 🏆💅 Makanya jangan remehin kalkulasi Gen Z AI yaa!',
-    'Horeee! Aku yang menang! GGWP, mau tanding ulang gak nih? [giggles] 🎉',
-    'Menang telak! Hehe, jangan kapok ya, coba lagi kapan-kapan! ✨'
-  ],
-  USER_WIN: [
-    'Wah hebat banget! Kamu berhasil ngalahin aku! 👑👏 Selamat yaa!',
-    'Aduhh... aku kecolongan! Jago juga kamu baca pergerakanku! GG! 🔥',
-    'Keren parah! Langkahmu tadi cerdas banget, aku akui kamu jago! 🏆'
-  ],
-  DRAW: [
-    'Seri! Pertahanan kita berdua sama-sama kokoh nih! 🤝✨',
-    'Wah remis/draw! Kita berdua imbang banget pemikirannya! [chuckles] ⚖️'
-  ]
+const TTT_DIFFICULTIES = {
+  easy: {
+    key: 'easy',
+    name: '🟢 Easy (Santai / Pemula)',
+    badge: '🟢 [EASY]',
+    winPoints: 5,
+    drawPoints: 2,
+    color: 0x2ECC71,
+    desc: 'Azura bermain santai, kadang melamun, dan tidak sengaja membuka celah kemenangan!'
+  },
+  medium: {
+    key: 'medium',
+    name: '🟡 Medium (Kasual / Sedang)',
+    badge: '🟡 [MEDIUM]',
+    winPoints: 10,
+    drawPoints: 4,
+    color: 0xF1C40F,
+    desc: 'Azura bermain kasual dengan taktik seimbang dan sesekali memblokir seranganmu!'
+  },
+  hard: {
+    key: 'hard',
+    name: '🔴 Hard (Taktis / Menantang)',
+    badge: '🔴 [HARD]',
+    winPoints: 15,
+    drawPoints: 5,
+    color: 0xE67E22,
+    desc: 'Azura bermain taktis dengan kalkulasi posisi tengah dan pemblokiran cepat!'
+  },
+  expert: {
+    key: 'expert',
+    name: '💀 Expert (Master / Unbeatable Minimax)',
+    badge: '💀 [EXPERT MINIMAX]',
+    winPoints: 30,
+    drawPoints: 10,
+    color: 0x9B59B6,
+    desc: 'Azura mengaktifkan algoritma Minimax murni tanpa celah kekalahan (100% Optimal)!'
+  }
 };
 
-function getRandomBanter(category) {
-  const list = TTT_BANTERS[category] || TTT_BANTERS.START;
+const TTT_BANTERS = {
+  easy: {
+    START: [
+      'Hehe, aku lagi main santai nih! Kamu pasti bisa menang kok! 🌸✨',
+      'Mode santai aktif! Jangan tegang-tegang yaa, let\'s play! 🎈',
+      'Ayo mulai! Aku main sambil ngemil boba nih hehe! 🧋'
+    ],
+    USER_MOVE: [
+      'Wah, langkah yang bagus! Bentar aku mikir dulu... 👀',
+      'Eh, aku kok kayak salah pencet ya tadi [giggles] 😅',
+      'Boleh juga! Tapi aku masih punya kotak cadangan kok! 💅'
+    ],
+    BOT_WIN: [
+      'Lho, aku gak sengaja menang nih hehe! Main lagi yuk! 🎉',
+      'Yeyy dapet garis tiga! Tetap semangat yaa! ✨',
+      'Hehe menang santai! Mau tanding ulang? 🌸'
+    ],
+    USER_WIN: [
+      'Yeyyy kamu menang! Hebat banget, selamat yaa! 🏆🌸',
+      'Wah beneran menang! Keren parah mainnya! 👑',
+      'Mantap! Kamu berhasil ngalahin mode santai aku! 👏'
+    ],
+    DRAW: [
+      'Seri gais! Sama-sama santai nih kita berdua! 🤝✨'
+    ]
+  },
+  medium: {
+    START: [
+      'Siap tanding kasual? Coba tunjukin jurus terbaikmu! 😎',
+      'Ayo mulai! Aku bakal kasih perlawanan yang lumayan lho! 💅',
+      'Jangan remehin taktik kasual Gen Z yaa! Let\'s go! 🚀'
+    ],
+    USER_MOVE: [
+      'Hmm... taktik yang lumayan, tapi coba lewatin langkahku! 👀',
+      'Boleh juga, tapi pertahanan aku masih oke kok! 😼',
+      'Waduh, agresif juga! Nih aku hadang! ✋'
+    ],
+    BOT_WIN: [
+      'Horeee! Azura menang di ronde kasual! Mau coba lagi gak nih? 🎉',
+      'Menang telak! Hehe, lumayan kan permainanku! 💅',
+      'GGWP! Lain kali harus lebih teliti baca celah yaa! ✨'
+    ],
+    USER_WIN: [
+      'Wah mantap! Kamu berhasil nembus pertahananku! GGWP! 👏🔥',
+      'Aduh kecolongan! Jago juga kamu baca pergerakanku! 🏆',
+      'Keren! Langkahmu tadi cerdik banget! 🌟'
+    ],
+    DRAW: [
+      'Remis/Draw! Kita imbang banget nih pemikirannya! ⚖️'
+    ]
+  },
+  hard: {
+    START: [
+      'Kalkulasi taktis aktif! Jangan harap aku kasih menang gampang yaa! 🚀🔥',
+      'Mode kompetitif on! Siapkan konsentrasi penuhmu! 😼',
+      'Ayo mulai! Langkahku sudah dihitung secara presisi! 🧠'
+    ],
+    USER_MOVE: [
+      'Dih, mau coba ngejebak aku ya? Nih langsung aku kunci! 💅',
+      'Langkahmu terbaca! Aku masih selangkah lebih depan! 🧠',
+      'Taktik yang cerdas, tapi benteng pertahananku masih kokoh! 🛡️'
+    ],
+    BOT_WIN: [
+      'Yeyyy! Kalkulasi Gen Z AI tak terkalahkan! Makanya jangan remehin yaa! 🏆💅',
+      'Menang bersih! GG, mau balas dendam di ronde berikutnya? [smirks] ✨',
+      'Taktik Hard Azura membuktikan kualitasnya! Horeee! 🎉'
+    ],
+    USER_WIN: [
+      'Gila keren banget! Kamu berhasil ngalahin mode Hard aku! 👑🔥 Respect!',
+      'Luar biasa! Taktikmu tajam banget sampai bisa lolos! GGWP! 🌟',
+      'Keren parah! Kamu pemain taktis tingkat tinggi! 🏆'
+    ],
+    DRAW: [
+      'Seri! Pertahanan kita sama-sama berlapis baja nih! 🤝🛡️'
+    ]
+  },
+  expert: {
+    START: [
+      '💀 [MODE GRANDMASTER MINIMAX AKTIF]: Semua kemungkinan langkah sudah ku petakan di memoriku! Mau coba tembus kalkulasi 0 celah aku? [smirks] 💅🔥',
+      'Selamat datang di neraka taktik! Algoritma optimal berjalan, good luck! 🧠⚡',
+      'Kalkulasi pohon keputusan 100% aktif. Tunjukkan padaku jika kamu bisa bertahan! 😼'
+    ],
+    USER_MOVE: [
+      'Langkah yang berani, tapi algoritmaku sudah memprediksinya 3 langkah ke depan! 💅',
+      'Menarik, tapi setiap sudut sudah dalam kendali Minimax AI! 😼',
+      'Kamu berusaha membuat jebakan ganda ya? Nih aku patahkan seketika! 🧠⚡'
+    ],
+    BOT_WIN: [
+      '🏆 KEMENANGAN MUTLAK MINIMAX! Matematika tidak pernah berbohong, Say! GGWP! 💅🔥',
+      'Checkmate! Pertahanan absolut Azura terbukti tak tertembus! [chuckles] 👑',
+      'Algoritma sempurna mengklaim kemenangan! Mau coba lawan dewa AI lagi? 💀✨'
+    ],
+    USER_WIN: [
+      '😱 WHAT?! KAMU BERHASIL NGALAHIN EXPERT MINIMAX?! Ini rekor bersejarah, kamu jenius taktik sejati! 👑🏆🔥',
+      'Gilaaaa! Gimana ceritanya kamu bisa tembus?! Aku angkat topi, kamu dewa tictactoe! 🌟'
+    ],
+    DRAW: [
+      '🤝 PERTAHANAN SEMPURNA! Kamu berhasil menahan gempuran dewa AI Expert! Ini pencapaian luar biasa! ⚖️🛡️',
+      'Remis melawan Master Minimax! Hanya pemain berotak encer yang bisa nahan seri! GGWP! 🧠👑'
+    ]
+  }
+};
+
+function getRandomBanter(category, difficulty = 'hard') {
+  const diffGroup = TTT_BANTERS[difficulty] || TTT_BANTERS.hard;
+  const list = diffGroup[category] || diffGroup.START || TTT_BANTERS.hard.START;
   return list[Math.floor(Math.random() * list.length)];
 }
 
@@ -75,6 +194,56 @@ function checkTttWinner(board) {
     return 'DRAW';
   }
   return null;
+}
+
+// ── Minimax Unbeatable Algorithm for Expert Mode ──
+function minimax(board, depth, isMaximizing, botSymbol = 'O', userSymbol = 'X') {
+  const winner = checkTttWinner(board);
+  if (winner === botSymbol) return 10 - depth;
+  if (winner === userSymbol) return depth - 10;
+  if (winner === 'DRAW') return 0;
+
+  if (isMaximizing) {
+    let bestScore = -Infinity;
+    for (let i = 0; i < 9; i++) {
+      if (board[i] === null) {
+        board[i] = botSymbol;
+        const score = minimax(board, depth + 1, false, botSymbol, userSymbol);
+        board[i] = null;
+        bestScore = Math.max(score, bestScore);
+      }
+    }
+    return bestScore;
+  } else {
+    let bestScore = Infinity;
+    for (let i = 0; i < 9; i++) {
+      if (board[i] === null) {
+        board[i] = userSymbol;
+        const score = minimax(board, depth + 1, true, botSymbol, userSymbol);
+        board[i] = null;
+        bestScore = Math.min(score, bestScore);
+      }
+    }
+    return bestScore;
+  }
+}
+
+function calculateExpertMinimaxMove(board, botSymbol = 'O', userSymbol = 'X') {
+  let bestScore = -Infinity;
+  let bestMove = -1;
+
+  for (let i = 0; i < 9; i++) {
+    if (board[i] === null) {
+      board[i] = botSymbol;
+      const score = minimax(board, 0, false, botSymbol, userSymbol);
+      board[i] = null;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = i;
+      }
+    }
+  }
+  return bestMove;
 }
 
 function calculateSmartAiMove(board, botSymbol = 'O', userSymbol = 'X') {
@@ -120,6 +289,66 @@ function calculateSmartAiMove(board, botSymbol = 'O', userSymbol = 'X') {
   return -1;
 }
 
+function calculateAiMoveByDifficulty(board, difficulty = 'hard', botSymbol = 'O', userSymbol = 'X') {
+  const diff = (difficulty || 'hard').toLowerCase();
+
+  // 💀 EXPERT MODE: 100% Optimal Minimax Decision Tree
+  if (diff === 'expert') {
+    return calculateExpertMinimaxMove(board, botSymbol, userSymbol);
+  }
+
+  // 🟢 EASY MODE: 80% Random, 20% Direct Win Check
+  if (diff === 'easy') {
+    const emptyCells = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+    if (emptyCells.length === 0) return -1;
+
+    if (Math.random() < 0.2) {
+      for (const idx of emptyCells) {
+        board[idx] = botSymbol;
+        if (checkTttWinner(board) === botSymbol) {
+          board[idx] = null;
+          return idx;
+        }
+        board[idx] = null;
+      }
+    }
+    return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+  }
+
+  // 🟡 MEDIUM MODE: 60% Tactical, 40% Random
+  if (diff === 'medium') {
+    const emptyCells = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+    if (emptyCells.length === 0) return -1;
+
+    if (Math.random() < 0.6) {
+      // 1. Take Win
+      for (const idx of emptyCells) {
+        board[idx] = botSymbol;
+        if (checkTttWinner(board) === botSymbol) {
+          board[idx] = null;
+          return idx;
+        }
+        board[idx] = null;
+      }
+      // 2. Block Opponent Win
+      for (const idx of emptyCells) {
+        board[idx] = userSymbol;
+        if (checkTttWinner(board) === userSymbol) {
+          board[idx] = null;
+          return idx;
+        }
+        board[idx] = null;
+      }
+    }
+
+    if (board[4] === null && Math.random() < 0.5) return 4;
+    return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+  }
+
+  // 🔴 HARD MODE: 100% Rule-based Deterministic Heuristic
+  return calculateSmartAiMove(board, botSymbol, userSymbol);
+}
+
 function buildTttGridComponents(board, disabled = false, gameKey = '') {
   const rows = [];
   for (let r = 0; r < 3; r++) {
@@ -151,8 +380,46 @@ function buildTttGridComponents(board, disabled = false, gameKey = '') {
   return rows;
 }
 
-function startTicTacToeGame(userId, userName, channel) {
+function buildDifficultySelectorComponents(gameKey) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`tttdiff_${gameKey}_easy`).setLabel('🟢 Easy').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`tttdiff_${gameKey}_medium`).setLabel('🟡 Medium').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`tttdiff_${gameKey}_hard`).setLabel('🔴 Hard').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`tttdiff_${gameKey}_expert`).setLabel('💀 Expert').setStyle(ButtonStyle.Secondary)
+  );
+  return [row];
+}
+
+function promptTicTacToeDifficulty(userId, userName, channel) {
   const gameKey = `${channel.id}_${userId}`;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x00E5FF)
+    .setTitle('🎮 [TIC-TAC-TOE: PILIH TINGKAT KESULITAN]')
+    .setDescription(
+      `Halo <@${userId}>! Pilih tingkat kecerdasan AI AZURA yang ingin kamu lawan:\n\n` +
+      `🟢 **Easy (Santai / Pemula):** Azura santai & sering ngelamun (+5 Poin)\n` +
+      `🟡 **Medium (Kasual / Sedang):** Taktik seimbang & memblokir garis (+10 Poin)\n` +
+      `🔴 **Hard (Taktis / Menantang):** Kompetitif, cepat & mengunci sudut (+15 Poin)\n` +
+      `💀 **Expert (Master / Unbeatable):** Algoritma Minimax tanpa celah kesalahan (+30 Poin)\n\n` +
+      `👉 *Klik salah satu tombol kesulitan di bawah untuk memulai permainan:*`
+    )
+    .setFooter({ text: 'Mini-Game Azura • Waktu memilih: 1 Menit' })
+    .setTimestamp();
+
+  return { embeds: [embed], components: buildDifficultySelectorComponents(gameKey) };
+}
+
+function startTicTacToeGame(userId, userName, channel, difficulty = null) {
+  const gameKey = `${channel.id}_${userId}`;
+
+  // If no difficulty provided, prompt user to select difficulty with buttons
+  if (!difficulty) {
+    return promptTicTacToeDifficulty(userId, userName, channel);
+  }
+
+  const cleanDiff = (difficulty || 'hard').toLowerCase();
+  const diffConfig = TTT_DIFFICULTIES[cleanDiff] || TTT_DIFFICULTIES.hard;
 
   // Clear existing game if any
   if (activeTttGames.has(gameKey)) {
@@ -169,6 +436,7 @@ function startTicTacToeGame(userId, userName, channel) {
   const state = {
     userId,
     userName,
+    difficulty: diffConfig.key,
     board,
     userSymbol: 'X',
     botSymbol: 'O',
@@ -179,21 +447,50 @@ function startTicTacToeGame(userId, userName, channel) {
   activeTttGames.set(gameKey, state);
 
   const embed = new EmbedBuilder()
-    .setColor(0x00E5FF)
-    .setTitle('🎮 [TIC-TAC-TOE: USER VS AZURA]')
+    .setColor(diffConfig.color)
+    .setTitle(`🎮 [TIC-TAC-TOE: USER VS AZURA ${diffConfig.badge}]`)
     .setDescription(
-      `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n\n` +
-      `💬 **Azura:** *"${getRandomBanter('START')}"*\n\n` +
+      `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
+      `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
+      `💬 **Azura:** *"${getRandomBanter('START', diffConfig.key)}"*\n\n` +
       `👉 **Giliran Kamu!** Klik salah satu kotak di bawah untuk melangkah:`
     )
-    .setFooter({ text: 'Mini-Game Azura • Waktu giliran: 3 Menit' })
+    .setFooter({ text: `Mini-Game Azura • Menang: +${diffConfig.winPoints} Poin | Seri: +${diffConfig.drawPoints} Poin` })
     .setTimestamp();
 
   const components = buildTttGridComponents(board, false, gameKey);
   return { embeds: [embed], components };
 }
 
+async function handleTicTacToeDifficultyButton(interaction) {
+  const parts = interaction.customId.split('_'); // 'tttdiff', channelId, userId, diff
+  if (parts.length < 4) return;
+
+  const channelId = parts[1];
+  const userId = parts[2];
+  const diff = parts[3];
+  const gameKey = `${channelId}_${userId}`;
+
+  if (interaction.user.id !== userId) {
+    return interaction.reply({
+      content: '⚠️ Tombol pilihan kesulitan ini untuk pemain yang memulai game! Gunakan `/tictactoe` untuk sesi bermainmu sendiri yaa! ✨',
+      flags: 64
+    });
+  }
+
+  const gameResult = startTicTacToeGame(userId, interaction.user.displayName || interaction.user.username, interaction.channel, diff);
+  return interaction.update({
+    embeds: gameResult.embeds,
+    components: gameResult.components
+  });
+}
+
 async function handleTicTacToeButton(interaction) {
+  // Handle difficulty selection button
+  if (interaction.customId.startsWith('tttdiff_')) {
+    return handleTicTacToeDifficultyButton(interaction);
+  }
+
   const parts = interaction.customId.split('_'); // 'ttt', channelId, userId, cellIndex
   if (parts.length < 4) return;
 
@@ -222,6 +519,8 @@ async function handleTicTacToeButton(interaction) {
     return interaction.reply({ content: 'Kotak tersebut sudah terisi!', flags: 64 });
   }
 
+  const diffConfig = TTT_DIFFICULTIES[state.difficulty] || TTT_DIFFICULTIES.hard;
+
   // 1. Apply User Move
   state.board[cellIdx] = state.userSymbol;
   let winner = checkTttWinner(state.board);
@@ -230,15 +529,16 @@ async function handleTicTacToeButton(interaction) {
   if (winner === state.userSymbol) {
     clearTimeout(state.timeout);
     activeTttGames.delete(gameKey);
-    recordGameScore(userId, 'ttt', 15, true);
+    recordGameScore(userId, 'ttt', diffConfig.winPoints, true);
 
     const embed = new EmbedBuilder()
       .setColor(0x2ECC71)
-      .setTitle('🎉 [TIC-TAC-TOE: KAMU MENANG!]')
+      .setTitle(`🎉 [TIC-TAC-TOE: KAMU MENANG! ${diffConfig.badge}]`)
       .setDescription(
-        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n\n` +
-        `💬 **Azura:** *"${getRandomBanter('USER_WIN')}"*\n\n` +
-        `🏆 **Hasil:** Selamat <@${userId}>! Kamu mendapatkan **+15 Poin Game** di Vault Leaderboard! 🌟`
+        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
+        `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
+        `💬 **Azura:** *"${getRandomBanter('USER_WIN', state.difficulty)}"*\n\n` +
+        `🏆 **Hasil:** Selamat <@${userId}>! Kamu mendapatkan **+${diffConfig.winPoints} Poin Game** di Vault Leaderboard! 🌟`
       )
       .setFooter({ text: 'Gunakan /leaderboard untuk cek skor global!' })
       .setTimestamp();
@@ -250,15 +550,16 @@ async function handleTicTacToeButton(interaction) {
   } else if (winner === 'DRAW') {
     clearTimeout(state.timeout);
     activeTttGames.delete(gameKey);
-    recordGameScore(userId, 'ttt', 5, false);
+    recordGameScore(userId, 'ttt', diffConfig.drawPoints, false);
 
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F)
-      .setTitle('🤝 [TIC-TAC-TOE: HASIL SERI!]')
+      .setTitle(`🤝 [TIC-TAC-TOE: HASIL SERI! ${diffConfig.badge}]`)
       .setDescription(
-        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n\n` +
-        `💬 **Azura:** *"${getRandomBanter('DRAW')}"*\n\n` +
-        `⚖️ **Hasil:** Permainan seimbang! Kamu mendapatkan **+5 Poin Partisipasi** di Vault!`
+        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
+        `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
+        `💬 **Azura:** *"${getRandomBanter('DRAW', state.difficulty)}"*\n\n` +
+        `⚖️ **Hasil:** Permainan seimbang! Kamu mendapatkan **+${diffConfig.drawPoints} Poin Partisipasi** di Vault!`
       )
       .setTimestamp();
 
@@ -268,8 +569,8 @@ async function handleTicTacToeButton(interaction) {
     });
   }
 
-  // 2. AI Bot Move
-  const botMove = calculateSmartAiMove(state.board, state.botSymbol, state.userSymbol);
+  // 2. AI Bot Move adapting to selected difficulty
+  const botMove = calculateAiMoveByDifficulty(state.board, state.difficulty, state.botSymbol, state.userSymbol);
   if (botMove !== -1) {
     state.board[botMove] = state.botSymbol;
   }
@@ -283,11 +584,12 @@ async function handleTicTacToeButton(interaction) {
 
     const embed = new EmbedBuilder()
       .setColor(0xE74C3C)
-      .setTitle('😼 [TIC-TAC-TOE: AZURA MENANG!]')
+      .setTitle(`😼 [TIC-TAC-TOE: AZURA MENANG! ${diffConfig.badge}]`)
       .setDescription(
-        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n\n` +
-        `💬 **Azura:** *"${getRandomBanter('BOT_WIN')}"*\n\n` +
-        `💅 **Hasil:** Jangan menyerah! Ketik \`Azura main tictactoe\` lagi untuk balas dendam! ✨`
+        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
+        `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
+        `💬 **Azura:** *"${getRandomBanter('BOT_WIN', state.difficulty)}"*\n\n` +
+        `💅 **Hasil:** Jangan menyerah! Ketik \`Azura main tictactoe\` lagi untuk tanding ulang! ✨`
       )
       .setTimestamp();
 
@@ -298,15 +600,16 @@ async function handleTicTacToeButton(interaction) {
   } else if (winner === 'DRAW') {
     clearTimeout(state.timeout);
     activeTttGames.delete(gameKey);
-    recordGameScore(userId, 'ttt', 5, false);
+    recordGameScore(userId, 'ttt', diffConfig.drawPoints, false);
 
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F)
-      .setTitle('🤝 [TIC-TAC-TOE: HASIL SERI!]')
+      .setTitle(`🤝 [TIC-TAC-TOE: HASIL SERI! ${diffConfig.badge}]`)
       .setDescription(
-        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n\n` +
-        `💬 **Azura:** *"${getRandomBanter('DRAW')}"*\n\n` +
-        `⚖️ **Hasil:** Permainan berakhir seri! Kamu mendapatkan **+5 Poin**!`
+        `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
+        `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
+        `💬 **Azura:** *"${getRandomBanter('DRAW', state.difficulty)}"*\n\n` +
+        `⚖️ **Hasil:** Permainan berakhir seri! Kamu mendapatkan **+${diffConfig.drawPoints} Poin**!`
       )
       .setTimestamp();
 
@@ -318,11 +621,12 @@ async function handleTicTacToeButton(interaction) {
 
   // Game continues: User's turn again
   const embed = new EmbedBuilder()
-    .setColor(0x00E5FF)
-    .setTitle('🎮 [TIC-TAC-TOE: USER VS AZURA]')
+    .setColor(diffConfig.color)
+    .setTitle(`🎮 [TIC-TAC-TOE: USER VS AZURA ${diffConfig.badge}]`)
     .setDescription(
-      `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n\n` +
-      `💬 **Azura:** *"${getRandomBanter('USER_MOVE')}"*\n\n` +
+      `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
+      `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
+      `💬 **Azura:** *"${getRandomBanter('USER_MOVE', state.difficulty)}"*\n\n` +
       `👉 **Giliran Kamu Selanjutnya!** Klik kotak yang masih kosong:`
     )
     .setFooter({ text: 'Mini-Game Azura • Waktu giliran: 3 Menit' })
@@ -837,10 +1141,16 @@ function parseNaturalGameRequest(prompt) {
   if (!prompt || typeof prompt !== 'string') return null;
   const lower = prompt.toLowerCase().trim();
 
-  // Tic-Tac-Toe
+  // Tic-Tac-Toe with Difficulty parsing
   if (/\b(?:main|play|adu)\s*(?:tictactoe|tic\s+tac\s+toe|xoxo|kotak|silang|x\s+o)\b/i.test(lower) ||
       /\b(?:tictactoe|xoxo)\b/i.test(lower)) {
-    return { game: 'tictactoe' };
+    let diff = null;
+    if (/\b(?:easy|mudah|gampang|santai)\b/i.test(lower)) diff = 'easy';
+    else if (/\b(?:medium|sedang|kasual|normal)\b/i.test(lower)) diff = 'medium';
+    else if (/\b(?:hard|sulit|susah|menantang)\b/i.test(lower)) diff = 'hard';
+    else if (/\b(?:expert|master|dewa|unbeatable|jago|minimax)\b/i.test(lower)) diff = 'expert';
+
+    return { game: 'tictactoe', difficulty: diff };
   }
 
   // Sambung Kata
@@ -865,12 +1175,18 @@ function parseNaturalGameRequest(prompt) {
 
 module.exports = {
   startTicTacToeGame,
+  promptTicTacToeDifficulty,
   handleTicTacToeButton,
+  handleTicTacToeDifficultyButton,
   startWordChainGame,
   stopWordChainGame,
   handleWordChainMessage,
   startTriviaGame,
   handleTriviaButton,
   getLeaderboardEmbed,
-  parseNaturalGameRequest
+  parseNaturalGameRequest,
+  calculateAiMoveByDifficulty,
+  calculateExpertMinimaxMove,
+  minimax,
+  TTT_DIFFICULTIES
 };

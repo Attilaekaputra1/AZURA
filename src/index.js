@@ -560,7 +560,7 @@ const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTr
 const naturalGame = parseNaturalGameRequest(rawPrompt || message.content);
 if (naturalGame) {
   if (naturalGame.game === 'tictactoe') {
-    const res = startTicTacToeGame(message.author.id, userName, message.channel);
+    const res = startTicTacToeGame(message.author.id, userName, message.channel, naturalGame.difficulty);
     return message.reply({ embeds: res.embeds, components: res.components });
   } else if (naturalGame.game === 'sambungkata') {
     const res = startWordChainGame(message.author.id, userName, message.channel);
@@ -878,7 +878,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // Handle Mini-Games Interactive Buttons (Tic-Tac-Toe & Trivia Quiz)
-    if (interaction.customId.startsWith('ttt_')) {
+    if (interaction.customId.startsWith('ttt_') || interaction.customId.startsWith('tttdiff_')) {
       const { handleTicTacToeButton } = require('./miniGames');
       return handleTicTacToeButton(interaction);
     }

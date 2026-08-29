@@ -568,44 +568,6 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     { role: 'user', content: userContent }
   ];
 
-  // Autonomous Tool Calling Definitions for Model Reasoner
-  const AVAILABLE_TOOLS = [
-    {
-      type: 'function',
-      function: {
-        name: 'search_web',
-        description: 'Cari informasi faktual, berita terkini, nama orang, produk, karya, atau topik apapun di internet secara real-time saat kamu belum memiliki informasi pasti 100%.',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: {
-              type: 'string',
-              description: 'Kata kunci pencarian spesifik (contoh: "The Ribbon Hero anime release date", "Princess Cosmic Kaguya MAL")'
-            }
-          },
-          required: ['query']
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'search_anime_myanimelist',
-        description: 'Cari database resmi MyAnimeList (Jikan API) untuk informasi anime, sinopsis, skor MAL, jumlah episode, status tayang, dan studio.',
-        parameters: {
-          type: 'object',
-          properties: {
-            title: {
-              type: 'string',
-              description: 'Judul anime yang ingin dicari di database MyAnimeList (contoh: "Ribbon Hero", "Princess Knight", "Sousou no Frieren")'
-            }
-          },
-          required: ['title']
-        }
-      }
-    }
-  ];
-
   // Token Tiering: Full capacity for Server & Owner DM, 1/3 capacity for regular members in DM
   const isRegularMemberDM = isDM && !isOwner;
   const effectiveMaxOutputTokens = isRegularMemberDM
@@ -619,56 +581,13 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const client = getOpenAIClient();
 
   try {
-    let completion = await client.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model: config.OPENAI_MODEL,
       messages: messages,
-      tools: imageUrls.length === 0 ? AVAILABLE_TOOLS : undefined,
-      tool_choice: imageUrls.length === 0 ? 'auto' : undefined,
       max_completion_tokens: effectiveMaxOutputTokens
     });
 
-    let responseMessage = completion.choices[0]?.message;
-
-    // Handle Autonomous Tool Calls from Model
-    if (responseMessage && responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-      messages.push(responseMessage);
-
-      for (const toolCall of responseMessage.tool_calls) {
-        const functionName = toolCall.function.name;
-        let functionArgs = {};
-        try {
-          functionArgs = JSON.parse(toolCall.function.arguments || '{}');
-        } catch (_) {}
-
-        let functionResult = '';
-        if (functionName === 'search_web') {
-          const query = functionArgs.query || userPrompt;
-          console.log(`[AZURA Autonomous Tool]: 🔍 Executing search_web for: "${query}"`);
-          functionResult = await searchWeb(query);
-        } else if (functionName === 'search_anime_myanimelist') {
-          const { searchAnimeMyAnimeList } = require('./animeSearch');
-          const title = functionArgs.title || userPrompt;
-          console.log(`[AZURA Autonomous Tool]: 🎌 Executing search_anime_myanimelist for: "${title}"`);
-          functionResult = await searchAnimeMyAnimeList(title);
-        }
-
-        messages.push({
-          tool_call_id: toolCall.id,
-          role: 'tool',
-          name: functionName,
-          content: functionResult || 'Tidak ditemukan data hasil pencarian.'
-        });
-      }
-
-      completion = await client.chat.completions.create({
-        model: config.OPENAI_MODEL,
-        messages: messages,
-        max_completion_tokens: effectiveMaxOutputTokens
-      });
-      responseMessage = completion.choices[0]?.message;
-    }
-
-    const rawResponse = responseMessage?.content?.trim() || 'eh sori, otak gw blank bentar.';
+    const rawResponse = completion.choices[0]?.message?.content?.trim() || 'eh sori, otak gw blank bentar.';
     const aiResponse = sanitizeAiOutput(rawResponse, userPrompt);
 
     const historyPrompt = imageUrls.length > 0 ? `[${userName} - Mengirim gambar]: ${userPrompt}` : `[${userName}]: ${userPrompt}`;

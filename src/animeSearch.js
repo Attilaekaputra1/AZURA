@@ -55,7 +55,8 @@ function fetchJson(url, timeoutMs = 6000) {
 async function searchAnimeMyAnimeList(query) {
   if (!query || typeof query !== 'string') return '';
   const cleanQuery = query
-    .replace(/\b(?:azura|ara|zura|ajur|ajura|anime|manga|myanimelist|mal|tolong|cariin|carikan|cek|info|tentang)\b/gi, '')
+    .replace(/\b(?:azura|ara|zura|ajur|ajura|anime|manga|myanimelist|mal|tolong|cariin|carikan|cari|cek|info|tentang|di|dong|ya|yaa|plis|please)\b/gi, '')
+    .replace(/[,\s]+/g, ' ')
     .trim() || query.trim();
 
   console.log(`[MAL Engine]: Querying Jikan API v4 for anime: "${cleanQuery}"`);

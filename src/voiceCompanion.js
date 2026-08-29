@@ -1309,7 +1309,23 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
-    // ── 2. SEND DM COMMAND (Owner Only) ──
+    // ── 2. PERSONALIZED ENCOURAGEMENT DM + VOICE NOTE DISPATCH (Owner Only) ──
+    const { handleVoiceDmEncouragement } = require('./voiceDmCompanion');
+    const isEncouragementDispatched = await handleVoiceDmEncouragement(
+      client,
+      transcript,
+      guildId,
+      voiceChannel,
+      playInVC,
+      textToAudioResource,
+      recordSessionEntry
+    );
+    if (isEncouragementDispatched) {
+      setActiveMode(guildId);
+      return;
+    }
+
+    // ── 2B. MANUAL SEND DM COMMAND (Owner Only) ──
     const dmPattern = /(?:azura|ara|zura)?\s*(?:tolong\s+)?(?:kirimin|kirim|send)\s+(?:pesan|dm|chat)\s+ke\s+(?:akun\s+)?(?:yang\s+namanya\s+|yg\s+namanya\s+|nama\s+)?([^,]+?)(?:,\s*|\s+)(?:isinya|bilang|pesan|pesannya|yaitu)\s+(.+)/i;
     const dmMatch = transcript.match(dmPattern) || cleanTranscript.match(dmPattern);
     if (dmMatch && hasWake) {

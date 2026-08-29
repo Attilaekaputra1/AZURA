@@ -16,21 +16,45 @@ const OWNER_MAX_CHARS = 700;
 const MEMBER_MAX_CHARS = 300;
 
 const GEN_Z_PROTESTS = [
-  (len, max) => `Aduh panjang bangeett teksnya kak! 😭 Napas gw putus ntar kalau bacain ${len} karakter wkwk. Kuota maksimal ${max} karakter yaa, coba ringkas dikit lagi biar suaranya cakep! ✨`,
-  (len, max) => `Waduhh mau bikin podcast apa gimana nih panjang bener (${len} karakter)? 😂 Maksimal ${max} karakter aja yaa kak, dipotong dikit dulu yuk biar pas di VN! 🌸`,
-  (len, max) => `Kebanyakan teksnya nih bestie! 😭 Tenggorokan aku bisa serak kalau bacain ${len} karakter sekaligus wkwk. Coba pangkas jadi di bawah ${max} karakter yaa! 💅✨`,
-  (len, max) => `Eits, kepanjangan kak! (${len}/${max} karakter). Tolong ringkas kalimatnya yaa biar VN-nya padat, jelas, dan enak didenger! 🎙️🎧`
+  (len, max, name) => `Aduh panjang bangeett teksnya ${name}! 😭 Napas gw putus ntar kalau bacain ${len} karakter wkwk. Kuota maksimal ${max} karakter yaa, coba ringkas dikit lagi biar suaranya cakep! ✨`,
+  (len, max, name) => `Waduhh mau bikin podcast apa gimana nih ${name} panjang bener (${len} karakter)? 😂 Maksimal ${max} karakter aja yaa, dipotong dikit dulu yuk biar pas di VN! 🌸`,
+  (len, max, name) => `Kebanyakan teksnya nih ${name}! 😭 Tenggorokan aku bisa serak kalau bacain ${len} karakter sekaligus wkwk. Coba pangkas jadi di bawah ${max} karakter yaa! 💅✨`,
+  (len, max, name) => `Eits ${name}, kepanjangan nih! (${len}/${max} karakter). Tolong ringkas kalimatnya yaa biar VN-nya padat, jelas, dan enak didenger! 🎙️🎧`
 ];
+
+/**
+ * Resolve user's preferred calling name from database or fallback display name
+ * @param {string} userId 
+ * @param {string} fallbackName 
+ * @returns {string}
+ */
+function getPreferredCallingName(userId, fallbackName = 'kak') {
+  if (!userId) return fallbackName || 'kak';
+  try {
+    const { getUserRecord } = require('./vault');
+    const user = getUserRecord(userId);
+    if (user && user.knownRealName) {
+      return user.knownRealName;
+    }
+    if (user && user.displayName) {
+      return user.displayName;
+    }
+  } catch (_) {}
+  return fallbackName || 'kak';
+}
 
 /**
  * Parse natural message to detect Voice Note (VN) requests and extract exact target text
  * @param {string} prompt 
  * @param {boolean} isOwner 
+ * @param {string|null} userId
+ * @param {string|null} userName
  * @returns {object|null}
  */
-function parseVoiceNoteRequest(prompt, isOwner = false) {
+function parseVoiceNoteRequest(prompt, isOwner = false, userId = null, userName = null) {
   if (!prompt || typeof prompt !== 'string') return null;
   const raw = prompt.trim();
+  const preferredName = getPreferredCallingName(userId, userName);
 
   // Check if prompt contains VN intent trigger keywords
   const vnTriggerRegex = /\b(?:azura|ara|zura|ajur|ajura)?\s*(?:tolong\s+|coba\s+|minta\s+|tolongin\s+)?(?:kirim\s+|buatkan\s+|bikin(?:kan)?\s+|ngomong\s+|baca(?:kan)?\s+)?(?:vn|voice\s*note|pesan\s*suara|voicenote)\b/i;
@@ -62,7 +86,7 @@ function parseVoiceNoteRequest(prompt, isOwner = false) {
   if (!extractedText || extractedText.length === 0) {
     return {
       status: 'EMPTY',
-      protestMessage: 'Mau aku bacain apa nih di VN? Tulis teksnya yaa, contoh: `Azura tolong vn "Aku cinta kamu"` atau `/vn teks:Halo gais` ✨'
+      protestMessage: `Mau aku bacain apa nih di VN, ${preferredName}? Tulis teksnya yaa, contoh: \`Azura tolong vn "Aku cinta kamu"\` atau \`/vn teks:Halo gais\` ✨`
     };
   }
 
@@ -105,12 +129,12 @@ function parseVoiceNoteRequest(prompt, isOwner = false) {
       isOwner,
       charLength,
       maxChars,
-      notice: `✂️ *Teks agak kepanjangan (${charLength}/${maxChars} karakter), jadi aku bacain sampai kalimat lengkap batas kuota yaa!*`
+      notice: `✂️ *Teks agak kepanjangan (${charLength}/${maxChars} karakter), jadi aku bacain sampai kalimat lengkap batas kuota yaa, ${preferredName}!*`
     };
   }
 
   // Case C: Too Far Over Quota -> Gen Z Complaint
-  const randomProtest = GEN_Z_PROTESTS[Math.floor(Math.random() * GEN_Z_PROTESTS.length)](charLength, maxChars);
+  const randomProtest = GEN_Z_PROTESTS[Math.floor(Math.random() * GEN_Z_PROTESTS.length)](charLength, maxChars, preferredName);
   return {
     status: 'TOO_LONG',
     protestMessage: randomProtest,

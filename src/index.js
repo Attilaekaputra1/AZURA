@@ -576,7 +576,7 @@ if (naturalGame) {
 
 // ── NATURAL VOICE NOTE (VN) ENGINE ──
 const { parseVoiceNoteRequest, executeVoiceNote } = require('./voiceNote');
-const vnReq = parseVoiceNoteRequest(rawPrompt || message.content, isOwner);
+const vnReq = parseVoiceNoteRequest(rawPrompt || message.content, isOwner, message.author.id, userName);
 if (vnReq) {
   if (vnReq.status === 'EMPTY' || vnReq.status === 'TOO_LONG') {
     return message.reply(vnReq.protestMessage);

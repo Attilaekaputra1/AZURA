@@ -1990,7 +1990,7 @@ async function handleSlashCommand(interaction, startTime) {
     await interaction.deferReply();
     const isOwner = (user.id === config.OWNER_ID);
     const { parseVoiceNoteRequest, executeVoiceNote } = require('./voiceNote');
-    const vnReq = parseVoiceNoteRequest(`vn "${rawTeks}"`, isOwner);
+    const vnReq = parseVoiceNoteRequest(`vn "${rawTeks}"`, isOwner, user.id, user.displayName || user.username);
 
     if (vnReq.status === 'TOO_LONG') {
       return interaction.editReply(vnReq.protestMessage);

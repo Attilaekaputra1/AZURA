@@ -639,37 +639,18 @@ async function handleTicTacToeButton(interaction) {
 }
 
 // ============================================================
-// 2. SAMBUNG KATA KBBI ENGINE
+// 2. SAMBUNG KATA KBBI ENGINE (POWERED BY KBBI DATABASE)
 // ============================================================
 
-// Comprehensive Indonesian Root Words & Valid Dictionary across all A-Z
-const KBBI_VOCABULARY = [
-  'air', 'api', 'angin', 'alam', 'anak', 'ayam', 'awan', 'akar', 'atap', 'asam', 'apel', 'akal', 'aman', 'atas', 'arus', 'ajar', 'asal', 'abadi', 'agung', 'antik',
-  'batu', 'buku', 'baju', 'bumi', 'bulan', 'bintang', 'burung', 'bunga', 'buah', 'besar', 'bebas', 'bagus', 'bisa', 'baru', 'benar', 'bicara', 'bahasa', 'belajar', 'bangun', 'bekerja',
-  'cinta', 'cahaya', 'cerdas', 'cantik', 'cepat', 'cilik', 'cincin', 'cerita', 'cuaca', 'cermin', 'camilan', 'celana', 'contoh', 'catatan', 'candi',
-  'danau', 'daun', 'darat', 'dunia', 'damai', 'dingin', 'dekat', 'depan', 'datang', 'duduk', 'dengar', 'dalam', 'dinding', 'dapur', 'dokter', 'desa', 'durian', 'detik',
-  'emas', 'elang', 'ekor', 'enak', 'empat', 'elok', 'energi', 'edukasi', 'ekonomi', 'efek', 'enteng', 'esok',
-  'fajar', 'foto', 'fokus', 'fiksi', 'filosofi', 'faktor', 'fasilitas', 'fisika', 'fungsi', 'formal',
-  'gunung', 'gajah', 'gitar', 'gelas', 'gula', 'gelap', 'guru', 'gambar', 'gadget', 'garam', 'gempa', 'gerak', 'gembira', 'gagah', 'gurun',
-  'hutan', 'hujan', 'hari', 'hati', 'hidup', 'hewan', 'hijau', 'hitam', 'hangat', 'hebat', 'harum', 'halus', 'hadiah', 'harapan', 'halaman',
-  'ikan', 'ibu', 'ilmu', 'indah', 'insan', 'istana', 'isyarat', 'iklan', 'impian', 'ingat', 'iklim', 'iseng', 'irama',
-  'jalan', 'jeruk', 'jarum', 'jendela', 'juara', 'jujur', 'jernih', 'janji', 'jawab', 'jagung', 'jempol', 'jembatan', 'jaket', 'jamur',
-  'kucing', 'kuda', 'kelinci', 'kopi', 'kertas', 'kapal', 'kereta', 'kota', 'kaca', 'kuning', 'kecil', 'kuat', 'kawan', 'kabar', 'karya', 'kunci', 'kamera', 'keluarga', 'kampus',
-  'laut', 'langit', 'lampu', 'lemari', 'lagu', 'lukisan', 'lebah', 'lilin', 'lembut', 'lincah', 'lurus', 'latihan', 'langkah', 'logika', 'laptop',
-  'mata', 'matahari', 'malam', 'makan', 'minum', 'mobil', 'motor', 'meja', 'merah', 'manis', 'masak', 'musik', 'muda', 'murid', 'misteri', 'menara', 'makna', 'motivasi',
-  'naga', 'nasi', 'nyata', 'nyaman', 'nyanyi', 'nama', 'napas', 'nada', 'nomor', 'negeri', 'nanas', 'nikmat', 'norma', 'nasihat',
-  'ombak', 'orang', 'obat', 'otak', 'olahraga', 'orbit', 'organik', 'opera', 'opini', 'original',
-  'pohon', 'pantai', 'pintu', 'piring', 'pasar', 'pulau', 'putih', 'pandai', 'pagi', 'panas', 'pesawat', 'pelajar', 'pelangi', 'pikir', 'pesta', 'puisi', 'pena', 'pedang',
-  'quran', 'qari', 'quota', 'qasidah',
-  'rumah', 'rumput', 'sungai', 'raja', 'ratu', 'roda', 'rambut', 'rusa', 'ramah', 'rapi', 'rintik', 'rahasia', 'rindu', 'ruang', 'rasa', 'rencana',
-  'susu', 'sekolah', 'sepatu', 'surat', 'sahabat', 'senang', 'sehat', 'sejuk', 'santai', 'suara', 'sepeda', 'senyum', 'semut', 'sains', 'semangat', 'seni', 'sumber',
-  'tanah', 'taman', 'tas', 'topi', 'tidur', 'terang', 'tinggi', 'teman', 'telinga', 'tangan', 'terbang', 'tulis', 'tahu', 'tempe', 'teh', 'toko', 'tujuan', 'tangga', 'target',
-  'udara', 'uang', 'ular', 'unta', 'udang', 'unik', 'utama', 'unggul', 'umur', 'ucapan', 'ujian', 'untaian',
-  'video', 'vila', 'visi', 'vokal', 'volume', 'variasi', 'virus', 'vektor',
-  'wajah', 'waktu', 'warna', 'wangi', 'warga', 'wisata', 'wadah', 'wahana', 'wawasan', 'wujud',
-  'yodium', 'yurisdiksi', 'yayasan', 'yoyo', 'yoga',
-  'zaman', 'zebra', 'zamrud', 'ziarah', 'zona', 'zodiak'
-];
+const {
+  isValidKbbiWord,
+  markWordAsUsed,
+  isWordAlreadyUsed,
+  clearSessionUsedWords,
+  getSessionUsedWordsCount,
+  pickStartingWord,
+  findAzuraNextWord
+} = require('./kbbiDatabase');
 
 // activeWordChainGames: channelId -> GameState
 const activeWordChainGames = new Map();
@@ -683,11 +664,14 @@ function startWordChainGame(userId, userName, channel) {
     activeWordChainGames.delete(channelId);
   }
 
-  // Pick random starting word
-  const startingWord = KBBI_VOCABULARY[Math.floor(Math.random() * KBBI_VOCABULARY.length)];
+  // Clear previous session words in database
+  clearSessionUsedWords(channelId);
+
+  // Pick random authentic starting word from KBBI database
+  const startingWord = pickStartingWord();
   const lastChar = startingWord.slice(-1).toLowerCase();
 
-  const usedWords = new Set([startingWord.toLowerCase()]);
+  markWordAsUsed(channelId, startingWord);
 
   const timeout = setTimeout(() => {
     stopWordChainGame(channelId, 'TIMEOUT', channel);
@@ -699,7 +683,6 @@ function startWordChainGame(userId, userName, channel) {
     starterName: userName,
     currentWord: startingWord,
     expectedChar: lastChar,
-    usedWords,
     streak: 0,
     timeout,
     activePlayers: new Set([userId])
@@ -714,11 +697,11 @@ function startWordChainGame(userId, userName, channel) {
     .setDescription(
       `Permainan dimulai oleh <@${userId}>!\n\n` +
       `Kata Pembuka dari Azura: **"${startingWord.toUpperCase()}"**\n` +
-      `👉 **Tantanganmu:** Balas dengan kata bahasa Indonesia berawalan huruf **"${lastChar.toUpperCase()}"**!\n\n` +
+      `👉 **Tantanganmu:** Balas dengan kata baku bahasa Indonesia berawalan huruf **"${lastChar.toUpperCase()}"**!\n\n` +
       `⏱️ **Sisa Waktu Giliran:** <t:${expiresAtUnix}:R> *(Berakhir <t:${expiresAtUnix}:T>)*\n` +
       `💡 *Ketik \`nyerah\` atau \`stop\` untuk mengakhiri.*`
     )
-    .setFooter({ text: 'Sambung Kata Azura • Validasi KBBI & Kosa Kata Asli' })
+    .setFooter({ text: 'Sambung Kata Azura • Validasi KBBI Database & Real-Time Live Countdown' })
     .setTimestamp();
 
   return { embeds: [embed] };
@@ -731,6 +714,9 @@ function stopWordChainGame(channelId, reason = 'NORMAL', channel = null) {
   if (state.timeout) clearTimeout(state.timeout);
   activeWordChainGames.delete(channelId);
 
+  const totalWordsUsed = getSessionUsedWordsCount(channelId);
+  clearSessionUsedWords(channelId);
+
   // Award points based on streak to all active players
   for (const pId of state.activePlayers) {
     const points = Math.max(state.streak * 5, 5);
@@ -739,6 +725,7 @@ function stopWordChainGame(channelId, reason = 'NORMAL', channel = null) {
 
   let desc = `Permainan Sambung Kata telah berakhir!\n\n` +
     `🔥 **Total Rantai Kata (Streak):** **${state.streak} Kata Terhubung**\n` +
+    `📚 **Total Kata Terpakai:** **${totalWordsUsed} Kosakata KBBI**\n` +
     `🏆 **Poin Didapatkan:** **+${Math.max(state.streak * 5, 5)} Poin** untuk para pemain!`;
 
   if (reason === 'TIMEOUT') {
@@ -772,7 +759,7 @@ function handleWordChainMessage(message) {
     return true;
   }
 
-  // 2. Validate input format (single word, min 3 chars, alphabetic only)
+  // 2. Validate basic input format (single word, alphabetic only, min 3 chars)
   if (!/^[a-z]{3,25}$/.test(text)) {
     return false; // Not a valid word format, ignore without interrupting regular chat
   }
@@ -783,14 +770,20 @@ function handleWordChainMessage(message) {
     return true;
   }
 
-  // 4. Check if word already used in this session
-  if (state.usedWords.has(text)) {
-    message.reply(`⚠️ Kata **"${text.toUpperCase()}"** sudah pernah dipakai sebelumnya! Cari kata lain yang belum keluar yaa!`).catch(() => {});
+  // 4. Validate authentic Indonesian KBBI vocabulary
+  if (!isValidKbbiWord(text)) {
+    message.reply(`❌ Kata **"${text.toUpperCase()}"** tidak terdaftar dalam basis data resmi kosakata bahasa Indonesia / KBBI! Gunakan kata baku lainnya yaa! ✨`).catch(() => {});
+    return true;
+  }
+
+  // 5. Check if word already used in database / session
+  if (isWordAlreadyUsed(channelId, text)) {
+    message.reply(`⚠️ Kata **"${text.toUpperCase()}"** sudah pernah dipakai sebelumnya dalam sesi ini! Cari kata lain yang belum keluar yaa! 📚`).catch(() => {});
     return true;
   }
 
   // Valid User Word!
-  state.usedWords.add(text);
+  markWordAsUsed(channelId, text);
   state.activePlayers.add(message.author.id);
   state.streak++;
 
@@ -798,39 +791,27 @@ function handleWordChainMessage(message) {
 
   const userLastChar = text.slice(-1);
 
-  // Azura searches for a matching word from KBBI vocabulary
-  const candidates = KBBI_VOCABULARY.filter(w => w.startsWith(userLastChar) && !state.usedWords.has(w));
+  // Azura searches for a matching unused word from 2,000+ KBBI vocabulary database
+  const botWord = findAzuraNextWord(channelId, userLastChar);
 
-  let botWord = '';
-  if (candidates.length > 0) {
-    botWord = candidates[Math.floor(Math.random() * candidates.length)];
-  } else {
-    // Dynamic Fallback
-    const commonFallbacks = {
-      a: 'awan', b: 'bumi', c: 'cahaya', d: 'dunia', e: 'emas', f: 'fajar',
-      g: 'gunung', h: 'hujan', i: 'indah', j: 'jalan', k: 'kucing', l: 'langit',
-      m: 'malam', n: 'nasi', o: 'ombak', p: 'pantai', r: 'rumah', s: 'sungai',
-      t: 'taman', u: 'udara', v: 'visi', w: 'waktu', y: 'yoyo', z: 'zaman'
-    };
-    botWord = commonFallbacks[userLastChar] || `${userLastChar}ama`;
-    if (state.usedWords.has(botWord)) {
-      // Bot is cornered and concedes victory!
-      stopWordChainGame(channelId, 'BOT_CORNERED', message.channel);
-      message.channel.send(`🎉 **Azura Kehabisan Kata!** Kamu berhasil membuatku terpojok dengan huruf **"${userLastChar.toUpperCase()}"**! Kamu luar biasa! 🏆👑`).catch(() => {});
-      return true;
-    }
+  if (!botWord) {
+    // Bot is cornered and concedes victory!
+    stopWordChainGame(channelId, 'BOT_CORNERED', message.channel);
+    message.channel.send(`🎉 **Azura Kehabisan Kata!** Kamu berhasil membuatku terpojok dengan huruf **"${userLastChar.toUpperCase()}"**! Kamu luar biasa! 🏆👑`).catch(() => {});
+    return true;
   }
 
-  state.usedWords.add(botWord);
+  markWordAsUsed(channelId, botWord);
   state.currentWord = botWord;
   state.expectedChar = botWord.slice(-1);
 
-  // Re-arm turn timer
+  // Re-arm turn timer (45 seconds)
   state.timeout = setTimeout(() => {
     stopWordChainGame(channelId, 'TIMEOUT', message.channel);
   }, 45 * 1000);
 
   const turnExpiresAtUnix = Math.floor((Date.now() + 45 * 1000) / 1000);
+  const totalUsed = getSessionUsedWordsCount(channelId);
 
   const replyEmbed = new EmbedBuilder()
     .setColor(0x2ECC71)
@@ -841,7 +822,7 @@ function handleWordChainMessage(message) {
       `👉 **Giliran Berikutnya:** Cari kata berawalan huruf **"${state.expectedChar.toUpperCase()}"**!\n` +
       `⏱️ **Sisa Waktu Giliran:** <t:${turnExpiresAtUnix}:R> *(Berakhir <t:${turnExpiresAtUnix}:T>)*`
     )
-    .setFooter({ text: `Total kata terpakai: ${state.usedWords.size}` });
+    .setFooter({ text: `Total kosakata KBBI terpakai: ${totalUsed}` });
 
   message.channel.send({ embeds: [replyEmbed] }).catch(() => {});
   return true;

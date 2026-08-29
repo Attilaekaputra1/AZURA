@@ -398,6 +398,8 @@ function startTicTacToeGame(userId, userName, channel, difficulty = null) {
 
   activeTttGames.set(gameKey, gameState);
 
+  const turnExpiresAtUnix = Math.floor((Date.now() + 3 * 60 * 1000) / 1000);
+
   const embed = new EmbedBuilder()
     .setColor(diffConfig.color)
     .setTitle(`🎮 [TIC-TAC-TOE: USER VS AZURA ${diffConfig.badge}]`)
@@ -405,7 +407,8 @@ function startTicTacToeGame(userId, userName, channel, difficulty = null) {
       `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
       `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
       `💬 **Azura:** *"${getRandomBanter('START', diffKey)}"*\n\n` +
-      `👉 **Giliranmu:** Klik salah satu tombol kotak di bawah untuk menaruh simbol **❌**!`
+      `👉 **Giliranmu:** Klik salah satu tombol kotak di bawah untuk menaruh simbol **❌**!\n` +
+      `⏱️ **Sisa Waktu Giliran:** <t:${turnExpiresAtUnix}:R> *(Berakhir <t:${turnExpiresAtUnix}:T>)*`
     )
     .setFooter({ text: `Hadiah: Menang +${diffConfig.winPoints} Poin | Seri +${diffConfig.drawPoints} Poin` })
     .setTimestamp();
@@ -609,6 +612,8 @@ async function handleTicTacToeButton(interaction) {
   const chosenLine = botLines[Math.floor(Math.random() * botLines.length)];
   triggerGameVoiceCommentary(guildId, chosenLine, interaction.client);
 
+  const turnExpiresAtUnix = Math.floor((Date.now() + 3 * 60 * 1000) / 1000);
+
   const embed = new EmbedBuilder()
     .setColor(diffConfig.color)
     .setTitle(`🎮 [TIC-TAC-TOE: USER VS AZURA ${diffConfig.badge}]`)
@@ -616,7 +621,8 @@ async function handleTicTacToeButton(interaction) {
       `Pemain: <@${userId}> (**❌**) vs AZURA (**⭕**)\n` +
       `Tingkat Kesulitan: **${diffConfig.name}**\n\n` +
       `💬 **Azura:** *"${getRandomBanter('USER_MOVE', state.difficulty)}"*\n\n` +
-      `👉 **Giliran Kamu Selanjutnya!** Klik kotak yang masih kosong:`
+      `👉 **Giliran Kamu Selanjutnya!** Klik kotak yang masih kosong:\n` +
+      `⏱️ **Sisa Waktu Giliran:** <t:${turnExpiresAtUnix}:R> *(Berakhir <t:${turnExpiresAtUnix}:T>)*`
     )
     .setFooter({ text: 'Mini-Game Azura • Waktu giliran: 3 Menit' })
     .setTimestamp();

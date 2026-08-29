@@ -36,9 +36,17 @@ async function resolveTargetFromTranscript(transcript, client) {
   for (const u of vaultUsers) {
     if (u.knownRealName) {
       candidates.push({ name: u.knownRealName.toLowerCase(), rawName: u.knownRealName, userId: u.userId });
+      const parts = u.knownRealName.split(/\s+/).filter(p => p.length >= 3);
+      for (const p of parts) {
+        candidates.push({ name: p.toLowerCase(), rawName: u.knownRealName, userId: u.userId });
+      }
     }
     if (u.displayName) {
       candidates.push({ name: u.displayName.toLowerCase(), rawName: u.displayName, userId: u.userId });
+      const parts = u.displayName.split(/\s+/).filter(p => p.length >= 3);
+      for (const p of parts) {
+        candidates.push({ name: p.toLowerCase(), rawName: u.displayName, userId: u.userId });
+      }
     }
     if (u.username) {
       candidates.push({ name: u.username.toLowerCase(), rawName: u.username, userId: u.userId });
@@ -46,14 +54,22 @@ async function resolveTargetFromTranscript(transcript, client) {
   }
 
   // 2. Gather active members across all connected Discord servers
-  for (const guild of client.guilds.cache.values()) {
-    for (const member of guild.members.cache.values()) {
-      if (member.user.bot) continue;
-      if (member.displayName) {
-        candidates.push({ name: member.displayName.toLowerCase(), rawName: member.displayName, userId: member.user.id });
-      }
-      if (member.user.username) {
-        candidates.push({ name: member.user.username.toLowerCase(), rawName: member.user.username, userId: member.user.id });
+  if (client?.guilds?.cache) {
+    for (const guild of client.guilds.cache.values()) {
+      if (guild.members?.cache) {
+        for (const member of guild.members.cache.values()) {
+          if (member.user.bot) continue;
+          if (member.displayName) {
+            candidates.push({ name: member.displayName.toLowerCase(), rawName: member.displayName, userId: member.user.id });
+            const parts = member.displayName.split(/\s+/).filter(p => p.length >= 3);
+            for (const p of parts) {
+              candidates.push({ name: p.toLowerCase(), rawName: member.displayName, userId: member.user.id });
+            }
+          }
+          if (member.user.username) {
+            candidates.push({ name: member.user.username.toLowerCase(), rawName: member.user.username, userId: member.user.id });
+          }
+        }
       }
     }
   }

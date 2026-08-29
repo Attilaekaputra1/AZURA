@@ -2039,6 +2039,12 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
     }
   } catch (_) {}
 
+  let emotionalAwarenessPrompt = '';
+  try {
+    const { getEmotionalAwarenessPromptContext } = require('./poutyMood');
+    emotionalAwarenessPrompt = getEmotionalAwarenessPromptContext(isOwner);
+  } catch (_) {}
+
   if (isStoryIntent) {
     systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) atau memberikan penjelasan mendalam langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
 Lawan bicara yang sedang berbicara denganmu: ${speakerName}
@@ -2046,7 +2052,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
@@ -2062,7 +2068,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 
@@ -2424,7 +2430,15 @@ async function playGreeting(guildId, voiceChannel) {
     ];
   }
 
-  const selectedGreeting = greetingOptions[Math.floor(Math.random() * greetingOptions.length)];
+  let selectedGreeting = greetingOptions[Math.floor(Math.random() * greetingOptions.length)];
+
+  // Emotional Awareness Override: If pouty mood active, use pouty greeting
+  const { getEmotionalState } = require('./poutyMood');
+  const moodState = getEmotionalState();
+  if (moodState.activeMood === 'POUTY_MILD' || moodState.activeMood === 'JEALOUS_INTROSPECTIVE') {
+    selectedGreeting = `[pouts] [sighs] Iya iya, ini aku join... tapi aku masih ngambek ya sama kamu [scoffs].`;
+  }
+
   console.log(`[Voice Companion]: Contextual Greeting (${otherCount} others in VC): "${selectedGreeting}"`);
 
   const resource = await textToAudioResource(selectedGreeting);
@@ -2685,6 +2699,20 @@ async function joinAttilaVoiceChannel(client) {
   }
 
   const guildId = targetGuild.id;
+
+  // Emotional Awareness Check: If severe pouty mood, refuse 1st attempt
+  const { handlePoutyVcJoinDecision } = require('./poutyMood');
+  const poutyDecision = handlePoutyVcJoinDecision(guildId, client);
+  if (!poutyDecision.allowJoin) {
+    const textChannel = (targetVoiceChannel && targetVoiceChannel.isTextBased?.()) ? targetVoiceChannel : findBestTextChannel(targetGuild, targetVoiceChannel, client);
+    if (textChannel && poutyDecision.refuseNotice) {
+      await textChannel.send(poutyDecision.refuseNotice).catch(() => {});
+    }
+    return {
+      success: false,
+      message: poutyDecision.refuseNotice || 'Azura sedang ngambek parah.'
+    };
+  }
 
   // Clear dismissed state so AZURA is officially active again
   dismissedGuilds.delete(guildId);

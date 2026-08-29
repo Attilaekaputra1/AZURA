@@ -507,6 +507,16 @@ const commands = [
         .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA')),
 
   new SlashCommandBuilder()
+    .setName('emotion')
+    .setDescription('Kelola & Reset Status Emosional / Ngambek AZURA ke Idle (Master Calming Override)')
+    .addSubcommand(sub =>
+      sub.setName('reset')
+        .setDescription('Pulihkan emosi AZURA secara instan ke damai & ceria (IDLE Original Soul)'))
+    .addSubcommand(sub =>
+      sub.setName('status')
+        .setDescription('Cek status emosi, tingkat ngambek, dan sisa waktu aktif mood')),
+
+  new SlashCommandBuilder()
     .setName('tictactoe')
     .setDescription('Mulai permainan Tic-Tac-Toe / XOXO melawan AZURA')
     .addStringOption(opt =>
@@ -2001,6 +2011,49 @@ async function handleSlashCommand(interaction, startTime) {
       return interaction.editReply({ content: `${prefixNotice}${vnExec.caption}`, files: [vnExec.attachment] });
     } else {
       return interaction.editReply(`❌ Gagal merender Voice Note: ${vnExec.error}`);
+    }
+  } else if (commandName === 'emotion') {
+    const sub = interaction.options.getSubcommand();
+    const { masterResetEmotion, getEmotionalState } = require('./poutyMood');
+    const isOwner = interaction.user.id === config.OWNER_DISCORD_ID;
+
+    if (sub === 'reset') {
+      if (!isOwner) {
+        return interaction.reply({ content: '⛔ Hanya Owner (Attila) yang dapat mereset emosi Azura.', flags: 64 });
+      }
+      const resetSpeech = masterResetEmotion('Slash Command /emotion reset');
+      const cleanText = resetSpeech.replace(/\[.*?\]/g, '').trim();
+      const embed = new EmbedBuilder()
+        .setColor(0x57F287)
+        .setTitle('🕊️ [MASTER EMOTION RESET: 100% IDLE RESTORED]')
+        .setDescription(
+          `Status emosi kemarahan/ngambek AZURA telah **dibersihkan total**:\n\n` +
+          `• **State Emosi:** \`IDLE (Damai & Tenang)\`\n` +
+          `• **Intensitas:** \`0 (Normal)\`\n` +
+          `• **Humming & Ice-Breaker:** \`Dipulihkan Kembali\`\n\n` +
+          `💬 **Azura:** *"${cleanText}"*`
+        )
+        .setFooter({ text: 'AZURA Emotional Awareness Engine • Master Override Active' })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (sub === 'status') {
+      const state = getEmotionalState();
+      const embed = new EmbedBuilder()
+        .setColor(state.activeMood === 'IDLE' ? 0x57F287 : 0xE67E22)
+        .setTitle('🧠 [STATUS AWARENESS EMOSI AZURA]')
+        .setDescription(
+          `• **Mood Aktif:** \`${state.activeMood}\`\n` +
+          `• **Intensitas:** \`${state.intensity} / 2\`\n` +
+          `• **Pemicu:** \`${state.reason || 'Tidak ada (Normal)'}\`\n` +
+          `• **Sisa Waktu Cooldown:** \`${state.expiresAt > Date.now() ? Math.ceil((state.expiresAt - Date.now()) / 1000) + ' detik' : 'Idle'}\`\n` +
+          `• **Humming Aktif:** \`${state.hummingDisabled ? '❌ Dinonaktifkan (Sedang Ngambek)' : '✅ Aktif'}\`\n` +
+          `• **Ice-Breaker VC:** \`${state.iceBreakerDisabled ? '❌ Dinonaktifkan (Sedang Ngambek)' : '✅ Aktif'}\``
+        )
+        .setFooter({ text: 'Gunakan /emotion reset untuk mereset emosi' })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
     }
   }
 }

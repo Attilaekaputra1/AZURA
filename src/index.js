@@ -67,6 +67,10 @@ client.once(Events.ClientReady, async () => {
   const { initMorningGreeting } = require('./morningGreeting');
   initMorningGreeting(client);
 
+  // Initialize Emotional Awareness & Pouty Mood Engine
+  const { initEmotionalAwareness } = require('./poutyMood');
+  initEmotionalAwareness();
+
   // Initialize Live WebRTC/WebSocket Companion Stream Portal
   const { initLivePortal } = require('./livePortal');
   initLivePortal();
@@ -608,6 +612,17 @@ if (dramaticActingReq && isOwner) {
   }
 }
 
+// ── EMOTIONAL AWARENESS MASTER RESET & AUTONOMOUS TRIGGER INTERCEPTOR ──
+const { isMasterResetRequested, masterResetEmotion, analyzeAutonomousEmotionalTrigger, getEmotionalAwarenessPromptContext } = require('./poutyMood');
+if (isOwner && isMasterResetRequested(rawPrompt || message.content, isOwner)) {
+  const resetSpeech = masterResetEmotion('Verbal Owner Reset Command');
+  const cleanReset = resetSpeech.replace(/\[.*?\]/g, '').trim();
+  return message.reply(cleanReset);
+}
+
+// Analyze situational triggers (Comparison, Silencing, Devaluation)
+analyzeAutonomousEmotionalTrigger(rawPrompt || message.content, isOwner, 'CHAT');
+
 // ── ON-DEMAND OWNER STICKER REQUEST ──
 const { handleOwnerStickerRequest } = require('./stickers');
 const stickerHandled = await handleOwnerStickerRequest(message, rawPrompt || message.content);
@@ -619,6 +634,12 @@ let finalPrompt = rawPrompt;
   }
   if (replyContextPrompt) {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;
+  }
+
+  // Inject Emotional Awareness context (if pouty/jealous mood is active)
+  const emotionalContext = getEmotionalAwarenessPromptContext(isOwner);
+  if (emotionalContext) {
+    finalPrompt = `${finalPrompt}\n${emotionalContext}`;
   }
 
   // 3rd-Person Reference Contextual Disambiguation (Only triggers on 3rd passive mention)

@@ -1425,7 +1425,6 @@ async function handleTriviaButton(interaction) {
     });
   }
 
-  const parts = interaction.customId.split('_');
   const choiceIdx = parseInt(parts[parts.length - 1], 10);
   if (isNaN(choiceIdx)) return;
 

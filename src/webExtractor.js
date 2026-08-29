@@ -92,20 +92,43 @@ async function extractPdfDocument(url) {
       return { success: false, error: 'Module pdf-parse tidak terpasang.' };
     }
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      },
-      signal: AbortSignal.timeout(15000)
-    });
+    let buffer = null;
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'application/pdf,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+          'Referer': 'https://www.google.com/'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
 
-    if (!response.ok) {
-      return { success: false, error: `Gagal mengunduh PDF (HTTP ${response.status})` };
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+      }
+    } catch (_) {}
+
+    // Playwright page buffer fallback if direct fetch was rejected
+    if (!buffer) {
+      const browser = await getBrowser();
+      const page = await browser.newPage();
+      try {
+        const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        if (res && res.ok()) {
+          buffer = await res.body();
+        }
+      } finally {
+        await page.close().catch(() => {});
+      }
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    if (!buffer) {
+      return { success: false, error: 'Gagal mengunduh file PDF dari server sumber.' };
+    }
+
     const pdfData = await pdfParse(buffer);
 
     const title = pdfData.info?.Title || path.basename(url) || 'Dokumen PDF';

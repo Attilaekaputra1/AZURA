@@ -1579,8 +1579,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     const { processImageIntelligence } = require('./imageGen');
     const imgCheck = await processImageIntelligence(transcript, 'Attila', guildId, userId, true);
     if (imgCheck && imgCheck.isImageRequest && textChannel) {
-      console.log(`[Voice Pipeline]: 🎨 Voice-to-Chat Image Generation Triggered by Attila -> Prompt: "${imgCheck.prompt || transcript}"`);
-      const spokenResponse = `Siap Attila! Gambar ${imgCheck.prompt ? '"' + imgCheck.prompt + '"' : 'keinginanmu'} lagi aku render yaa, tunggu sekitar 10 detik nanti langsung muncul di chat VC! ✨`;
+      console.log(`[Voice Pipeline]: 🎨 Voice-to-Chat Image Generation Triggered by Attila`);
+      const spokenResponse = `Siap Attila! Gambar keinginanmu lagi aku render yaa, tunggu beberapa detik nanti langsung muncul di chat VC! ✨`;
       recordSessionEntry(guildId, 'AZURA', spokenResponse);
       setActiveMode(guildId);
 
@@ -1602,10 +1602,10 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     }
 
     // ── 7. TO-DO & REMINDER VOICE-TO-CHAT BRIDGE (Owner Only) ──
-    const isTodoAdd = /\b(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do(?:\s*list)?\s*:)\b/i.test(transcript);
+    const isTodoAdd = /\b(?:catat\s+(?:ke\s+)?to[\s-]*do|tambah(?:kan)?\s+(?:ke\s+)?to[\s-]*do|masuk(?:kan)?\s+(?:ke\s+)?to[\s-]*do|buat(?:kan)?\s+to[\s-]*do|to[\s-]*do(?:\s*list)?\s*:)\b/i.test(transcript);
     if (isTodoAdd && textChannel) {
       const { bulkCreateTodos } = require('./todo');
-      const taskContent = transcript.replace(/\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do(?:\s*list)?\s*:)\b/gi, '').trim();
+      const taskContent = transcript.replace(/\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to[\s-]*do|tambah(?:kan)?\s+(?:ke\s+)?to[\s-]*do|masuk(?:kan)?\s+(?:ke\s+)?to[\s-]*do|buat(?:kan)?\s+to[\s-]*do|to[\s-]*do(?:\s*list)?\s*:)\b/gi, '').trim();
       if (taskContent.length > 2) {
         const todoRes = await bulkCreateTodos(taskContent, 'Attila', 'General');
         const spokenResponse = 'Siap Attila, tugas baru sudah aku catat ke to-do list kamu yaa!';

@@ -41,8 +41,8 @@ function parseVoiceNoteRequest(prompt, isOwner = false) {
 
   let extractedText = '';
 
-  // 1. Priority 1: Check for Quoted Text ("...", '...', “...”, ‘...’)
-  const quoteMatch = raw.match(/["'“”‘]([^"'“”‘]+)["'“”‘]/);
+  // 1. Priority 1: Check for Quoted Text ("...", '...', “...”, ‘...’, «...»)
+  const quoteMatch = raw.match(/["'“”‘’«»]([^"'“”‘’«»]+)["'“”‘’«»]/);
   if (quoteMatch && quoteMatch[1] && quoteMatch[1].trim().length > 0) {
     extractedText = quoteMatch[1].trim();
   } else {

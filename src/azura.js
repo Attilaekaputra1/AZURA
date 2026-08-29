@@ -306,6 +306,22 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const imageGenResponse = await processImageIntelligence(userPrompt, userName, guildId, userId, isOwner, imageUrls);
   if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
 
+  // ── NATURAL MINI-GAMES TRIGGER (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard) ──
+  const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+  const naturalGame = parseNaturalGameRequest(userPrompt);
+  if (naturalGame && channelId) {
+    if (naturalGame.game === 'tictactoe') {
+      return startTicTacToeGame(userId, userName, { id: channelId });
+    } else if (naturalGame.game === 'sambungkata') {
+      return startWordChainGame(userId, userName, { id: channelId });
+    } else if (naturalGame.game === 'trivia') {
+      return startTriviaGame(userId, userName, { id: channelId });
+    } else if (naturalGame.game === 'leaderboard') {
+      const embed = getLeaderboardEmbed();
+      return { embeds: [embed] };
+    }
+  }
+
   // ── PERSONALITY MODE SWITCH TRIGGER (ATTILA / OWNER EXCLUSIVE) ──
   const { parseNaturalPersonalitySwitch, setPersonalityMode } = require('./personality');
   const naturalModeSwitch = parseNaturalPersonalitySwitch(userPrompt, isOwner);

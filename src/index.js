@@ -193,6 +193,14 @@ async function handleIncomingMessage(message, isEdit = false) {
     }
   } catch (_) {}
 
+  // Active Sambung Kata Word Chain Interceptor in Channel
+  try {
+    const { handleWordChainMessage } = require('./miniGames');
+    if (handleWordChainMessage(message)) {
+      return;
+    }
+  } catch (_) {}
+
   // Record user interaction in encrypted vault (Zero-Knowledge AES-256-GCM Storage & Strict Lock-In)
   const nameActionResult = recordUserInteraction(message.author.id, {
     username: message.author.username,
@@ -537,17 +545,36 @@ async function handleIncomingMessage(message, isEdit = false) {
       } catch (_) {
         // Fallback: send temporary self-deleting message in channel
         const tempMsg = await message.channel.send(`🔒 <@${message.author.id}>, masukan/laporanmu sudah diteruskan secara rahasia ke Creator yaa! (Pesan ini akan terhapus otomatis)`).catch(() => null);
-        if (tempMsg) {
-          setTimeout(() => tempMsg.delete().catch(() => {}), 8000);
-        }
+      if (tempMsg) {
+        setTimeout(() => tempMsg.delete().catch(() => {}), 8000);
       }
-      return;
-    } else {
-      return message.reply(fbRes.message);
     }
+    return;
+  } else {
+    return message.reply(fbRes.message);
   }
+}
 
-  let finalPrompt = rawPrompt;
+// Handle Natural Mini-Game Triggers (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard)
+const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+const naturalGame = parseNaturalGameRequest(rawPrompt || message.content);
+if (naturalGame) {
+  if (naturalGame.game === 'tictactoe') {
+    const res = startTicTacToeGame(message.author.id, userName, message.channel);
+    return message.reply({ embeds: res.embeds, components: res.components });
+  } else if (naturalGame.game === 'sambungkata') {
+    const res = startWordChainGame(message.author.id, userName, message.channel);
+    return message.reply({ embeds: res.embeds });
+  } else if (naturalGame.game === 'trivia') {
+    const res = startTriviaGame(message.author.id, userName, message.channel);
+    return message.reply({ embeds: res.embeds, components: res.components });
+  } else if (naturalGame.game === 'leaderboard') {
+    const embed = getLeaderboardEmbed();
+    return message.reply({ embeds: [embed] });
+  }
+}
+
+let finalPrompt = rawPrompt;
   if (mentionContextPrompt) {
     finalPrompt = `${finalPrompt}${mentionContextPrompt}`;
   }
@@ -848,6 +875,16 @@ client.on('interactionCreate', async (interaction) => {
     // Handle VC Response Choice buttons (Chat vs VC Voice)
     if (interaction.customId.startsWith('vc_opt_')) {
       return handleVcChoiceButton(interaction);
+    }
+
+    // Handle Mini-Games Interactive Buttons (Tic-Tac-Toe & Trivia Quiz)
+    if (interaction.customId.startsWith('ttt_')) {
+      const { handleTicTacToeButton } = require('./miniGames');
+      return handleTicTacToeButton(interaction);
+    }
+    if (interaction.customId.startsWith('trivia_')) {
+      const { handleTriviaButton } = require('./miniGames');
+      return handleTriviaButton(interaction);
     }
 
     // Handle Direct Music Streaming control buttons

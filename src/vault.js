@@ -1016,10 +1016,102 @@ function getUserCallingName(userId, fallbackDisplayName = 'Pengguna') {
   return fallbackDisplayName || 'Pengguna';
 }
 
+/**
+ * Record Game Score & Statistics in User Vault
+ * @param {string} userId 
+ * @param {'ttt'|'sambungkata'|'trivia'} gameType 
+ * @param {number} points 
+ * @param {boolean} isWin 
+ * @param {number} streak 
+ */
+function recordGameScore(userId, gameType, points = 10, isWin = true, streak = 0) {
+  if (!userId) return null;
+  loadVault();
+
+  let user = userVaultCache.get(userId);
+  if (!user) {
+    user = {
+      userId,
+      username: 'user',
+      displayName: 'Pengguna',
+      knownRealName: null,
+      customNickname: null,
+      relationshipTier: 'Kenalan Biasa',
+      interactionCount: 0,
+      firstSeen: new Date().toISOString(),
+      lastSeen: new Date().toISOString()
+    };
+    userVaultCache.set(userId, user);
+  }
+
+  if (!user.gameStats) {
+    user.gameStats = {
+      totalPoints: 0,
+      tttWins: 0,
+      tttLosses: 0,
+      tttDraws: 0,
+      wordChainBestStreak: 0,
+      wordChainTotalWords: 0,
+      triviaWins: 0,
+      triviaTotalPlayed: 0
+    };
+  }
+
+  user.gameStats.totalPoints = (user.gameStats.totalPoints || 0) + points;
+
+  if (gameType === 'ttt') {
+    if (isWin) user.gameStats.tttWins = (user.gameStats.tttWins || 0) + 1;
+    else if (points > 0) user.gameStats.tttDraws = (user.gameStats.tttDraws || 0) + 1;
+    else user.gameStats.tttLosses = (user.gameStats.tttLosses || 0) + 1;
+  } else if (gameType === 'sambungkata') {
+    user.gameStats.wordChainTotalWords = (user.gameStats.wordChainTotalWords || 0) + (streak || 1);
+    if (streak > (user.gameStats.wordChainBestStreak || 0)) {
+      user.gameStats.wordChainBestStreak = streak;
+    }
+  } else if (gameType === 'trivia') {
+    user.gameStats.triviaTotalPlayed = (user.gameStats.triviaTotalPlayed || 0) + 1;
+    if (isWin) user.gameStats.triviaWins = (user.gameStats.triviaWins || 0) + 1;
+  }
+
+  user.lastSeen = new Date().toISOString();
+  saveVault();
+  return user.gameStats;
+}
+
+/**
+ * Get Game Leaderboard Top N players
+ * @param {number} [limit=10] 
+ * @returns {Array<{ userId: string, callingName: string, totalPoints: number, tttWins: number, triviaWins: number, wordChainBestStreak: number }>}
+ */
+function getGameLeaderboard(limit = 10) {
+  loadVault();
+  const list = [];
+
+  for (const [userId, user] of userVaultCache.entries()) {
+    const stats = user.gameStats || { totalPoints: 0, tttWins: 0, triviaWins: 0, wordChainBestStreak: 0 };
+    if (stats.totalPoints > 0 || stats.tttWins > 0 || stats.triviaWins > 0 || stats.wordChainBestStreak > 0) {
+      list.push({
+        userId,
+        callingName: getUserCallingName(userId, user.displayName || user.username || 'Pemain'),
+        totalPoints: stats.totalPoints || 0,
+        tttWins: stats.tttWins || 0,
+        triviaWins: stats.triviaWins || 0,
+        wordChainBestStreak: stats.wordChainBestStreak || 0
+      });
+    }
+  }
+
+  // Sort descending by totalPoints
+  list.sort((a, b) => b.totalPoints - a.totalPoints);
+  return list.slice(0, limit);
+}
+
 module.exports = {
   loadVault,
   saveVault,
   recordUserInteraction,
+  recordGameScore,
+  getGameLeaderboard,
   extractRealName,
   extractRegistrationName,
   extractNameChangeRequest,

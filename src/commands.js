@@ -504,7 +504,59 @@ const commands = [
         .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('status')
-        .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA'))
+        .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA')),
+
+  new SlashCommandBuilder()
+    .setName('game')
+    .setDescription('Mainkan mini-games interaktif seru melawan AZURA (User vs Bot)')
+    .addSubcommand(sub =>
+      sub.setName('tictactoe')
+        .setDescription('Adu taktik Tic-Tac-Toe / XOXO dengan tombol interaktif'))
+    .addSubcommand(sub =>
+      sub.setName('sambungkata')
+        .setDescription('Tantangan Sambung Kata KBBI & kosa kata bahasa Indonesia'))
+    .addSubcommand(sub =>
+      sub.setName('trivia')
+        .setDescription('Kuis Cerdas Cermat Trivia 4 pilihan dengan timer 20 detik')
+        .addStringOption(opt =>
+          opt.setName('kategori')
+            .setDescription('Pilih kategori kuis trivia')
+            .setRequired(false)
+            .addChoices(
+              { name: '🎮 Gaming', value: 'Gaming' },
+              { name: '💻 Tech & Coding', value: 'Tech' },
+              { name: '🎌 Anime & Pop Culture', value: 'Anime' },
+              { name: '🇮🇩 Indonesia & Budaya', value: 'Indonesia' }
+            )))
+    .addSubcommand(sub =>
+      sub.setName('leaderboard')
+        .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA')),
+
+  new SlashCommandBuilder()
+    .setName('tictactoe')
+    .setDescription('Mulai permainan Tic-Tac-Toe / XOXO melawan AZURA'),
+
+  new SlashCommandBuilder()
+    .setName('sambungkata')
+    .setDescription('Mulai permainan Sambung Kata KBBI melawan AZURA'),
+
+  new SlashCommandBuilder()
+    .setName('trivia')
+    .setDescription('Mulai Kuis Trivia Cerdas Cermat melawan AZURA')
+    .addStringOption(opt =>
+      opt.setName('kategori')
+        .setDescription('Pilih kategori kuis')
+        .setRequired(false)
+        .addChoices(
+          { name: '🎮 Gaming', value: 'Gaming' },
+          { name: '💻 Tech & Coding', value: 'Tech' },
+          { name: '🎌 Anime & Pop Culture', value: 'Anime' },
+          { name: '🇮🇩 Indonesia & Budaya', value: 'Indonesia' }
+        )),
+
+  new SlashCommandBuilder()
+    .setName('leaderboard')
+    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA')
 ];
 
 const fs = require('fs');
@@ -1910,6 +1962,24 @@ async function handleSlashCommand(interaction, startTime) {
         )
         .setFooter({ text: 'AZURA System Health Engine' })
         .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+  } else if (commandName === 'game' || commandName === 'tictactoe' || commandName === 'sambungkata' || commandName === 'trivia' || commandName === 'leaderboard') {
+    const { startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+    const sub = interaction.options.getSubcommand(false);
+
+    if (commandName === 'tictactoe' || sub === 'tictactoe') {
+      const res = startTicTacToeGame(user.id, user.displayName || user.username, interaction.channel);
+      return interaction.reply({ embeds: res.embeds, components: res.components });
+    } else if (commandName === 'sambungkata' || sub === 'sambungkata') {
+      const res = startWordChainGame(user.id, user.displayName || user.username, interaction.channel);
+      return interaction.reply({ embeds: res.embeds });
+    } else if (commandName === 'trivia' || sub === 'trivia') {
+      const category = interaction.options.getString('kategori');
+      const res = startTriviaGame(user.id, user.displayName || user.username, interaction.channel, category);
+      return interaction.reply({ embeds: res.embeds, components: res.components });
+    } else if (commandName === 'leaderboard' || sub === 'leaderboard') {
+      const embed = getLeaderboardEmbed();
       return interaction.reply({ embeds: [embed] });
     }
   }

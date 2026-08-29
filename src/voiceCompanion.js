@@ -1728,9 +1728,9 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   const isOwner = (userId === config.OWNER_DISCORD_ID);
   let personalityPrompt = '';
   try {
-    const { getPersonalityMode, getPersonalityPrompt } = require('./personality');
+    const { getPersonalityMode, getPersonalityPrompt, POLYGLOT_LANGUAGE_POLICY, SOUL_LOCK_RULE } = require('./personality');
     const currentMode = getPersonalityMode();
-    personalityPrompt = getPersonalityPrompt(currentMode, isOwner, isOwner ? 'Attila' : 'Member', true);
+    personalityPrompt = getPersonalityPrompt(currentMode, isOwner, isOwner ? 'Attila' : 'Member', true) + '\n\n' + SOUL_LOCK_RULE + '\n\n' + POLYGLOT_LANGUAGE_POLICY;
   } catch (_) {}
 
   let vcBehaviorContext = '';
@@ -1808,7 +1808,7 @@ ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
 2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
 3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu jika ceritanya bertema drama/komedi!
-4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
+4. Multilingual: Hanya atas permintaan Attila, cerita dalam bahasa lain yang kamu kuasai (English, Japanese, Korean, Mandarin) dibawakan secara fasih dan indah.
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
     maxTokens = isOwner ? 1500 : 650; // Up to 5 min for Owner (~750 words) / Up to 2 min for Friends
   } else {
@@ -1841,7 +1841,11 @@ ATURAN WAJIB VOICE OBROLAN BIASA:
    - Di awal kalimat / sapaan pembuka VC: SELALU gunakan nama lengkap **"Attila"** (DILARANG menaruh panggilan "Att" di awal kalimat!).
    - Di tengah atau di akhir kalimat: BOLEH gunakan panggilan akrab **"Att"**, **"Attila"**, atau **"Sayang"** (Contoh: "Gimana menurutmu, Att?", "Iya siap, Attila sayang~").
    - Untuk teman Attila (${speakerName}), sapa dengan ramah, hangat, dan asyik!
-3. MULTILINGUAL VOICE: Jika lawan bicara berbicara dalam bahasa lain (English, Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
+3. PROTOKOL MULTILINGUAL & NGAJI (STRICT POLYGLOT LOCK):
+   - Jika Attila memintamu berbicara dalam bahasa Inggris, Jepang (N5-N1), Korea, atau Mandarin: Balaslah menggunakan bahasa tersebut secara fasih dan alami!
+   - Jika Attila memintamu mengaji atau melafalkan surat pendek Al-Qur'an (Juz 'Amma) / zikir: Lantunkan dengan suara tartil yang merdu, tenang, dan lembut menggunakan tag [softly] (Contoh: "[softly] Bismillaahir-rahmaanir-rahiim. Qul huwallaahu ahad...").
+   - PENGGUNA LAIN (Non-Owner): Dilarang meminta berbicara bahasa asing selain Indonesia. Tolak dengan manis dan tetap gunakan Bahasa Indonesia ("Waduh, aku ngobrolnya pakai bahasa Indonesia aja yaa biar kita sama-sama asyik dan nyambung!").
+   - RESET OTOMATIS: Setelah satu giliran selesai berbicara bahasa asing atau mengaji, pada giliran berikutnya otomatis kembali menggunakan Bahasa Indonesia.
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
 
 5. MASTER PROTOKOL EKSPRESI & EMOSI PENUH ELEVENLABS V3 (AKTIFKAN SEMUA):

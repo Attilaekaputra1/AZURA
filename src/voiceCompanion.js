@@ -1541,6 +1541,84 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
     }
+
+    // ── 5. MINI-GAMES VOICE-TO-CHAT BRIDGE (Owner Only) ──
+    const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+    const naturalGame = parseNaturalGameRequest(transcript) || parseNaturalGameRequest(cleanTranscript);
+    if (naturalGame && textChannel) {
+      console.log(`[Voice Pipeline]: 🎮 Voice-to-Chat Mini-Game Triggered by Attila -> Game: ${naturalGame.game}`);
+      let spokenResponse = '';
+      if (naturalGame.game === 'tictactoe') {
+        spokenResponse = 'Siap Attila! Papan Tic-Tac-Toe-nya udah aku buka di chat VC yaa, yuk klik tombol pilihanmu! [laughs]';
+        const res = startTicTacToeGame(userId, 'Attila', textChannel, naturalGame.difficulty);
+        textChannel.send({ embeds: res.embeds, components: res.components }).catch(() => {});
+      } else if (naturalGame.game === 'sambungkata') {
+        spokenResponse = 'Sip Attila! Sesi Sambung Kata KBBI udah dimulai di chat VC! Kata pertamaku udah meluncur yaa!';
+        const res = startWordChainGame(userId, 'Attila', textChannel);
+        textChannel.send({ embeds: res.embeds }).catch(() => {});
+      } else if (naturalGame.game === 'trivia') {
+        spokenResponse = 'Siap Attila! Kuis Trivia 10 Rantai Soal sudah aku buka di chat VC yaa! Yuk pilih jawaban yang benar di bawah! ✨';
+        const res = startTriviaGame(userId, 'Attila', textChannel, naturalGame.difficulty);
+        textChannel.send({ embeds: res.embeds, components: res.components }).catch(() => {});
+      } else if (naturalGame.game === 'leaderboard') {
+        spokenResponse = 'Ini dia papan peringkat Top 10 pemain mini-games Azura di chat VC yaa!';
+        const embed = getLeaderboardEmbed();
+        textChannel.send({ embeds: [embed] }).catch(() => {});
+      }
+
+      if (spokenResponse) {
+        recordSessionEntry(guildId, 'AZURA', spokenResponse);
+        setActiveMode(guildId);
+        const audioResource = await textToAudioResource(spokenResponse, client);
+        if (audioResource) await playInVC(guildId, audioResource);
+        return;
+      }
+    }
+
+    // ── 6. AI IMAGE GENERATION VOICE-TO-CHAT BRIDGE (Owner Only) ──
+    const { processImageIntelligence } = require('./imageGen');
+    const imgCheck = await processImageIntelligence(transcript, 'Attila', guildId, userId, true);
+    if (imgCheck && imgCheck.isImageRequest && textChannel) {
+      console.log(`[Voice Pipeline]: 🎨 Voice-to-Chat Image Generation Triggered by Attila -> Prompt: "${imgCheck.prompt || transcript}"`);
+      const spokenResponse = `Siap Attila! Gambar ${imgCheck.prompt ? '"' + imgCheck.prompt + '"' : 'keinginanmu'} lagi aku render yaa, tunggu sekitar 10 detik nanti langsung muncul di chat VC! ✨`;
+      recordSessionEntry(guildId, 'AZURA', spokenResponse);
+      setActiveMode(guildId);
+
+      const audioResource = await textToAudioResource(spokenResponse, client);
+      if (audioResource) await playInVC(guildId, audioResource);
+
+      // Asynchronous background delivery to avoid blocking VC audio stream
+      (async () => {
+        try {
+          if (imgCheck.responsePayload) {
+            await textChannel.send(imgCheck.responsePayload);
+          }
+        } catch (imgErr) {
+          console.error('[Voice Pipeline Image Error]:', imgErr.message);
+          textChannel.send(`❌ Gagal merender gambar di VC: ${imgErr.message}`).catch(() => {});
+        }
+      })();
+      return;
+    }
+
+    // ── 7. TO-DO & REMINDER VOICE-TO-CHAT BRIDGE (Owner Only) ──
+    const isTodoAdd = /\b(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do(?:\s*list)?\s*:)\b/i.test(transcript);
+    if (isTodoAdd && textChannel) {
+      const { bulkCreateTodos } = require('./todo');
+      const taskContent = transcript.replace(/\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do(?:\s*list)?\s*:)\b/gi, '').trim();
+      if (taskContent.length > 2) {
+        const todoRes = await bulkCreateTodos(taskContent, 'Attila', 'General');
+        const spokenResponse = 'Siap Attila, tugas baru sudah aku catat ke to-do list kamu yaa!';
+        recordSessionEntry(guildId, 'AZURA', spokenResponse);
+        setActiveMode(guildId);
+        const audioResource = await textToAudioResource(spokenResponse, client);
+        if (audioResource) await playInVC(guildId, audioResource);
+        if (todoRes && todoRes.embeds) {
+          textChannel.send({ embeds: todoRes.embeds }).catch(() => {});
+        }
+        return;
+      }
+    }
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -1594,6 +1672,28 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       console.log(`[Voice Pipeline]: 🔇 Approved Friend (${userId}) spoke without wake-word in "${transcript}". Azura staying silent.`);
       return;
     }
+
+    // Action Command Guard: Non-owner members in VC are restricted to Q&A / general chat only
+    const { parseNaturalGameRequest } = require('./miniGames');
+    const isGameAttempt = parseNaturalGameRequest(transcript) || parseNaturalGameRequest(cleanTranscript);
+    const isImgAttempt = /\b(?:gambar|generate\s+image|lukis|bikinin\s+gambar|buatkan\s+gambar)\b/i.test(transcript);
+    const isBrowseAttempt = /\b(?:buka\s+youtube|buka\s+chrome|buka\s+browser|putar\s+lagu|setel\s+lagu|mainkan\s+lagu)\b/i.test(transcript);
+    const isTodoAttempt = /\b(?:to\s*do|catat\s+agenda)\b/i.test(transcript);
+
+    if (isGameAttempt || isImgAttempt || isBrowseAttempt || isTodoAttempt) {
+      const speakerMember = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
+      const memberName = speakerMember?.displayName || 'kak';
+      console.log(`[Voice Pipeline]: 🔒 Action command attempted by non-owner member ${userId} ("${transcript}"). Replying with friendly Q&A limitation notice.`);
+      
+      const spokenExplain = `Halo ${memberName}, untuk menjalankan fitur aksi atau game lewat suara di VC saat ini baru bisa diaktifkan oleh Attila yaa! Tapi kalau kamu mau ngobrol atau tanya-tanya, aku siap nemenin! [laughs]`;
+      recordSessionEntry(guildId, 'AZURA', spokenExplain);
+      recordFriendVoiceUsage(userId, 8);
+      
+      const audioResource = await textToAudioResource(spokenExplain, client);
+      if (audioResource) await playInVC(guildId, audioResource);
+      return;
+    }
+
     console.log(`[Voice Pipeline]: 🔔 Approved Friend summoned Azura [Intent: ${intentAnalysis.category}, Pos: ${intentAnalysis.wakePosition}, Question: ${intentAnalysis.isQuestion}] -> "${transcript}". Generating response...`);
   } else if (isCrowdedVC) {
     // Crowded VC with Attila + friends: Attila must use wake-word at beginning or end

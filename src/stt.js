@@ -2,10 +2,27 @@ const { OpenAI, toFile } = require('openai');
 const axios = require('axios');
 const config = require('./config');
 
+let _groq = null;
+function getGroq() {
+  if (!_groq && config.GROQ_API_KEY) {
+    _groq = new OpenAI({
+      apiKey: config.GROQ_API_KEY,
+      baseURL: 'https://api.groq.com/openai/v1',
+      timeout: 10000,
+      maxRetries: 1
+    });
+  }
+  return _groq;
+}
+
 let _openai = null;
 function getOpenAI() {
   if (!_openai && config.OPENAI_API_KEY) {
-    _openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+    _openai = new OpenAI({
+      apiKey: config.OPENAI_API_KEY,
+      timeout: 20000,
+      maxRetries: 2
+    });
   }
   return _openai;
 }
@@ -31,14 +48,12 @@ function isHallucination(text) {
 }
 
 /**
- * Download an audio attachment URL and transcribe it in-memory using OpenAI Whisper API
+ * Download an audio attachment URL and transcribe it in-memory using Fast Groq Whisper (Primary)
+ * with automatic fallback to OpenAI Whisper (Fallback).
  * @param {string} audioUrl 
  * @returns {Promise<string|null>} Transcribed text or null
  */
 async function transcribeAudioAttachment(audioUrl) {
-  const openai = getOpenAI();
-  if (!openai) return null;
-
   try {
     // Download audio file directly into memory buffer
     const response = await axios({
@@ -48,10 +63,34 @@ async function transcribeAudioAttachment(audioUrl) {
     });
 
     const audioBuffer = Buffer.from(response.data);
-    const file = await toFile(audioBuffer, 'voice_note.ogg', { type: 'audio/ogg' });
 
+    // ── PASS 1: Turbo Fast-Track via Groq LPU (whisper-large-v3) ──
+    const groq = getGroq();
+    if (groq) {
+      try {
+        const file = await toFile(audioBuffer, 'voice_note.ogg', { type: 'audio/ogg' });
+        const transcription = await groq.audio.transcriptions.create({
+          file,
+          model: 'whisper-large-v3',
+          language: 'id',
+          prompt: 'Azura, Ara, Zura, Attila, Putra'
+        });
+        const resultText = transcription.text?.trim() || null;
+        if (resultText && !isHallucination(resultText)) {
+          return resultText;
+        }
+      } catch (groqErr) {
+        console.warn('[Groq Attachment STT Warning]: Groq failed, falling back to OpenAI Whisper...', groqErr.message);
+      }
+    }
+
+    // ── PASS 2: Rock-Solid Fallback via OpenAI Whisper-1 ──
+    const openai = getOpenAI();
+    if (!openai) return null;
+
+    const fallbackFile = await toFile(audioBuffer, 'voice_note.ogg', { type: 'audio/ogg' });
     const transcription = await openai.audio.transcriptions.create({
-      file,
+      file: fallbackFile,
       model: 'whisper-1',
       language: 'id'
     });

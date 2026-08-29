@@ -13,7 +13,6 @@
  * • Memory-Optimized Single-Instance Page Lifecycles
  */
 
-const axios = require('axios');
 const path = require('path');
 const config = require('./config');
 const { getBrowser } = require('./headlessBrowser');
@@ -93,18 +92,20 @@ async function extractPdfDocument(url) {
       return { success: false, error: 'Module pdf-parse tidak terpasang.' };
     }
 
-    const response = await axios({
-      method: 'get',
-      url,
-      responseType: 'arraybuffer',
-      timeout: 15000,
-      maxContentLength: 15 * 1024 * 1024, // Max 15MB
+    const response = await fetch(url, {
+      method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      }
+      },
+      signal: AbortSignal.timeout(15000)
     });
 
-    const buffer = Buffer.from(response.data);
+    if (!response.ok) {
+      return { success: false, error: `Gagal mengunduh PDF (HTTP ${response.status})` };
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     const pdfData = await pdfParse(buffer);
 
     const title = pdfData.info?.Title || path.basename(url) || 'Dokumen PDF';

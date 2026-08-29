@@ -61,47 +61,39 @@ async function resolveTargetFromTranscript(transcript, client) {
   // Sort candidates by name length descending to match longest specific alias first
   candidates.sort((a, b) => b.name.length - a.name.length);
 
-  let matchedCandidate = null;
   for (const cand of candidates) {
     // Avoid single-character or generic stop words
     if (cand.name.length < 2) continue;
-    if (['azura', 'ara', 'zura', 'ajur', 'ajura', 'attila', 'putra', 'kamu', 'aku', 'saya', 'member'].includes(cand.name)) continue;
+    if (['azura', 'ara', 'zura', 'ajur', 'ajura', 'attila', 'putra', 'kamu', 'aku', 'saya', 'member', 'user'].includes(cand.name)) continue;
 
     // Check whole-word or substring match
     const regex = new RegExp(`\\b${cand.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     if (regex.test(cleanTranscript) || cleanTranscript.includes(cand.name)) {
-      matchedCandidate = cand;
-      break;
+      try {
+        const targetUser = await client.users.fetch(cand.userId).catch(() => null);
+        if (targetUser) {
+          // Extract context reason by stripping trigger phrases
+          let contextReason = transcript
+            .replace(new RegExp(`\\b${cand.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'), '')
+            .replace(/\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+|coba\s+|minta\s+|tolongin\s+)?(?:kirim\s+|buatkan\s+|bikin\s+|sampaikan\s+|semangatin|hibur|temenin)?\s*(?:ke|di\s+dm|lewat\s+dm|dm)?\s*/gi, '')
+            .replace(/\b(?:ya|yaa|dong|plis|please|makasih|makasih\s+ara|terima\s+kasih)\b/gi, '')
+            .trim();
+
+          if (!contextReason || contextReason.length < 3) {
+            contextReason = `Memberikan dukungan semangat dan motivasi hangat untuk ${cand.rawName}`;
+          }
+
+          return {
+            targetUser,
+            targetName: cand.rawName,
+            contextReason
+          };
+        }
+      } catch (_) {}
     }
   }
 
-  if (!matchedCandidate) {
-    return null;
-  }
-
-  try {
-    const targetUser = await client.users.fetch(matchedCandidate.userId);
-    if (!targetUser) return null;
-
-    // Extract context reason by stripping trigger phrases
-    let contextReason = transcript
-      .replace(/\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+|coba\s+|minta\s+|tolongin\s+)?(?:kirim\s+|buatkan\s+|bikin\s+|sampaikan\s+|semangatin|hibur|temenin)?\s*(?:ke|di\s+dm|lewat\s+dm|dm)?\s*/gi, '')
-      .replace(/\b(?:ya|yaa|dong|plis|please|makasih|makasih\s+ara|terima\s+kasih)\b/gi, '')
-      .trim();
-
-    if (!contextReason || contextReason.length < 3) {
-      contextReason = `Memberikan dukungan semangat dan motivasi hangat untuk ${matchedCandidate.rawName}`;
-    }
-
-    return {
-      targetUser,
-      targetName: matchedCandidate.rawName,
-      contextReason
-    };
-  } catch (err) {
-    console.error('[Voice DM Resolution Error]:', err.message);
-    return null;
-  }
+  return null;
 }
 
 /**

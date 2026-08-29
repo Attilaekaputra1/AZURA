@@ -111,17 +111,24 @@ async function extractPdfDocument(url) {
       }
     } catch (_) {}
 
-    // Playwright page buffer fallback if direct fetch was rejected
+    // Playwright API Request buffer fallback if direct fetch was rejected
     if (!buffer) {
       const browser = await getBrowser();
-      const page = await browser.newPage();
+      const context = await browser.newContext();
       try {
-        const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        if (res && res.ok()) {
+        const res = await context.request.get(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'application/pdf,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8'
+          },
+          timeout: 15000
+        });
+        if (res.ok()) {
           buffer = await res.body();
         }
+      } catch (_) {
       } finally {
-        await page.close().catch(() => {});
+        await context.close().catch(() => {});
       }
     }
 

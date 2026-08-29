@@ -225,13 +225,19 @@ async function handleIncomingMessage(message, isEdit = false) {
         }
       }
 
-      return message.reply(
+      const confirmText =
         `✨ Halo **${nameActionResult.name}**! Senang kenalan sama kamu. Alias / nama panggilanmu sudah tersimpan yaa! 🔒\n\n` +
         `🔒 **Privasi & Kenyamananmu:**\n` +
         `• AZURA akan menyapamu dengan panggilan **${nameActionResult.name}** di setiap percakapan.\n` +
         `• Privasi dan data aslimu tetap aman terjaga.\n` +
-        `• Mau ngobrol atau butuh bantuan apa hari ini? Yuk mulai! 💖`
-      );
+        `• Mau ngobrol atau butuh bantuan apa hari ini? Yuk mulai! 💖`;
+
+      if (isDM) {
+        return message.reply(confirmText);
+      } else {
+        await message.author.send(confirmText).catch(() => {});
+        return; // Silent in server channel!
+      }
     } else if (nameActionResult.status === 'PENDING_APPROVAL') {
       if (config.OWNER_DISCORD_ID) {
         const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
@@ -261,11 +267,29 @@ async function handleIncomingMessage(message, isEdit = false) {
           await owner.send({ embeds: [embed], components: [row] }).catch(() => {});
         }
       }
-      return message.reply(`Nama panggilan kamu saat ini sudah tersimpan sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`);
+      const pendingText = `Nama panggilan kamu saat ini sudah tersimpan sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`;
+      if (isDM) {
+        return message.reply(pendingText);
+      } else {
+        await message.author.send(pendingText).catch(() => {});
+        return;
+      }
     } else if (nameActionResult.status === 'ALIAS_ALREADY_TAKEN') {
-      return message.reply(`⚠️ Maaf ya <@${message.author.id}>, alias/inisial **"${nameActionResult.requestedName}"** sudah terdaftar dan dipakai oleh pengguna lain di database AZURA.\n\n🔒 *Ketentuan AZURA: 1 Alias/Inisial = 1 Profil.* Silakan gunakan alias, inisial, atau nama panggilan unik lainnya yaa! ✨`);
+      const takenText = `⚠️ Maaf ya <@${message.author.id}>, alias/inisial **"${nameActionResult.requestedName}"** sudah terdaftar dan dipakai oleh pengguna lain di database AZURA.\n\n🔒 *Ketentuan AZURA: 1 Alias/Inisial = 1 Profil.* Silakan gunakan alias, inisial, atau nama panggilan unik lainnya yaa! ✨`;
+      if (isDM) {
+        return message.reply(takenText);
+      } else {
+        await message.author.send(takenText).catch(() => {});
+        return;
+      }
     } else if (nameActionResult.status === 'IMPERSONATION_BLOCKED') {
-      return message.reply(`⚠️ Nama panggilan **${nameActionResult.requestedName}** dilindungi oleh sistem keamanan identitas AZURA dan tidak dapat digunakan.`);
+      const blockedText = `⚠️ Nama panggilan **${nameActionResult.requestedName}** dilindungi oleh sistem keamanan identitas AZURA dan tidak dapat digunakan.`;
+      if (isDM) {
+        return message.reply(blockedText);
+      } else {
+        await message.author.send(blockedText).catch(() => {});
+        return;
+      }
     }
   }
 
@@ -316,14 +340,20 @@ async function handleIncomingMessage(message, isEdit = false) {
       const regPrompt =
         `✨ **[Kenalan Dulu Yuk!]**\n\n` +
         `Halo <@${message.author.id}>! 👋 Biar obrolan kita lebih akrab dan personal, mau dipanggil apa nih sama AZURA? ✨\n\n` +
-        `👉 **Cara Mudah:** Cukup balas pesan ini dengan menyebutkan nama panggilan, alias, atau inisial santai yang kamu sukai, contoh:\n` +
+        `👉 **Cara Mudah:** Cukup balas DM ini dengan menyebutkan nama panggilan, alias, atau inisial santai yang kamu sukai, contoh:\n` +
         `\`panggil aku [Nama/Alias/Inisial]\` atau \`namaku [Nama Panggilanmu]\`\n\n` +
         `🔒 **Jaminan Privasi:**\n` +
         `• Bebas gunakan nama panggilan, alias, atau inisial yang nyaman buat kamu.\n` +
         `• AZURA sangat menghormati privasi dan menjaga keamanan datamu! 💖`;
 
-      await message.reply(regPrompt);
-      // STRICT RULE: Respond ONLY where the user interacted. Do NOT send unprompted DMs!
+      if (isDM) {
+        await message.reply(regPrompt);
+      } else {
+        // STRICT PRIVACY RULE: Never spam server channels with configuration prompts. Send exclusively to user's DM!
+        await message.author.send(regPrompt).catch((dmErr) => {
+          console.warn(`[Registration DM Warning]: Could not send DM to @${message.author.username} (${dmErr.message})`);
+        });
+      }
       return;
     }
     return; // Ignore general server chatter if user is not registered

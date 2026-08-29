@@ -418,9 +418,9 @@ async function handleTicTacToeDifficultyButton(interaction) {
   const parts = interaction.customId.split('_');
   if (parts.length < 4) return;
 
-  const channelId = parts[1];
-  const userId = parts[2];
-  const diff = parts[3];
+  const diff = parts[parts.length - 1];
+  const userId = parts[parts.length - 2];
+  const channelId = parts.slice(1, parts.length - 2).join('_');
 
   if (interaction.user.id !== userId) {
     return interaction.reply({
@@ -470,9 +470,9 @@ async function handleTicTacToeButton(interaction) {
   const parts = interaction.customId.split('_');
   if (parts.length < 4) return;
 
-  const channelId = parts[1];
-  const userId = parts[2];
-  const cellIdx = parseInt(parts[3], 10);
+  const cellIdx = parseInt(parts[parts.length - 1], 10);
+  const userId = parts[parts.length - 2];
+  const channelId = parts.slice(1, parts.length - 2).join('_');
   const gameKey = `${channelId}_${userId}`;
   const guildId = interaction.guildId || interaction.guild?.id;
 
@@ -740,6 +740,7 @@ function handleWordChainMessage(message) {
   }
 
   if (!text.startsWith(state.expectedChar)) {
+    triggerGameVoiceCommentary(guildId, `Eits, harus dimulai dari huruf ${state.expectedChar.toUpperCase()} dong!`, message.client);
     message.reply(`❌ Kata **"${text.toUpperCase()}"** tidak berawalan huruf **"${state.expectedChar.toUpperCase()}"**! Coba lagi yaa!`).catch(() => {});
     return true;
   }
@@ -1380,9 +1381,9 @@ async function handleTriviaDifficultyButton(interaction) {
   const parts = interaction.customId.split('_');
   if (parts.length < 4) return;
 
-  const channelId = parts[1];
-  const userId = parts[2];
-  const diff = parts[3];
+  const diff = parts[parts.length - 1];
+  const userId = parts[parts.length - 2];
+  const channelId = parts.slice(1, parts.length - 2).join('_');
 
   if (interaction.user.id !== userId) {
     return interaction.reply({
@@ -1403,7 +1404,8 @@ async function handleTriviaButton(interaction) {
     return handleTriviaDifficultyButton(interaction);
   }
 
-  const channelId = interaction.channelId || (interaction.channel && interaction.channel.id);
+  const parts = interaction.customId.split('_');
+  const channelId = interaction.channelId || (interaction.channel && interaction.channel.id) || (parts.length > 2 ? parts.slice(1, parts.length - 1).join('_') : parts[1]);
   const state = activeTriviaGauntlets.get(channelId);
   const guildId = interaction.guildId || interaction.guild?.id;
 

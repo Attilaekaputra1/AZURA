@@ -964,7 +964,7 @@ function startTriviaGame(userId, userName, channel, category = null) {
   const shuffledOptions = optionIndices.map(idx => q.options[idx]);
   const correctShuffledIndex = optionIndices.indexOf(q.correct);
 
-  const triviaKey = `${channelId}_${Date.now()}`;
+  const triviaKey = `${channelId}`;
 
   const timer = setTimeout(() => {
     resolveTriviaTimeout(channelId, channel);
@@ -999,10 +999,10 @@ function startTriviaGame(userId, userName, channel, category = null) {
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`trivia_${triviaKey}_0`).setLabel('🅰️ Pilihan A').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`trivia_${triviaKey}_1`).setLabel('🅱️ Pilihan B').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`trivia_${triviaKey}_2`).setLabel('🅲 Pilihan C').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`trivia_${triviaKey}_3`).setLabel('🅳 Pilihan D').setStyle(ButtonStyle.Primary)
+    new ButtonBuilder().setCustomId(`trivia_${channelId}_0`).setLabel('🅰️ Pilihan A').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`trivia_${channelId}_1`).setLabel('🅱️ Pilihan B').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`trivia_${channelId}_2`).setLabel('🅲 Pilihan C').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`trivia_${channelId}_3`).setLabel('🅳 Pilihan D').setStyle(ButtonStyle.Primary)
   );
 
   return { embeds: [embed], components: [row] };
@@ -1035,11 +1035,11 @@ function resolveTriviaTimeout(channelId, channel) {
 }
 
 async function handleTriviaButton(interaction) {
-  const parts = interaction.customId.split('_'); // 'trivia', triviaKey, choiceIndex
+  const parts = interaction.customId.split('_'); // 'trivia', channelId, choiceIndex
   if (parts.length < 3) return;
 
-  const choiceIdx = parseInt(parts[2], 10);
-  const channelId = interaction.channelId;
+  const channelId = parts[1] || interaction.channelId;
+  const choiceIdx = parseInt(parts[parts.length - 1], 10);
 
   const state = activeTriviaGames.get(channelId);
   if (!state) {

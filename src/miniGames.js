@@ -776,6 +776,8 @@ function handleWordChainMessage(message) {
   state.currentWord = botWord;
   state.expectedChar = botWord.slice(-1);
 
+  triggerGameVoiceCommentary(guildId, `Mantap, kata ${text.toUpperCase()} sah di KBBI! Sekarang giliranku... ${botWord.toUpperCase()}!`, message.client);
+
   state.timeout = setTimeout(() => {
     stopWordChainGame(channelId, 'TIMEOUT', message.channel);
   }, 45 * 1000);

@@ -595,6 +595,19 @@ if (vnReq) {
   }
 }
 
+// ── DRAMATIC ACTING & EMOTIONAL ROLEPLAY VOICE ENGINE ──
+const { parseDramaticActingRequest, executeDramaticActingVN } = require('./dramaticActing');
+const dramaticActingReq = parseDramaticActingRequest(rawPrompt || message.content);
+if (dramaticActingReq && isOwner) {
+  await message.channel.sendTyping().catch(() => {});
+  const actingExec = await executeDramaticActingVN(rawPrompt || message.content, message.author.id, userName, isOwner, client);
+  if (actingExec.success) {
+    return message.reply({ embeds: [actingExec.embed], files: [actingExec.attachment] });
+  } else {
+    return message.reply(`❌ Gagal merender Akting Tangisan: ${actingExec.error}`);
+  }
+}
+
 // ── ON-DEMAND OWNER STICKER REQUEST ──
 const { handleOwnerStickerRequest } = require('./stickers');
 const stickerHandled = await handleOwnerStickerRequest(message, rawPrompt || message.content);

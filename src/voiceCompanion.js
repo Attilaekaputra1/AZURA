@@ -1635,6 +1635,16 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
     }
+
+    // ── 8. DRAMATIC ACTING & EMOTIONAL ROLEPLAY VOICE TRIGGER ──
+    const { parseDramaticActingRequest, executeDramaticActingVC } = require('./dramaticActing');
+    const dramaticCheck = parseDramaticActingRequest(transcript) || parseDramaticActingRequest(cleanTranscript);
+    if (dramaticCheck && dramaticCheck.isDramaticRequest) {
+      console.log(`[Voice Pipeline]: 🎭 Dramatic Acting Triggered: "${dramaticCheck.scenario}" by user ${userId}`);
+      setActiveMode(guildId);
+      await executeDramaticActingVC(guildId, dramaticCheck.scenario, client, textChannel);
+      return;
+    }
   }
 
   // ══════════════════════════════════════════════════════════════

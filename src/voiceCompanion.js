@@ -58,8 +58,11 @@ const {
 
 const {
   SPONTANEOUS_SONGS,
+  SOFT_HUMMING_SONGS,
   pendingAttilaVoiceCalls,
   hummingTimers,
+  inactivityTimers,
+  isOwnerInterruptionPhrase,
   resetHummingTimer: resetAutonomousHummingTimer,
   clearHummingTimer
 } = require('./voiceAutonomousBehaviors');
@@ -446,13 +449,19 @@ function playInVC(guildId, resource) {
 }
 
 // ============================================================
-// Inactivity 10-Minute Icebreaker & 15-Minute Deep Sleep Engine
+// Dual-Tier Inactivity Humming (2-Min Soft / 3-Min Silence) & 15-Min Sleep Engine
 // ============================================================
-const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000;    // 3 minutes of silence -> Spontaneous singing/humming
+const AZURA_INACTIVITY_HUMMING_MS = 2 * 60 * 1000; // 2 minutes of no direct interaction with Azura -> Soft Serenade/Murmur
+const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000;    // 3 minutes of total room silence -> Spontaneous Group/Solo Singing
 const IDLE_SILENCE_ICEBREAKER_MS = 10 * 60 * 1000; // 10 minutes of silence in VC
 const DEEP_SLEEP_TIMEOUT_MS = 15 * 60 * 1000;      // 15 minutes of silence -> Deep Sleep (0% bandwidth/API)
 
 function resetIdleTimer(guildId, client, voiceChannel) {
+  if (inactivityTimers.has(guildId)) {
+    clearTimeout(inactivityTimers.get(guildId));
+    inactivityTimers.delete(guildId);
+  }
+
   if (hummingTimers.has(guildId)) {
     clearTimeout(hummingTimers.get(guildId));
     hummingTimers.delete(guildId);
@@ -485,7 +494,15 @@ function resetIdleTimer(guildId, client, voiceChannel) {
 
   if (!client || !activeConn) return;
 
-  // 1. Arm 3-minute Spontaneous Humming & Singing Engine (when VC is silent)
+  // 1. Arm 2-minute Soft Humming & Murmur (No direct interaction with Azura)
+  const softHumTimer = setTimeout(() => {
+    triggerAutonomousAzuraSoftHumming(guildId, client, voiceChannel).catch(err => {
+      console.error('[Autonomous Soft Humming Error]:', err.message);
+    });
+  }, AZURA_INACTIVITY_HUMMING_MS);
+  inactivityTimers.set(guildId, softHumTimer);
+
+  // 2. Arm 3-minute Spontaneous Singing Engine (when VC is completely silent)
   const humTimer = setTimeout(() => {
     triggerAutonomousVcHumming(guildId, client, voiceChannel).catch(err => {
       console.error('[Autonomous VC Humming Error]:', err.message);
@@ -493,7 +510,7 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, IDLE_HUMMING_INTERVAL_MS);
   hummingTimers.set(guildId, humTimer);
 
-  // 2. Arm 10-minute Icebreaker
+  // 3. Arm 10-minute Icebreaker
   const timer = setTimeout(() => {
     triggerAutonomousVcIcebreaker(guildId, client, voiceChannel).catch(err => {
       console.error('[Autonomous VC Icebreaker Error]:', err.message);
@@ -501,7 +518,7 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, IDLE_SILENCE_ICEBREAKER_MS);
   idleTimers.set(guildId, timer);
 
-  // 3. Arm 15-minute Deep Sleep Auto-Pause
+  // 4. Arm 15-minute Deep Sleep Auto-Pause
   const dsTimer = setTimeout(() => {
     enterDeepSleep(guildId, client, voiceChannel).catch(err => {
       console.error('[Deep Sleep Error]:', err.message);
@@ -509,13 +526,46 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, DEEP_SLEEP_TIMEOUT_MS);
   deepSleepTimers.set(guildId, dsTimer);
 
-  console.log(`[VC Timers]: ⏳ 3-Min Humming & 10-Min Icebreaker timers armed for guild ${guildId}.`);
+  console.log(`[VC Timers]: ⏳ Real-Time Dialogue Reset: 2-Min Soft Humming & 3-Min Singing timers armed for guild ${guildId}.`);
 }
 
 /**
- * Trigger spontaneous humming / singing when VC has been silent for 3 minutes.
- * - Solo VC (Attila + Azura only): Personal serenade for Attila
- * - Crowded VC (friends present): Group-friendly spontaneous singing
+ * 🌸 TIPE 2: Trigger soft humming / murmurs when no one interacted with Azura for 2 minutes.
+ * (Gentle, quiet, non-intrusive accompaniment for Solo VC & quiet room intervals)
+ */
+async function triggerAutonomousAzuraSoftHumming(guildId, client, voiceChannel) {
+  const conn = activeConnections.get(guildId);
+  if (!conn) return;
+
+  if (isBotSpeaking.has(guildId)) return;
+
+  try {
+    const { guildMusicSessions } = require('./musicStreamer');
+    if (guildMusicSessions.has(guildId)) return;
+  } catch (_) {}
+
+  const channel = voiceChannel || client?.channels?.cache?.get(conn.joinConfig?.channelId);
+  if (!channel) return;
+
+  const humanMembers = channel.members ? channel.members.filter(m => !m.user.bot) : new Map();
+  if (humanMembers.size === 0) return;
+
+  const otherHumans = humanMembers.filter(m => m.id !== config.OWNER_DISCORD_ID).size;
+  const isSoloVC = otherHumans === 0;
+
+  const randomSoftSong = SOFT_HUMMING_SONGS[Math.floor(Math.random() * SOFT_HUMMING_SONGS.length)];
+  console.log(`[VC Soft Humming]: 🌸 2-Minute Azura inactivity elapsed (${isSoloVC ? 'Solo VC with Attila' : `Crowded VC`}). Azura soft humming: "${randomSoftSong}"`);
+  
+  recordSessionEntry(guildId, 'AZURA', randomSoftSong, 'voice');
+
+  const audioResource = await textToAudioResource(randomSoftSong, client, MAX_NORMAL_CHARS, { userTranscript: '', isStory: false, forcedModel: 'eleven_v3' });
+  if (audioResource) {
+    await playInVC(guildId, audioResource);
+  }
+}
+
+/**
+ * 🎵 TIPE 1: Trigger spontaneous singing when entire room has been silent for 3 minutes.
  * Always uses eleven_v3 for maximum vocal expressiveness in singing.
  */
 async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
@@ -570,7 +620,7 @@ async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
     }
   } catch (_) {}
 
-  console.log(`[VC Humming]: 🎵 3-Minute silence elapsed (${isSoloVC ? 'Solo VC' : `Crowded VC - ${otherHumans} friends`}). Azura spontaneously singing: "${selectedSong.slice(0, 60)}..."`);
+  console.log(`[VC Humming]: 🎵 3-Minute room silence elapsed (${isSoloVC ? 'Solo VC' : `Crowded VC - ${otherHumans} friends`}). Azura spontaneously singing: "${selectedSong.slice(0, 60)}..."`);
   recordSessionEntry(guildId, 'AZURA', selectedSong, 'voice');
 
   // Force eleven_v3 for singing — maximum vocal expressiveness with audio tags
@@ -584,7 +634,7 @@ async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
     setActiveMode(guildId);
   }
 
-  // Re-arm next 3-minute timer if silence continues
+  // Re-arm timers
   resetIdleTimer(guildId, client, channel);
 }
 
@@ -813,8 +863,77 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
     const { isUserBanned } = require('./vault');
     if (isUserBanned(userId)) return;
 
-    // === Gate 1: Check if bot is speaking or actively processing previous voice turn (prevent overlaps & double responses) ===
-    if (isBotSpeaking.has(guildId) || isGuildProcessingVoice.has(guildId)) return;
+    // === Gate 1: Check if bot is speaking -> Handle Owner-Only Smart Barge-In Interruption ===
+    if (isBotSpeaking.has(guildId)) {
+      if (userId !== config.OWNER_DISCORD_ID) return; // Non-owner members cannot interrupt
+
+      if (activeRecordings.has(userId)) return;
+      activeRecordings.add(userId);
+
+      try {
+        const opusStream = receiver.subscribe(userId, {
+          end: {
+            behavior: EndBehaviorType.AfterSilence,
+            duration: 350
+          }
+        });
+
+        const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
+        const pcmChunks = [];
+        const pcmStream = opusStream.pipe(decoder);
+
+        let bargeFinished = false;
+        const handleOwnerBargeIn = async () => {
+          if (bargeFinished) return;
+          bargeFinished = true;
+          activeRecordings.delete(userId);
+
+          try {
+            const pcmBuffer = Buffer.concat(pcmChunks);
+            if (pcmBuffer.length < 48000 * 2 * 2 * 0.25) return; // < 250ms -> ignore short cough/clicks
+
+            const { calculateRmsAndPeak, pcmToWav, transcribeVoice } = require('./voiceAudioPipeline');
+            const { isOwnerInterruptionPhrase } = require('./voiceAutonomousBehaviors');
+
+            const { rms, peak } = calculateRmsAndPeak(pcmBuffer);
+            if (rms < 250 || peak < 700) return; // Acoustic Gate: ignore quiet breathing/echo
+
+            const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
+            const transcript = await transcribeVoice(wavBuffer);
+            if (!transcript || transcript.length < 2) return;
+
+            console.log(`[Smart Barge-In Detector]: Attila spoke while Azura speaking: "${transcript}"`);
+
+            if (isOwnerInterruptionPhrase(transcript)) {
+              console.log(`[Smart Barge-In]: 🛑 Interruption Intent matched ("${transcript}"). Executing Instant Silent Yield!`);
+              const player = audioPlayers.get(guildId);
+              if (player) player.stop(true);
+
+              const queue = getAudioQueue(guildId, player);
+              if (queue) queue.clear();
+
+              isBotSpeaking.delete(guildId);
+              setActiveMode(guildId);
+              resetIdleTimer(guildId, client, voiceChannel);
+            }
+          } catch (bargeErr) {
+            console.warn('[Smart Barge-In Warning]:', bargeErr.message);
+          }
+        };
+
+        const maxBargeTimer = setTimeout(handleOwnerBargeIn, 3000);
+        pcmStream.on('data', chunk => pcmChunks.push(chunk));
+        pcmStream.on('end', () => { clearTimeout(maxBargeTimer); handleOwnerBargeIn(); });
+        opusStream.on('end', () => { clearTimeout(maxBargeTimer); handleOwnerBargeIn(); });
+        pcmStream.on('error', () => { clearTimeout(maxBargeTimer); activeRecordings.delete(userId); });
+        opusStream.on('error', () => { clearTimeout(maxBargeTimer); activeRecordings.delete(userId); });
+      } catch (_) {
+        activeRecordings.delete(userId);
+      }
+      return;
+    }
+
+    if (isGuildProcessingVoice.has(guildId)) return;
 
     // === Gate 2: Not already recording this user ===
     if (activeRecordings.has(userId)) return;

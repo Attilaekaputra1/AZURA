@@ -20,8 +20,38 @@ const SPONTANEOUS_SONGS = [
   '[sings] Satu-satu aku sayang Attila... dua-dua juga sayang semuanya... [giggles] tiga-tiga sayang semuanya... satu dua tiga sayang semuanya!'
 ];
 
+// Soft humming & murmur library for 2-minute inactivity in VC
+const SOFT_HUMMING_SONGS = [
+  '[softly] [humming] Hm hm hm hm... [giggles] santai banget ya suasananya.',
+  '[humming] Hm hm hm... la la la... [softly] adem banget vibes-nya hari ini.',
+  '[softly] [humming] Hm hm... [chuckles] lagi pada fokus apa nih?',
+  '[humming] La la la... [softly] hm hm hm... [sighs] fyuuh, enaknya nyantai sejenak.',
+  '[softly] [humming] Hm hm hm... [giggles] aku di sini nemenin yaa.'
+];
+
 const pendingAttilaVoiceCalls = new Map(); // guildId -> { timer, channel, targetUser }
-const hummingTimers = new Map();          // guildId -> Timeout
+const hummingTimers = new Map();          // guildId -> Timeout (3-minute room silence)
+const inactivityTimers = new Map();       // guildId -> Timeout (2-minute Azura inactivity)
+
+/**
+ * Check if transcript matches explicit Owner Interruption Intent:
+ * "Ara bentar", "Azura wait", "Bentar dulu deh Ra", "Oke Stop", "Oke bentar Ara"
+ * @param {string} transcript 
+ * @returns {boolean}
+ */
+function isOwnerInterruptionPhrase(transcript) {
+  if (!transcript || typeof transcript !== 'string') return false;
+  const lower = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+
+  const patterns = [
+    /\b(?:ara|azura|zura|ajur)\s*(?:bentar|wait|stop|tunggu|sebentar|tahan)\b/i,
+    /\b(?:bentar|wait|tunggu|stop|sebentar|tahan|pause|cukup)\s*(?:dulu\s+)?(?:deh\s+)?(?:ra|ara|azura|zura|ajur)?\b/i,
+    /\boke\s+(?:stop|bentar|wait|tunggu)(?:\s+(?:ara|azura|ra))?\b/i,
+    /\b(?:stop|diam|pause|berhenti|cukup|hold\s+on)\s*(?:dulu\s+)?(?:ra|ara|azura)?\b/i
+  ];
+
+  return patterns.some(pattern => pattern.test(lower));
+}
 
 /**
  * Start or reset 3-minute spontaneous singing timer
@@ -60,12 +90,19 @@ function clearHummingTimer(guildId) {
     clearTimeout(hummingTimers.get(guildId));
     hummingTimers.delete(guildId);
   }
+  if (inactivityTimers.has(guildId)) {
+    clearTimeout(inactivityTimers.get(guildId));
+    inactivityTimers.delete(guildId);
+  }
 }
 
 module.exports = {
   SPONTANEOUS_SONGS,
+  SOFT_HUMMING_SONGS,
   pendingAttilaVoiceCalls,
   hummingTimers,
+  inactivityTimers,
+  isOwnerInterruptionPhrase,
   resetHummingTimer,
   clearHummingTimer
 };

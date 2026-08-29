@@ -559,15 +559,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('leaderboard')
-    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA'),
-
-  new SlashCommandBuilder()
-    .setName('vn')
-    .setDescription('Kirim Pesan Suara / Voice Note (VN) dari AZURA dengan suara Kak Ceria')
-    .addStringOption(opt =>
-      opt.setName('teks')
-        .setDescription('Teks atau kata-kata persis yang ingin diucapkan AZURA (Maks 700 karakter)')
-        .setRequired(true))
+    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA')
 ];
 
 const fs = require('fs');

@@ -209,7 +209,57 @@ function isForbiddenChannel(rawName) {
 }
 
 /**
- * Find the primary General / Main Chat channel with strict non-interaction filtering
+ * Find the primary General / Main Chat channel for a specific guild
+ * @param {import('discord.js').Guild} guild 
+ * @param {import('discord.js').Client} client 
+ * @returns {import('discord.js').TextChannel | null}
+ */
+function findGeneralChannelForGuild(guild, client) {
+  if (!guild || !guild.channels) return null;
+  const allChannels = Array.from(guild.channels.cache.values ? guild.channels.cache.values() : guild.channels.cache);
+  const textChannels = allChannels.filter(
+    ch => ch && (ch.isTextBased ? ch.isTextBased() : ch.type === 0 || ch.type === 5) && 
+          (ch.isThread ? !ch.isThread() : true) && 
+          (ch.isVoiceBased ? !ch.isVoiceBased() : true)
+  );
+
+  // 1. Strict Exclusion Filter
+  const eligibleChannels = [];
+  for (const ch of textChannels) {
+    if (isForbiddenChannel(ch.name)) continue;
+
+    const me = guild.members.me || guild.members.cache.get(client?.user?.id);
+    const perms = me ? ch.permissionsFor(me) : (client?.user ? ch.permissionsFor(client.user) : null);
+    if (!perms || !perms.has('SendMessages') || !perms.has('ViewChannel')) continue;
+
+    eligibleChannels.push(ch);
+  }
+
+  if (eligibleChannels.length === 0) return null;
+
+  // 2. Priority Sorting:
+  // Rank 1: exact normalized match 'general', 'chat', 'utama', 'lounge', 'ngobrol', 'umum', 'public'
+  const exactPriority = ['general', 'chat', 'utama', 'lounge', 'ngobrol', 'umum', 'public'];
+  const exactMatch = eligibleChannels.find(ch => {
+    const norm = normalizeChannelName(ch.name);
+    return exactPriority.includes(norm);
+  });
+  if (exactMatch) return exactMatch;
+
+  // Rank 2: partial match containing 'general', 'chat', 'utama', 'lounge', 'ngobrol', 'diskusi'
+  const partialPriority = ['general', 'ngobrol', 'chat', 'utama', 'lounge', 'diskusi'];
+  const partialMatch = eligibleChannels.find(ch => {
+    const norm = normalizeChannelName(ch.name);
+    return partialPriority.some(p => norm.includes(p));
+  });
+  if (partialMatch) return partialMatch;
+
+  // Rank 3: First valid non-forbidden eligible channel
+  return eligibleChannels[0] || null;
+}
+
+/**
+ * Find the primary General / Main Chat channel across all guilds with strict non-interaction filtering
  * @param {import('discord.js').Client} client 
  * @returns {import('discord.js').TextChannel | null}
  */
@@ -222,46 +272,8 @@ function findGeneralChannel(client) {
 
   // Look across all guilds
   for (const guild of client.guilds.cache.values()) {
-    const allChannels = Array.from(guild.channels.cache.values ? guild.channels.cache.values() : guild.channels.cache);
-    const textChannels = allChannels.filter(
-      ch => ch && (ch.isTextBased ? ch.isTextBased() : ch.type === 0 || ch.type === 5) && 
-            (ch.isThread ? !ch.isThread() : true) && 
-            (ch.isVoiceBased ? !ch.isVoiceBased() : true)
-    );
-
-    // 1. Strict Exclusion Filter
-    const eligibleChannels = [];
-    for (const ch of textChannels) {
-      if (isForbiddenChannel(ch.name)) continue;
-
-      const me = guild.members.me || guild.members.cache.get(client.user.id);
-      const perms = me ? ch.permissionsFor(me) : ch.permissionsFor(client.user);
-      if (!perms || !perms.has('SendMessages') || !perms.has('ViewChannel')) continue;
-
-      eligibleChannels.push(ch);
-    }
-
-    if (eligibleChannels.length === 0) continue;
-
-    // 2. Priority Sorting:
-    // Rank 1: exact normalized match 'general', 'chat', 'utama', 'lounge', 'ngobrol', 'umum', 'public'
-    const exactPriority = ['general', 'chat', 'utama', 'lounge', 'ngobrol', 'umum', 'public'];
-    const exactMatch = eligibleChannels.find(ch => {
-      const norm = normalizeChannelName(ch.name);
-      return exactPriority.includes(norm);
-    });
-    if (exactMatch) return exactMatch;
-
-    // Rank 2: partial match containing 'general', 'chat', 'utama', 'lounge', 'ngobrol', 'diskusi'
-    const partialPriority = ['general', 'ngobrol', 'chat', 'utama', 'lounge', 'diskusi'];
-    const partialMatch = eligibleChannels.find(ch => {
-      const norm = normalizeChannelName(ch.name);
-      return partialPriority.some(p => norm.includes(p));
-    });
-    if (partialMatch) return partialMatch;
-
-    // Rank 3: First valid non-forbidden eligible channel
-    if (eligibleChannels.length > 0) return eligibleChannels[0];
+    const target = findGeneralChannelForGuild(guild, client);
+    if (target) return target;
   }
 
   return null;
@@ -734,6 +746,7 @@ module.exports = {
   handleChannelMessage,
   getCatalystStatus,
   findGeneralChannel,
+  findGeneralChannelForGuild,
   normalizeChannelName,
   isForbiddenChannel,
   isPeakHour,

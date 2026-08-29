@@ -63,6 +63,10 @@ client.once(Events.ClientReady, async () => {
   // Initialize Autonomous Conversation Catalyst Engine
   await initAutonomousCatalyst(client);
 
+  // Initialize Daily 09:00 WIB Morning Greeting & Motivation Engine
+  const { initMorningGreeting } = require('./morningGreeting');
+  initMorningGreeting(client);
+
   // Initialize Live WebRTC/WebSocket Companion Stream Portal
   const { initLivePortal } = require('./livePortal');
   initLivePortal();

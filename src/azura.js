@@ -794,7 +794,10 @@ function sanitizeAiOutput(text, prompt = '') {
 
 module.exports = {
   askAzura,
+  generateAzuraResponse: askAzura,
   streamAzura,
   getSystemPrompt,
-  sanitizeAiOutput
+  sanitizeAiOutput,
+  needsSearch,
+  resolveContextualSearchQuery
 };

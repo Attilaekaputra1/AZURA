@@ -8,7 +8,7 @@
  */
 
 const https = require('https');
-const { searchWeb } = require('./tavily');
+const { searchWeb } = require('./search');
 
 /**
  * Perform HTTPS GET request with JSON parsing and timeout

@@ -93,18 +93,21 @@ async function handleOwnerStickerRequest(message, prompt) {
   if (message.guild && message.guild.stickers) {
     try {
       const guildStickers = await message.guild.stickers.fetch().catch(() => message.guild.stickers.cache);
-      if (guildStickers && guildStickers.size > 0) {
-        let matchingSticker = null;
-        if (query) {
-          matchingSticker = guildStickers.find(s => s.name.toLowerCase().includes(query) || (s.tags && s.tags.toLowerCase().includes(query)));
-        }
-        if (!matchingSticker) {
-          matchingSticker = guildStickers.first();
-        }
+      if (guildStickers) {
+        const list = Array.from(guildStickers.values ? guildStickers.values() : guildStickers);
+        if (list.length > 0) {
+          let matchingSticker = null;
+          if (query) {
+            matchingSticker = list.find(s => (s.name && s.name.toLowerCase().includes(query)) || (s.tags && s.tags.toLowerCase().includes(query)));
+          }
+          if (!matchingSticker) {
+            matchingSticker = list[0];
+          }
 
-        if (matchingSticker) {
-          await message.channel.send({ stickers: [matchingSticker.id] }).catch(() => {});
-          return true;
+          if (matchingSticker) {
+            await message.channel.send({ stickers: [matchingSticker.id] }).catch(() => {});
+            return true;
+          }
         }
       }
     } catch (err) {

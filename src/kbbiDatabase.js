@@ -45,7 +45,7 @@ const KBBI_DICTIONARY_RAW = {
     'butir', 'butuh', 'buyar', 'buyut'
   ],
   c: [
-    'cabang', 'cabe', 'cakar', 'cakap', 'cakram', 'calon', 'camar', 'camilan', 'campur', 'candi',
+    'cabang', 'cabe', 'cahaya', 'cakar', 'cakap', 'cakram', 'calon', 'camar', 'camilan', 'campur', 'candi',
     'canggih', 'cantik', 'capai', 'capung', 'cara', 'cari', 'catat', 'catur', 'catut', 'cegah',
     'cekik', 'celah', 'celana', 'celoteh', 'cemas', 'cemburu', 'cempaka', 'cengkeh', 'cepat', 'cerah',
     'cerdas', 'cerita', 'cermin', 'cerutu', 'cetak', 'cibir', 'cicil', 'cincin', 'cinta', 'ciprat',
@@ -428,10 +428,16 @@ function isValidKbbiWord(rawWord) {
   // 1. Direct match in dictionary database
   if (ALL_KBBI_WORDS.has(word)) return true;
 
-  // 2. Indonesian syllable & morphology check for recognized extensions
-  const validIndonesianPattern = /^[a-z]{3,20}$/;
-  const hasVowel = /[aeiou]/.test(word);
-  return validIndonesianPattern.test(word) && hasVowel;
+  // 2. Indonesian root word affix stripping (me-, ber-, di-, ter-, pe-, per-, se-, ke- ... -kan, -an, -i, -nya)
+  const base = word
+    .replace(/^(?:meng|meny|mem|men|me|ber|be|ter|di|pe|peng|peny|pem|pen|per|se|ke)/, '')
+    .replace(/(?:kan|an|i|nya|kah|lah|pun)$/, '');
+
+  if (base.length >= 3 && ALL_KBBI_WORDS.has(base)) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

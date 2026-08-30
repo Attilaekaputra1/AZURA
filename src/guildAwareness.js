@@ -135,6 +135,23 @@ function detectChannelReference(prompt, guild, currentChannelId = null) {
 }
 
 /**
+ * Format relative time in Indonesian
+ * @param {Date} date 
+ * @returns {string}
+ */
+function getRelativeTimeStr(date) {
+  if (!date) return '';
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'baru saja';
+  if (diffMins < 60) return `${diffMins} menit lalu`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours} jam lalu`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} hari lalu`;
+}
+
+/**
  * Fetch and format recent messages from a referenced channel on-demand.
  * @param {import('discord.js').TextBasedChannel} channel 
  * @param {number} [limit=12] 
@@ -146,25 +163,35 @@ async function fetchCrossChannelContext(channel, limit = 12) {
   try {
     const fetched = await channel.messages.fetch({ limit });
     if (!fetched || fetched.size === 0) {
-      return `\n\n[KONTEKS OBROLAN DI CHANNEL #${channel.name}]:\n(Channel ini masih kosong atau belum ada pesan baru).`;
+      return `\n\n[DATA OBROLAN DI CHANNEL #${channel.name.toUpperCase()}]:\nChannel #${channel.name} saat ini masih kosong / belum ada pesan baru. Jelaskan secara ramah bahwa channel tersebut masih sepi.`;
     }
 
     // Chronological order (oldest to newest)
     const sorted = Array.from(fetched.values()).reverse();
-    const formatted = sorted
-      .filter(m => !m.system && m.content.trim().length > 0)
-      .slice(-10)
-      .map(m => {
-        const author = m.author.displayName || m.author.username || 'User';
-        const cleanContent = m.content.replace(/\n+/g, ' ').slice(0, 200);
-        return `• [${author}]: "${cleanContent}"`;
-      });
+    const validMessages = sorted.filter(m => !m.system && m.content && m.content.trim().length > 0);
 
-    if (formatted.length === 0) return '';
+    if (validMessages.length === 0) {
+      return `\n\n[DATA OBROLAN DI CHANNEL #${channel.name.toUpperCase()}]:\nBelum ada pesan teks terbaru di channel #${channel.name}. Jelaskan dengan santai bahwa belum ada obrolan baru di sana.`;
+    }
 
-    return `\n\n[KONTEKS OBROLAN TERBARU DI CHANNEL #${channel.name.toUpperCase()} (ON-DEMAND CROSS-CHANNEL)]:\n` +
+    const latestMsg = validMessages[validMessages.length - 1];
+    const latestTime = getRelativeTimeStr(latestMsg.createdAt);
+
+    const formatted = validMessages.slice(-10).map(m => {
+      const author = m.member?.displayName || m.author?.globalName || m.author?.username || 'User';
+      const timeStr = getRelativeTimeStr(m.createdAt);
+      const cleanContent = m.content.replace(/\n+/g, ' ').slice(0, 200);
+      return `• [${author} (${timeStr})]: "${cleanContent}"`;
+    });
+
+    return `\n\n[REKAMAN OBROLAN TERAKHIR DI CHANNEL #${channel.name.toUpperCase()}]:\n` +
+      `Status: Pesan terakhir dikirim ${latestTime}.\n` +
+      `Daftar Pesan:\n` +
       formatted.join('\n') +
-      `\n(PENTING: Lawan bicara secara spesifik menanyakan obrolan atau topik di channel #${channel.name}. Sambungkan jawabanmu secara akurat dan cerdas menggunakan data obrolan di atas!).`;
+      `\n\nPANDUAN MERESPONS OBROLAN CHANNEL #${channel.name.toUpperCase()}:\n` +
+      `1. RANGKUM INTI TOPIK: Jelaskan inti bahasan obrolan di channel #${channel.name} di atas secara ringkas, akurat, dan mengalir (1 - 3 kalimat santai).\n` +
+      `2. JIKA SUDAH LAMA: Jika waktu pesan terakhir tertulis berjam-jam/berhari-hari lalu, sampaikan bahwa channel tersebut lagi sepi dan sebutkan topik terakhir yang sempat diobrolin.\n` +
+      `3. JANGAN membaca format teks mentah / bullet point secara kaku; sampaikan secara alami seolah kamu baru saja menengok obrolan di channel tersebut!`;
   } catch (err) {
     console.warn(`[GuildAwareness Warning]: Failed to fetch cross-channel messages for #${channel?.name}:`, err.message);
     return '';

@@ -2047,6 +2047,59 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
     emotionalAwarenessPrompt = getEmotionalAwarenessPromptContext(isOwner);
   } catch (_) {}
 
+  // Ingest User Facts (Personal Memory) for Voice AI
+  let memoryVoiceContext = '';
+  try {
+    const { getUserFacts } = require('./memory');
+    const facts = getUserFacts(userId);
+    if (facts && facts.length > 0) {
+      memoryVoiceContext = `\n\n[FAKTA PERSONAL LAWAN BICARA (${speakerName})]:\n` +
+        facts.slice(0, 4).map(f => `• ${f}`).join('\n') +
+        `\n(Gunakan fakta personal di atas secara natural jika relevan dengan obrolan).`;
+    }
+  } catch (_) {}
+
+  // Ingest Permanent Memory (Conversation Summaries) for Voice AI
+  let permanentSummaryVoiceContext = '';
+  try {
+    const { getPermanentSummariesContext } = require('./permanentMemory');
+    const summaryText = getPermanentSummariesContext(`user_${userId}`, 2);
+    if (summaryText) {
+      permanentSummaryVoiceContext = `\n\n${summaryText}`;
+    }
+  } catch (_) {}
+
+  // Ingest Cross-Modal Recent Text Chat Context (Sync Chat -> VC)
+  let crossModalChatContext = '';
+  if (guildId) {
+    try {
+      const companionChannel = getCompanionTextChannel(guildId);
+      const channelId = companionChannel?.id;
+      if (channelId) {
+        const budgetGuard = require('./budget');
+        const textHistory = budgetGuard.getContext(`channel_${channelId}`);
+        if (textHistory && textHistory.length > 0) {
+          const recentTextMsgs = textHistory.slice(-5).map(m => {
+            const role = m.role === 'assistant' ? 'AZURA' : 'User';
+            const text = typeof m.content === 'string' ? m.content.replace(/\n+/g, ' ').slice(0, 150) : '[Media/Pesan]';
+            return `• [Chat Teks] ${role}: "${text}"`;
+          });
+          crossModalChatContext = `\n\n[KONTEKS OBROLAN CHAT TEKS TERAKHIR SEBELUMNYA DI SERVER]:\n` +
+            recentTextMsgs.join('\n') +
+            `\n(PENTING: Ini riwayat pesan chat teks terkini di server. Jika lawan bicara di VC menanyakan sesuatu tentang apa yang tadi diketik di teks seperti "yang tadi di chat gimana?", sambungkan jawabanmu secara cerdas dan sinkron!).`;
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Cognitive Reasoning Engine Directives for Voice
+  let cognitiveReasoningDirective = '';
+  try {
+    const { classifyCognitiveIntents, getCognitiveReasoningDirectives } = require('./reasoningEngine');
+    const detectedIntents = classifyCognitiveIntents(transcript);
+    cognitiveReasoningDirective = getCognitiveReasoningDirectives(detectedIntents, isOwner, speakerName, true);
+  } catch (_) {}
+
   if (isStoryIntent) {
     systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) atau memberikan penjelasan mendalam langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
 Lawan bicara yang sedang berbicara denganmu: ${speakerName}
@@ -2054,7 +2107,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${cognitiveReasoningDirective}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
@@ -2070,7 +2123,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${cognitiveReasoningDirective}
 
 ${getSelfAwarenessContext(isOwner, speakerName, true, guildId)}
 

@@ -192,11 +192,19 @@ async function execute2PhasePipeline(session, introPath, loopPath, introExists, 
   try {
     const { prepareStream, playStream } = await import('@dank074/discord-video-stream');
 
-    // ── PHASE 1: Video 1 (Intro Sambutan with Audio) ──
+    // ── PHASE 1: Video 1 (Intro Sambutan with Synchronized Audio) ──
     if (introExists && !abortController.signal.aborted) {
       session.currentPhase = 'PHASE_1_INTRO';
       session.isIntroPlaying = true;
-      console.log(`[Video Streamer]: 🎬 [Phase 1] Playing Video 1 (Intro with Audio)... Azura TTS muted.`);
+      console.log(`[Video Streamer]: 🎬 [Phase 1] Playing Video 1 (Intro Visual + Audio)... Azura TTS muted.`);
+
+      // Play audio track directly in VC via Azura AudioPlayer (100% native Discord Opus)
+      try {
+        const { playDirectAudioFile } = require('./voiceCompanion');
+        playDirectAudioFile(guildId, introPath);
+      } catch (audioErr) {
+        console.warn('[Video Streamer]: Direct audio play notice:', audioErr.message);
+      }
 
       try {
         const { output } = prepareStream(introPath, {
@@ -204,7 +212,7 @@ async function execute2PhasePipeline(session, introPath, loopPath, introExists, 
           height: 720,
           frameRate: 24,
           bitrateVideo: 3300,
-          includeAudio: true
+          includeAudio: false
         }, abortController.signal);
 
         await playStream(output, streamer, {

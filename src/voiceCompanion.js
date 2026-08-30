@@ -3241,6 +3241,29 @@ async function speakGameCommentary(guildId, commentaryText, clientInstance = nul
   }
 }
 
+/**
+ * Play an audio file (e.g. video intro audio) directly into VC AudioPlayer.
+ * @param {string} guildId 
+ * @param {string} filePath 
+ */
+function playDirectAudioFile(guildId, filePath) {
+  try {
+    const player = audioPlayers.get(guildId);
+    const conn = activeConnections.get(guildId);
+    if (!player || !conn || !fs.existsSync(filePath)) return null;
+
+    try { conn.rejoin({ selfMute: false, selfDeaf: false }); } catch (_) {}
+
+    const { createAudioResource } = require('@discordjs/voice');
+    const resource = createAudioResource(filePath);
+    player.play(resource);
+    return resource;
+  } catch (err) {
+    console.warn('[Voice Companion]: Error playing direct audio file:', err.message);
+    return null;
+  }
+}
+
 module.exports = {
   handleVoiceStateUpdate,
   getCompanionTextChannel,
@@ -3259,6 +3282,7 @@ module.exports = {
   speakGameCommentary,
   detectVoiceModel,
   textToAudioResource,
+  playDirectAudioFile,
   audioPlayers,
   activeConnections,
   voiceSessions,

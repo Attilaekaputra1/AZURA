@@ -719,51 +719,69 @@ let finalPrompt = rawPrompt;
 
       // Direct Music Commands from text chat (Attila Only)
       const { streamMusicDirect, pauseMusic, resumeMusic, stopMusic } = require('./musicStreamer');
-      const { audioPlayers } = require('./voiceCompanion');
+      const { audioPlayers, activeConnections } = require('./voiceCompanion');
+      const cleanUserText = (rawPrompt || message.content).replace(/<@!?\d+>/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
 
-      const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(userText);
+      const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(cleanUserText) || /^(?:stop\s+musik|stop\s+lagu)$/i.test(cleanUserText);
       if (isStopMusic) {
         const res = stopMusic(guildId);
         return message.reply(res.message);
       }
 
-      const isPauseMusic = /\b(?:pause|jeda)\s+(?:in\s+)?(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(userText) || /^(?:pause|jeda)$/i.test(userText);
+      const isPauseMusic = /\b(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i.test(cleanUserText) || /^(?:pause|jeda)$/i.test(cleanUserText);
       if (isPauseMusic) {
         const res = pauseMusic(guildId);
         return message.reply(res.message);
       }
 
-      const isResumeMusic = /\b(?:resume|unpause|puter\s+lagi|play\s+lagi|mainkan\s+lagi|lanjutkan\s+lagu)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i.test(userText) || /^(?:resume|unpause)$/i.test(userText);
+      const isResumeMusic = /\b(?:resume|unpause|puter\s+lagi|play\s+lagi|mainkan\s+lagi|lanjutkan\s+lagu)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i.test(cleanUserText) || /^(?:resume|unpause)$/i.test(cleanUserText);
       if (isResumeMusic) {
         const res = resumeMusic(guildId);
         return message.reply(res.message);
       }
 
-      const musicMatch = userText.match(/^(?:azura|ara|zura|ajur|ajura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|puterin|putar|mainkan|setelin|nyalain|pasang)\s+(?:ke|dengan)?\s*(?:lagu|musik|lagunya)?\s*(.+)/i);
-      if (musicMatch) {
+      const musicMatch = cleanUserText.match(/^(?:azura|ara|zura|ajur|ajura|asura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|setelin|puterin|putar|mainkan|play|nyalain|pasang)\s+(?:ke\s+|dengan\s+)?(?:lagu|musik|lagunya)?\s*(.+)/i) ||
+        cleanUserText.match(/\b(?:setel|setelin|puterin|putar|mainkan|play|ganti|ubah|pasang)\s+(?:lagu|musik|lagunya)\s+(?:ke\s+|dengan\s+)?(.+)/i);
+
+      if (musicMatch && musicMatch[1]) {
         let songTitle = musicMatch[1]
-          .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|ajur|ajura|plis|please|bot)\b/gi, '')
+          .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|ajur|ajura|asura|plis|please|bot|di\s+vc|di\s+voice)\b/gi, '')
+          .replace(/[.,!?;:'"()\[\]]+/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
+
         if (songTitle.length > 1) {
           console.log(`[Music Streamer]: Attila triggered music (Play/Switch) from text: "${songTitle}"`);
-          const { activeConnections } = require('./voiceCompanion');
-          const { createAudioPlayer, getVoiceConnection } = require('@discordjs/voice');
+          const { createAudioPlayer, getVoiceConnection, joinVoiceChannel } = require('@discordjs/voice');
           let player = audioPlayers.get(guildId);
-          if (!player) {
-            const conn = activeConnections.get(guildId) || (guildId ? getVoiceConnection(guildId) : null);
-            if (conn) {
-              player = createAudioPlayer();
-              conn.subscribe(player);
-              audioPlayers.set(guildId, player);
-              console.log(`[Music Streamer]: Created on-demand AudioPlayer for active VC in guild ${guildId}`);
-            }
+          let conn = activeConnections.get(guildId) || (guildId ? getVoiceConnection(guildId) : null);
+
+          // Auto-join Voice Channel if Azura is not connected but Attila is in a VC
+          if (!conn && message.member?.voice?.channel) {
+            const targetVC = message.member.voice.channel;
+            console.log(`[Music Streamer]: Attila is in VC #${targetVC.name}. Auto-joining to stream music...`);
+            conn = joinVoiceChannel({
+              channelId: targetVC.id,
+              guildId: guildId,
+              adapterCreator: message.guild.voiceAdapterCreator,
+              selfMute: false,
+              selfDeaf: false
+            });
+            activeConnections.set(guildId, conn);
           }
+
+          if (conn && !player) {
+            player = createAudioPlayer();
+            conn.subscribe(player);
+            audioPlayers.set(guildId, player);
+            console.log(`[Music Streamer]: Created on-demand AudioPlayer for active VC in guild ${guildId}`);
+          }
+
           if (player) {
             const res = await streamMusicDirect(guildId, songTitle, player, message.channel, userName);
             return message.reply(res.message);
           } else {
-            return message.reply(`Masuk ke Voice Channel dulu ya ${userName}, biar aku bisa puterin lagunya langsung! 🎶✨`);
+            return message.reply(`Masuk ke Voice Channel dulu ya ${userName}, biar aku bisa langsung puterin lagunya bareng kamu! 🎶✨`);
           }
         }
       }

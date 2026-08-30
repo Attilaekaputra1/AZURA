@@ -1388,12 +1388,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // Setel / Putar / Ganti Lagu
-      const musicPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:setel|putar|mainkan|ganti|ubah)\s+lagu\s+(?:ke\s+|dengan\s+)?(.+)/i;
+      const musicPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:setel|setelin|putar|puterin|mainkan|play|ganti|ubah|pasang)\s+(?:lagu|musik|lagunya)?\s*(?:ke\s+|dengan\s+)?(.+)/i;
       const musicMatch = transcript.match(musicPattern) || cleanTranscript.match(musicPattern);
 
       if (musicMatch && musicMatch[1]) {
         let songTitle = musicMatch[1]
-          .replace(/\b(?:musik|lagu|gu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|ajur|ajura|plis|please|bot|di\s+discord|di\s+vc)\b/gi, '')
+          .replace(/\b(?:musik|lagu|gu|song|lagunya|dong|ya|yuk|gih|azura|ara|zura|ajur|ajura|asura|plis|please|bot|di\s+discord|di\s+vc|di\s+voice)\b/gi, '')
           .replace(/[.,!?;:'"()\[\]]+/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();

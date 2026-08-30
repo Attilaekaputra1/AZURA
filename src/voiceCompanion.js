@@ -2072,7 +2072,7 @@ ${todoVoiceContext}
 ${intentContext}
 ${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}
 
-${getSelfAwarenessContext(isOwner, speakerName, true)}
+${getSelfAwarenessContext(isOwner, speakerName, true, guildId)}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 
@@ -3024,6 +3024,7 @@ module.exports = {
   textToAudioResource,
   audioPlayers,
   activeConnections,
+  voiceSessions,
   WHISPER_HALLUCINATIONS,
   SPONTANEOUS_SONGS,
   analyzeVoiceIntent,

@@ -747,7 +747,18 @@ let finalPrompt = rawPrompt;
           .trim();
         if (songTitle.length > 1) {
           console.log(`[Music Streamer]: Attila triggered music (Play/Switch) from text: "${songTitle}"`);
-          const player = audioPlayers.get(guildId);
+          const { activeConnections } = require('./voiceCompanion');
+          const { createAudioPlayer, getVoiceConnection } = require('@discordjs/voice');
+          let player = audioPlayers.get(guildId);
+          if (!player) {
+            const conn = activeConnections.get(guildId) || (guildId ? getVoiceConnection(guildId) : null);
+            if (conn) {
+              player = createAudioPlayer();
+              conn.subscribe(player);
+              audioPlayers.set(guildId, player);
+              console.log(`[Music Streamer]: Created on-demand AudioPlayer for active VC in guild ${guildId}`);
+            }
+          }
           if (player) {
             const res = await streamMusicDirect(guildId, songTitle, player, message.channel, userName);
             return message.reply(res.message);

@@ -2,7 +2,7 @@
  * AZURA Cognitive Reasoning & Causal Context Engine Subsystem
  * 
  * Provides:
- * 1. Intent Classification: Detects self-feature questions, causal follow-ups, commands, debates, critiques.
+ * 1. Intent Classification: Detects self-feature questions, causal follow-ups, commands, debates, critiques, music, emotional inquiry, VC actions.
  * 2. Causal Context & Pronoun Disambiguation: Resolves ambiguous references ("itu", "dia", "yang tadi", "kenapa gitu")
  *    against multi-turn conversation turns.
  * 3. Reply Chain Structuring: Integrates parent referenced messages into a causal anchor.
@@ -10,6 +10,9 @@
 
 const INTENT_TYPES = {
   SELF_FEATURE_INQUIRY: 'SELF_FEATURE_INQUIRY', // Questions about Azura's features, capabilities, quotas, rules
+  EMOTIONAL_INQUIRY: 'EMOTIONAL_INQUIRY',       // Questions about pouty/ngambek mood, emotions, jealousy
+  MUSIC_COMMAND: 'MUSIC_COMMAND',               // Play, pause, resume, stop, switch music
+  VC_ACTION_REQUEST: 'VC_ACTION_REQUEST',       // Reading prayers, Quran, singing in VC
   CAUSAL_FOLLOW_UP: 'CAUSAL_FOLLOW_UP',         // Follow-ups like "kenapa gitu?", "terus gimana?", "maksudnya?"
   DIRECT_QUESTION: 'DIRECT_QUESTION',           // Specific factual/technical questions
   COMMAND_REQUEST: 'COMMAND_REQUEST',           // Requesting an action (search, generate image, calculate, leave)
@@ -28,36 +31,54 @@ function classifyCognitiveIntent(prompt, hasReplyContext = false) {
   if (!prompt || typeof prompt !== 'string') return INTENT_TYPES.GENERAL_CHAT;
   const lower = prompt.toLowerCase().trim();
 
-  // 1. Self-Feature Inquiry (Questions about Azura's capabilities, voice quota, rules, owner privileges, humming, etc.)
+  // 1. Music Command / Inquiry
+  const musicRegex = /\b(?:setel(?:in)?\s+lagu|putar(?:in)?\s+lagu|mainkan\s+lagu|pause\s+musik|jeda\s+musik|stop\s+musik|matikan\s+musik|lanjutkan\s+musik|resume\s+musik|ganti\s+lagu|setel\s+musik|putar\s+musik|bisa\s+setel\s+musik|bisa\s+putar\s+lagu)\b/i;
+  if (musicRegex.test(lower)) {
+    return INTENT_TYPES.MUSIC_COMMAND;
+  }
+
+  // 2. Emotional / Ngambek Inquiry
+  const emotionalRegex = /\b(?:kamu\s+(?:bisa\s+)?ngambek|cara\s+kerja\s+ngambek|fitur\s+ngambek|lagi\s+ngambek|lagi\s+marah|kenapa\s+ngambek|pouty|reset\s+emosi|damai\s+yuk|jangan\s+ngambek|cemburu)\b/i;
+  if (emotionalRegex.test(lower)) {
+    return INTENT_TYPES.EMOTIONAL_INQUIRY;
+  }
+
+  // 3. VC Action Request (Doa, Ngaji, Surat Al-Qur'an, Menyanyi)
+  const vcActionRegex = /\b(?:bacakan\s+(?:doa|surat|ayat|al-qur'an|quran)|baca\s+(?:doa|surat|ayat|al-fatihah|al-ikhlas|ayat\s+kursi|ngaji)|minta\s+(?:bacain|baca|ngaji|nyanyi)|nyanyiin|nyanyi\s+dong|lantunkan\s+(?:doa|surat|ayat))\b/i;
+  if (vcActionRegex.test(lower)) {
+    return INTENT_TYPES.VC_ACTION_REQUEST;
+  }
+
+  // 4. Self-Feature Inquiry (Questions about Azura's capabilities, voice quota, rules, owner privileges, humming, etc.)
   const selfFeatureRegex = /\b(?:kamu\s+(?:bisa\s+apa|punya\s+fitur|fiturnya\s+apa|bisa\s+ngapain)|fitur\s+(?:kamu|azura|ara|zura|ajur)|apa\s+saja\s+kemampuanmu|kuota\s+(?:vc|suara|teman|harian)|countdown\s+24\s*jam|kapan\s+kuota\s+reset|aturan\s+(?:vc|kuota|member|teman)|bedanya\s+owner|hak\s+akses|humming|icebreaker|deep\s+sleep|auto\s*leave|master\s+password|enkripsi|keamanan\s+database|siapa\s+pembuatmu|siapa\s+creator|bisa\s+generate\s+gambar|bisa\s+search|bisa\s+nyanyi|bisa\s+keluar\s+vc)\b/i;
   if (selfFeatureRegex.test(lower)) {
     return INTENT_TYPES.SELF_FEATURE_INQUIRY;
   }
 
-  // 2. Causal Follow-Up (Short inquiries or questions starting with causal connectors)
+  // 5. Causal Follow-Up (Short inquiries or questions starting with causal connectors)
   const causalFollowUpRegex = /\b(?:kenapa\s+(?:gitu|bisa\s+begitu|bisa\s+gitu|begitu|kayak\s+gitu)|maksudnya\s+(?:gimana|apa)|terus\s+(?:gimana|langkah\s+selanjutnya|apa\s+lagi|kelanjutannya)|yang\s+(?:tadi|kedua|nomor\s+\d|itu|mana)|kenapa\s+milih|alasan\s+kenapa|kok\s+bisa|emang\s+(?:iya|beneran|kenapa)|lanjutannya\s+apa|contohnya\s+gimana|jelasin\s+lagi)\b/i;
   if (causalFollowUpRegex.test(lower) || (hasReplyContext && lower.length < 50 && /\b(?:kenapa|terus|maksud|gimana|apa|yang)\b/i.test(lower))) {
     return INTENT_TYPES.CAUSAL_FOLLOW_UP;
   }
 
-  // 3. Critique / Correction (User challenging, arguing, or correcting)
+  // 6. Critique / Correction (User challenging, arguing, or correcting)
   const critiqueRegex = /\b(?:salah\s+tuh|bukan\s+gitu|keliru|nggak\s+gitu|ngaco|kurang\s+tepat|maksud\s+aku\s+bukan|lu\s+salah|kamu\s+salah|kebalik|kok\s+ngaco)\b/i;
   if (critiqueRegex.test(lower)) {
     return INTENT_TYPES.CRITIQUE_CORRECTION;
   }
 
-  // 4. Command / Request
+  // 7. Command / Request
   const commandRegex = /\b(?:tolong\s+(?:bikinin|buatkan|carikan|search|hitung|kerjakan|analisis)|generate\s+gambar|buatkan\s+gambar|tuliskan\s+kode|bantu\s+aku\s+bikin|jalankan)\b/i;
   if (commandRegex.test(lower)) {
     return INTENT_TYPES.COMMAND_REQUEST;
   }
 
-  // 5. Direct Question
+  // 8. Direct Question
   if (lower.includes('?') || /\b(?:apa|kenapa|mengapa|bagaimana|gimana|siapa|kapan|dimana|berapa|apakah)\b/i.test(lower)) {
     return INTENT_TYPES.DIRECT_QUESTION;
   }
 
-  // 6. Banter / Casual
+  // 9. Banter / Casual
   if (/\b(?:haha|wkwk|hehe|lucu|kocak|canda|jail|ledek|ngakak|garing|cie|sayang|ganteng|cantik|imut)\b/i.test(lower)) {
     return INTENT_TYPES.BANTER_CASUAL;
   }
@@ -96,6 +117,32 @@ function getCognitiveReasoningDirectives(intent, isOwner, userName) {
   let directives = [];
 
   switch (intent) {
+    case INTENT_TYPES.VC_ACTION_REQUEST:
+      directives.push(
+        '🕌 INTENSI AKSI VOICE CHANNEL (DOA / NGAJI / SURAT / NYANYI):',
+        '- Perhatikan STATUS SITUASIONAL REAL-TIME AZURA di atas.',
+        '- JIKA STATUS VC AKTIF (kamu sudah berada di Voice Channel bersama pengguna): LANGSUNG LAKUKAN & LANTUNKAN dengan suara tartil merdu dan lembut [softly]! JANGAN PERNAH menyuruh pengguna masuk ke VC lagi!',
+        '- JIKA STATUS VC TIDAK TERHUBUNG: Ajak pengguna masuk ke Voice Channel bersama dengan santun dan ramah.'
+      );
+      break;
+
+    case INTENT_TYPES.EMOTIONAL_INQUIRY:
+      directives.push(
+        '💢 INTENSI PERTANYAAN EMOSI & NGAMBEK (POUTY MOOD INQUIRY):',
+        '- Lawan bicara menanyakan sistem emosimu, cara kerja ngambek, atau status moodmu.',
+        '- Jelaskan 4 state emosimu (IDLE, POUTY_MILD, POUTY_SEVERE, JEALOUS_INTROSPECTIVE), pemicunya, auto-decay 5 menit, dan Master Reset emosi.',
+        '- Jawab dengan gaya Gen Z yang manis, sedikit playful, dan tidak kaku.'
+      );
+      break;
+
+    case INTENT_TYPES.MUSIC_COMMAND:
+      directives.push(
+        '🎵 INTENSI PERINTAH & FITUR MUSIK (MUSIC COMMAND):',
+        '- Lawan bicara ingin memutar, mengontrol, atau menanyakan fitur pemutar musik.',
+        '- Jelaskan bahwa kamu terintegrasi dengan streaming audio SoundCloud/FFmpeg langsung di VC, atau konfirmasi pemutaran lagu jika kamu berada di VC.'
+      );
+      break;
+
     case INTENT_TYPES.SELF_FEATURE_INQUIRY:
       directives.push(
         '🎯 INTENSI PERTANYAAN FITUR DIRI (SELF-FEATURE INQUIRY):',
@@ -148,3 +195,4 @@ module.exports = {
   buildReplyCausalAnchor,
   getCognitiveReasoningDirectives
 };
+

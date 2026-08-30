@@ -18,18 +18,20 @@ const { createAudioResource, StreamType, AudioPlayerStatus } = require('@discord
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 let isInitialized = false;
-async function initPlayDl() {
-  if (isInitialized) return;
+async function initPlayDl(forceRefresh = false) {
+  if (isInitialized && !forceRefresh) return true;
   try {
     const clientId = await play.getFreeClientID();
     if (clientId) {
       await play.setToken({ soundcloud: { client_id: clientId } });
       isInitialized = true;
       console.log('[Music Streamer]: SoundCloud Free Client ID initialized successfully.');
+      return true;
     }
   } catch (e) {
     console.warn('[Music Streamer]: Failed to init SoundCloud client ID:', e.message);
   }
+  return false;
 }
 
 // Map of active guild music state: guildId -> { currentTrack, textChannel, player, isPlaying }
@@ -51,14 +53,21 @@ async function streamMusicDirect(guildId, query, player, textChannel, requesterN
   try {
     const cleanQuery = query.replace(/[.,!?;:"'()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
     console.log(`[Music Streamer]: 🔍 Searching for "${cleanQuery}"...`);
-    const results = await play.search(cleanQuery, { source: { soundcloud: 'tracks' }, limit: 1 });
+    let results = [];
+    try {
+      results = await play.search(cleanQuery, { source: { soundcloud: 'tracks' }, limit: 1 });
+    } catch (searchErr) {
+      console.warn('[Music Streamer]: Search error, retrying with refreshed token...', searchErr.message);
+      await initPlayDl(true);
+      results = await play.search(cleanQuery, { source: { soundcloud: 'tracks' }, limit: 1 }).catch(() => []);
+    }
 
     if (!results || results.length === 0) {
       console.warn(`[Music Streamer]: No track found for "${cleanQuery}"`);
       if (textChannel) {
-        textChannel.send(`Maaf ${requesterName}, aku nggak nemu lagu **${cleanQuery}** di database musik.`).catch(() => {});
+        textChannel.send(`Maaf ${requesterName}, aku nggak nemu lagu **${cleanQuery}** di database musik. Coba sebut judul lain ya! 🎶`).catch(() => {});
       }
-      return { success: false, message: `Maaf, aku nggak nemu lagu dengan judul "${cleanQuery}".` };
+      return { success: false, message: `Maaf, aku nggak nemu lagu dengan judul "${cleanQuery}". Coba judul lain ya!` };
     }
 
     const track = results[0];

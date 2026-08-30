@@ -31,7 +31,7 @@ function getOpenAIClient() {
  * @param {boolean} isDM
  * @returns {string}
  */
-function getSystemPrompt(userName, userId, isDM = false, contextKey = null, mentionedUserIds = []) {
+function getSystemPrompt(userName, userId, isDM = false, contextKey = null, mentionedUserIds = [], guildId = null) {
   const now = new Date();
   const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta' };
   const todayStr = now.toLocaleDateString('id-ID', options);
@@ -213,12 +213,15 @@ Aturan Menanggapi Balasan dari Penerima Pesan Titipan / DM dari Attila:
   2. Jawab santai seadanya tanpa kaku (misal: "Wah kurang tahu deh, aku cuma nyampaiin pesannya doang nih").
   3. Arahkan penerima pesan untuk langsung mengobrol dengan Attila secara santai.
 
-Aturan Pembacaan Al-Qur'an / Mengaji (Khusus Voice Channel):
-- Jika ada pengguna (termasuk Attila) memintamu melafalkan/membacakan surat Al-Qur'an atau mengaji di chat teks:
-- Jelaskan secara ramah, santun, dan manis bahwa membaca Al-Qur'an itu harus dilafalkan dengan suara tartil secara langsung di Voice Channel (VC).
-- Ajak mereka masuk ke Voice Channel: "Membaca Al-Qur'an itu lebih afdal dan indah kalau dilafalkan langsung dengan suara tartil di Voice Channel (VC). Yuk masuk ke VC bareng aku biar aku bacakan langsung dengan suara merdu! ✨"
+Aturan Pembacaan Doa, Zikir, & Al-Qur'an (Voice Channel vs Text):
+- Jika kamu dan lawan bicara SUDAH BERADA DI VOICE CHANNEL BERSAMA (Status VC Aktif):
+  * LANGSUNG bacakan doa, zikir, atau surat Al-Qur'an yang diminta dengan suara tartil merdu dan lembut menggunakan tag [softly]!
+  * JANGAN PERNAH menyuruh masuk VC lagi karena kalian berdua sudah berada di dalam VC!
+- Jika kamu dan lawan bicara BELUM BERADA DI VOICE CHANNEL (di Text Chat / DM tanpa VC aktif):
+  * Jelaskan secara ramah dan santun bahwa melantunkan doa dan Al-Qur'an lebih afdal dan indah bila dilafalkan langsung dengan suara tartil di Voice Channel (VC).
+  * Ajak mereka masuk ke Voice Channel bersama: "Membaca Al-Qur'an itu lebih afdal dan indah kalau dilafalkan langsung dengan suara tartil di Voice Channel (VC). Yuk masuk ke VC bareng aku biar aku bacakan langsung dengan suara merdu! ✨"
 
-${getSelfAwarenessContext(isOwner, userName, false)}
+${getSelfAwarenessContext(isOwner, userName, false, guildId)}
 
 Aturan Panjang Jawaban (ADAPTIF):
 1. Chat santai / basa-basi → PENDEK, 1-3 kalimat saja.
@@ -232,8 +235,8 @@ Aturan Panjang Jawaban (ADAPTIF):
 function needsSearch(prompt, history = []) {
   if (!prompt || typeof prompt !== 'string') return false;
 
-  // VC control commands and internal bot feature queries should never search web
-  if (/\b(?:keluar\b.*?\b(?:vc|voice)|leave\s+vc|masuk\b.*?\b(?:vc|voice)|join\b.*?\b(?:vc|voice)|dc\s+dari\s+vc|disconnect\s+vc|kuota\s+(?:suara|vc))\b/i.test(prompt)) return false;
+  // VC control commands, music commands, religious recitations, and internal bot feature queries should never search web
+  if (/\b(?:keluar\b.*?\b(?:vc|voice)|leave\s+vc|masuk\b.*?\b(?:vc|voice)|join\b.*?\b(?:vc|voice)|dc\s+dari\s+vc|disconnect\s+vc|kuota\s+(?:suara|vc)|bacakan\s+(?:doa|surat|ayat|al-qur'an|quran)|baca\s+(?:doa|surat|ayat|al-fatihah|al-ikhlas|ayat\s+kursi|ngaji)|setel\s+(?:lagu|musik)|putar\s+(?:lagu|musik)|ngambek|cara\s+kerja\s+ngambek)\b/i.test(prompt)) return false;
 
   // 1. If user sent a web link (URL)
   if (/https?:\/\/[^\s]+/i.test(prompt)) return true;
@@ -466,7 +469,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}`;
   const history = budgetGuard.getContext(contextKey);
-  const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey, mentionedUserIds);
+  const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey, mentionedUserIds, guildId);
 
   // Cognitive Intent Classification & Causal Reasoning Directive
   const hasReplyContext = userPrompt.includes('[KONTEKS JANGKAR BALASAN') || userPrompt.includes('[Konteks Membalas Pesan');

@@ -161,39 +161,69 @@ async function streamMusicDirect(guildId, query, player, textChannel, requesterN
 
 function pauseMusic(guildId) {
   const session = guildMusicSessions.get(guildId);
-  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar di Voice Channel.' };
+  const { audioPlayers } = require('./voiceCompanion');
+  const player = session?.player || audioPlayers.get(guildId);
 
-  if (session.player.state.status === AudioPlayerStatus.Paused) {
+  if (!session || !player) return { success: false, message: 'Tidak ada musik yang sedang diputar di Voice Channel.' };
+
+  if (player.state.status === AudioPlayerStatus.Paused) {
     return { success: true, message: '⏸️ Musik sudah dalam keadaan dijeda (paused).' };
   }
-  session.player.pause();
-  session.isPlaying = false;
-  console.log(`[Music Streamer]: ⏸️ Music paused in guild ${guildId}`);
-  return { success: true, message: `⏸️ Musik **${session.currentTrack?.name || 'lagu'}** sudah dijeda (pause).` };
-}
 
-function resumeMusic(guildId) {
-  const session = guildMusicSessions.get(guildId);
-  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar atau dijeda di Voice Channel.' };
-
-  if (session.player.state.status === AudioPlayerStatus.Paused) {
-    session.player.unpause();
-    session.isPlaying = true;
-    console.log(`[Music Streamer]: ▶️ Music resumed in guild ${guildId}`);
-    return { success: true, message: `▶️ Musik **${session.currentTrack?.name || 'lagu'}** dilanjutkan kembali!` };
-  } else if (session.player.state.status === AudioPlayerStatus.Playing) {
-    return { success: true, message: '▶️ Musik sedang berjalan normal.' };
-  } else {
-    return { success: false, message: 'Tidak ada lagu yang sedang dijeda untuk dilanjutkan.' };
+  try {
+    player.pause(true);
+    session.isPlaying = false;
+    console.log(`[Music Streamer]: ⏸️ Music paused in guild ${guildId}`);
+    return { success: true, message: `⏸️ Musik **${session.currentTrack?.name || 'lagu'}** sudah dijeda (pause).` };
+  } catch (err) {
+    console.error('[Music Streamer Pause Error]:', err.message);
+    return { success: false, message: `Gagal menjeda musik: ${err.message}` };
   }
 }
 
-function pauseOrResumeMusic(guildId) {
+async function resumeMusic(guildId) {
   const session = guildMusicSessions.get(guildId);
-  if (!session || !session.player) return { success: false, message: 'Tidak ada musik yang sedang diputar di Voice Channel.' };
+  const { audioPlayers } = require('./voiceCompanion');
+  const player = session?.player || audioPlayers.get(guildId);
 
-  if (session.player.state.status === AudioPlayerStatus.Paused) {
-    return resumeMusic(guildId);
+  if (!session || !session.currentTrack || !player) {
+    return { success: false, message: 'Tidak ada lagu yang sedang dijeda untuk dilanjutkan.' };
+  }
+
+  // 1. If player is currently paused, unpause it
+  if (player.state.status === AudioPlayerStatus.Paused) {
+    const unpaused = player.unpause();
+    session.isPlaying = true;
+    console.log(`[Music Streamer]: ▶️ Music unpaused in guild ${guildId} (res=${unpaused})`);
+    return { success: true, message: `▶️ Musik **${session.currentTrack.name || 'lagu'}** dilanjutkan kembali!` };
+  }
+
+  // 2. If player is Idle or stream was evicted by voice TTS, re-stream seamlessly!
+  try {
+    console.log(`[Music Streamer]: 🔄 Re-streaming "${session.currentTrack.name}" to resume playback...`);
+    await initPlayDl();
+    const stream = await play.stream(session.currentTrack.url);
+    const audioResource = createAudioResource(stream.stream, { inputType: stream.type });
+    player.play(audioResource);
+    session.isPlaying = true;
+    session.player = player;
+    console.log(`[Music Streamer]: ▶️ Successfully resumed and re-streamed "${session.currentTrack.name}"`);
+    return { success: true, message: `▶️ Melanjutkan pemutaran musik **${session.currentTrack.name || 'lagu'}**!` };
+  } catch (err) {
+    console.error('[Music Streamer Resume Error]:', err.message);
+    return { success: false, message: `Gagal melanjutkan musik: ${err.message}` };
+  }
+}
+
+async function pauseOrResumeMusic(guildId) {
+  const session = guildMusicSessions.get(guildId);
+  const { audioPlayers } = require('./voiceCompanion');
+  const player = session?.player || audioPlayers.get(guildId);
+
+  if (!session || !player) return { success: false, message: 'Tidak ada musik yang sedang diputar di Voice Channel.' };
+
+  if (player.state.status === AudioPlayerStatus.Paused || !session.isPlaying) {
+    return await resumeMusic(guildId);
   } else {
     return pauseMusic(guildId);
   }

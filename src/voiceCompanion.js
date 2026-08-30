@@ -1349,12 +1349,15 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
-    // ── 3. MUSIC COMMANDS (Strict Wake-Word Locked) ──
-    if (hasWake) {
+    // ── 3. MUSIC COMMANDS (Owner / Wake-Word Permitted) ──
+    if (hasWake || isOwner) {
+      const normalizedVoiceTranscript = (transcript || '').replace(/[.,!?;:'"()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const normalizedCleanTranscript = (cleanTranscript || '').replace(/[.,!?;:'"()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
+
       // Stop Music
-      const stopPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:stop|matikan|matiin|hentikan)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
-      if (stopPattern.test(transcript) || stopPattern.test(cleanTranscript)) {
-        console.log('[Voice Pipeline]: ⏹️ Strict Stop Music command detected.');
+      const stopPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i;
+      if (stopPattern.test(transcript) || stopPattern.test(cleanTranscript) || stopPattern.test(normalizedVoiceTranscript) || stopPattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: ⏹️ Stop Music command detected.');
         const { stopMusic } = require('./musicStreamer');
         const res = stopMusic(guildId);
         if (textChannel) textChannel.send(res.message).catch(() => {});
@@ -1368,29 +1371,38 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // Pause Music
-      const pausePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
-      if (pausePattern.test(transcript) || pausePattern.test(cleanTranscript)) {
-        console.log('[Voice Pipeline]: ⏸️ Strict Pause Music command detected.');
+      const pausePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:pause|jeda|pause-in|jedain|berhentiin\s+sebentar|tahan)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i;
+      if (pausePattern.test(transcript) || pausePattern.test(cleanTranscript) || pausePattern.test(normalizedVoiceTranscript) || pausePattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: ⏸️ Pause Music command detected.');
         const { pauseMusic } = require('./musicStreamer');
         const res = pauseMusic(guildId);
         if (textChannel) textChannel.send(res.message).catch(() => {});
+
+        const spokenResponse = 'Sip Attila, lagunya aku jeda dulu yaa!';
+        recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+        const audioResource = await textToAudioResource(spokenResponse, client);
+        if (audioResource) await playInVC(guildId, audioResource);
         return;
       }
 
       // Resume Music
-      const resumePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:resume|unpause|lanjut|lanjutkan|puter\s+lagi|play\s+lagi|mainkan\s+lagi)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya)?\b/i;
-      if (resumePattern.test(transcript) || resumePattern.test(cleanTranscript)) {
-        console.log('[Voice Pipeline]: ▶️ Strict Resume Music command detected.');
+      const resumePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:resume|unpause|lanjut|lanjutkan|lanjutin|(?:putar|puter)\s+lagi|play\s+lagi|(?:main|mainkan|maenkan)\s+lagi|(?:nyalain|nyala)\s+lagi|setel\s+lagi)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i;
+      if (resumePattern.test(transcript) || resumePattern.test(cleanTranscript) || resumePattern.test(normalizedVoiceTranscript) || resumePattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: ▶️ Resume Music command detected.');
         const { resumeMusic } = require('./musicStreamer');
-        const res = resumeMusic(guildId);
+        const res = await resumeMusic(guildId);
         if (textChannel) textChannel.send(res.message).catch(() => {});
+
+        const spokenResponse = 'Oke Attila, lagunya aku lanjutin lagi yaa!';
+        recordSessionEntry(guildId, 'AZURA', spokenResponse);
+
+        const audioResource = await textToAudioResource(spokenResponse, client);
+        if (audioResource) await playInVC(guildId, audioResource);
         return;
       }
 
       // Setel / Putar / Ganti Lagu
-      const normalizedVoiceTranscript = (transcript || '').replace(/[.,!?;:'"()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
-      const normalizedCleanTranscript = (cleanTranscript || '').replace(/[.,!?;:'"()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
-
       const musicPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:setel|settel|setelin|settelin|stel|stelin|nyetel|nyetelkan|putar|puter|puterin|putarin|putarkeun|mainkan|maenkan|nainkan|maenin|naikin|play|nyalain|pasang|bunyikan|ganti|ubah)\s+(?:ke\s+|dengan\s+)?(?:lagu|musik|lagunya|musiknya)?\s*(?:ke\s+|dengan\s+)?(.+)/i;
       const musicMatch = normalizedVoiceTranscript.match(musicPattern) || normalizedCleanTranscript.match(musicPattern);
 

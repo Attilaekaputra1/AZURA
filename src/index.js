@@ -741,7 +741,7 @@ let finalPrompt = rawPrompt;
 
       const isResumeMusic = /\b(?:resume|unpause|puter\s+lagi|play\s+lagi|mainkan\s+lagi|lanjutkan\s+lagu)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i.test(cleanUserText) || /^(?:resume|unpause)$/i.test(cleanUserText);
       if (isResumeMusic) {
-        const res = resumeMusic(guildId);
+        const res = await resumeMusic(guildId);
         return message.reply(res.message);
       }
 
@@ -1033,7 +1033,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('music_pause_')) {
       const gid = interaction.customId.replace('music_pause_', '');
       const { pauseOrResumeMusic } = require('./musicStreamer');
-      const res = pauseOrResumeMusic(gid);
+      const res = await pauseOrResumeMusic(gid);
       return interaction.reply({ content: res.message, flags: 64 });
     }
     if (interaction.customId.startsWith('music_stop_')) {

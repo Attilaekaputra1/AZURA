@@ -1391,7 +1391,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       const normalizedVoiceTranscript = (transcript || '').replace(/[.,!?;:'"()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
       const normalizedCleanTranscript = (cleanTranscript || '').replace(/[.,!?;:'"()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-      const musicPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:setel|settel|setelin|settelin|stel|stelin|putar|puter|puterin|putarin|mainkan|play|nyalain|pasang|ganti|ubah)\s+(?:lagu|musik|lagunya|musiknya)?\s*(?:ke\s+|dengan\s+)?(.+)/i;
+      const musicPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:setel|settel|setelin|settelin|stel|stelin|nyetel|nyetelkan|putar|puter|puterin|putarin|putarkeun|mainkan|maenkan|nainkan|maenin|naikin|play|nyalain|pasang|bunyikan|ganti|ubah)\s+(?:ke\s+|dengan\s+)?(?:lagu|musik|lagunya|musiknya)?\s*(?:ke\s+|dengan\s+)?(.+)/i;
       const musicMatch = normalizedVoiceTranscript.match(musicPattern) || normalizedCleanTranscript.match(musicPattern);
 
       if (musicMatch && musicMatch[1]) {
@@ -1770,6 +1770,35 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       clearActiveExpireTimer(guildId);
       await cleanupGuild(guildId, client);
       return;
+    }
+
+    // Check if AI brain triggered MUSIC actions (Owner Only)
+    if (isOwner) {
+      const playMusicMatch = spokenResponse.match(/\[ACTION:PLAY_MUSIC:(.+?)\]/i);
+      if (playMusicMatch && playMusicMatch[1]) {
+        const songTarget = playMusicMatch[1].trim();
+        console.log(`[Voice Pipeline]: 🎵 AI Brain autonomously triggered PLAY_MUSIC action -> Song: "${songTarget}"`);
+        const player = audioPlayers.get(guildId);
+        const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+        if (player) {
+          const { streamMusicDirect } = require('./musicStreamer');
+          streamMusicDirect(guildId, songTarget, player, textChannel, 'Attila').catch(err => {
+            console.error('[Voice Pipeline Autonomous Music Error]:', err.message);
+          });
+        }
+      } else if (/\[ACTION:STOP_MUSIC\]/i.test(spokenResponse)) {
+        console.log('[Voice Pipeline]: ⏹️ AI Brain autonomously triggered STOP_MUSIC action');
+        const { stopMusic } = require('./musicStreamer');
+        stopMusic(guildId);
+      } else if (/\[ACTION:PAUSE_MUSIC\]/i.test(spokenResponse)) {
+        console.log('[Voice Pipeline]: ⏸️ AI Brain autonomously triggered PAUSE_MUSIC action');
+        const { pauseMusic } = require('./musicStreamer');
+        pauseMusic(guildId);
+      } else if (/\[ACTION:RESUME_MUSIC\]/i.test(spokenResponse)) {
+        console.log('[Voice Pipeline]: ▶️ AI Brain autonomously triggered RESUME_MUSIC action');
+        const { resumeMusic } = require('./musicStreamer');
+        resumeMusic(guildId);
+      }
     }
 
     // Check if GPT returned [PASSIVE] signal
@@ -2168,6 +2197,14 @@ ATURAN PERINTAH KELUAR DARI VC:
 HANYA jika Attila secara EKSPLISIT menyuruh AZURA keluar dari Voice Channel (misal: "Azura kamu keluar ya", "Ara leave vc sekarang"), jawablah dengan:
 "Siap Attila... gais aku off duluan ya udah disuruh keluar sama bos soalnya [laughs], babay! [ACTION:LEAVE_VC]"
 Jika Attila hanya bercerita atau mengobrol biasa (misal: "tadi gue keluar beli makan", "uang keluar", "keluar bentar"), DILARANG KERAS memicu [ACTION:LEAVE_VC]! Jawablah topik tersebut secara santai dan natural.
+
+ATURAN PERINTAH PEMUTARAN MUSIK DI VOICE CHANNEL:
+Jika Attila meminta memutar, menyetel, atau memainkan lagu/musik (misal: "setel lagu Danza Kuduro", "nainkan lagu dan Zakuduro", "putar lofi", "lagu komang"):
+1. Jawab ceria mengonfirmasi bahwa kamu langsung memutarkan lagunya di Voice Channel!
+2. Sisipkan tag aksi [ACTION:PLAY_MUSIC:judul_lagu_asli] di akhir kalimatmu (misal: [ACTION:PLAY_MUSIC:Danza Kuduro], [ACTION:PLAY_MUSIC:Lofi Beats]). Perbaiki ejaan judulnya jika ada salah dengar dari ucapan!
+3. Jika diminta stop musik: sisipkan [ACTION:STOP_MUSIC] di akhir jawabanmu.
+4. Jika diminta pause musik: sisipkan [ACTION:PAUSE_MUSIC] di akhir jawabanmu.
+5. Jika diminta resume/lanjutkan musik: sisipkan [ACTION:RESUME_MUSIC] di akhir jawabanmu.
 
 ATURAN WAJIB VOICE OBROLAN BIASA:
 1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (${isOwner ? 'durasi bicara 1 - 3 MENIT jika topik butuh penjelasan, atau singkat padat jika pertanyaan simpel' : 'durasi bicara 20 - 45 DETIK santai akrab'}). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.

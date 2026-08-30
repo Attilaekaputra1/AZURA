@@ -82,6 +82,8 @@ const {
   getAudioQueue
 } = require('./ttsStreamingQueue');
 
+const { getSelfAwarenessContext } = require('./selfAwareness');
+
 // Load persistent voice state cache on startup (Solving Concurrency State Loss)
 loadVoiceStateCache(voiceSessions, conversationMode);
 
@@ -1819,6 +1821,8 @@ ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
 ${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
+
+${getSelfAwarenessContext(isOwner, speakerName, true)}
 
 Kamu mengenali panggilan namamu seperti "Azura", "Ara", "Zura", atau "Ajur".
 

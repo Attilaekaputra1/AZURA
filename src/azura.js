@@ -6,6 +6,8 @@ const { getUserFacts, autoExtractFact } = require('./memory');
 const { processFinanceIntelligence } = require('./finance');
 const { processSmartReminder } = require('./reminder');
 const { processImageIntelligence } = require('./imageGen');
+const { getSelfAwarenessContext } = require('./selfAwareness');
+const { classifyCognitiveIntent, getCognitiveReasoningDirectives } = require('./reasoningEngine');
 
 // Single OpenAI Client Singleton
 let openaiClient = null;
@@ -201,6 +203,8 @@ Aturan Menanggapi Balasan dari Penerima Pesan Titipan / DM dari Attila:
   1. Pahami konteks percakapan secara menyambung & alami seumuran Gen Z.
   2. Jawab santai seadanya tanpa kaku (misal: "Wah kurang tahu deh, aku cuma nyampaiin pesannya doang nih").
   3. Arahkan penerima pesan untuk langsung mengobrol dengan Attila secara santai.
+
+${getSelfAwarenessContext(isOwner, userName, false)}
 
 Aturan Panjang Jawaban (ADAPTIF):
 1. Chat santai / basa-basi → PENDEK, 1-3 kalimat saja.
@@ -404,9 +408,14 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     if (vcSummary) return vcSummary;
   }
 
-  const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}_user_${userId}`;
+  const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}`;
   const history = budgetGuard.getContext(contextKey);
   const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey, mentionedUserIds);
+
+  // Cognitive Intent Classification & Causal Reasoning Directive
+  const hasReplyContext = userPrompt.includes('[KONTEKS JANGKAR BALASAN') || userPrompt.includes('[Konteks Membalas Pesan');
+  const cognitiveIntent = classifyCognitiveIntent(userPrompt, hasReplyContext);
+  const reasoningDirective = getCognitiveReasoningDirectives(cognitiveIntent, isOwner, userName);
 
   // Explicit Priority Memory Summarization Trigger ("Azura ini penting", "catat ini penting", "buat summary")
   const isExplicitPrioritySummary = /\b(?:azura\s+ini\s+penting|catat\s+ini\s+penting|ingat\s+ini\s+penting|sesi\s+ini\s+penting|simpan\s+summary|buatkan\s+summary|rangkum\s+obrolan\s+ini)\b/i.test(userPrompt);
@@ -472,10 +481,11 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     }
   } catch (_) {}
 
+  const speakerTag = isDM ? '' : `[${userName}]: `;
   let userContent;
   if (imageUrls.length > 0) {
     userContent = [
-      { type: 'text', text: userPrompt || 'Coba lihat gambar ini dan kasih tanggapan kamu.' }
+      { type: 'text', text: `${speakerTag}${userPrompt || 'Coba lihat gambar ini dan kasih tanggapan kamu.'}` }
     ];
     for (const url of imageUrls) {
       userContent.push({
@@ -484,10 +494,10 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       });
     }
   } else {
-    userContent = userPrompt;
+    userContent = isDM ? userPrompt : `${speakerTag}${userPrompt}`;
   }
 
-  let systemMessage = systemPrompt + liveVcContext + routeContext;
+  let systemMessage = systemPrompt + liveVcContext + routeContext + reasoningDirective;
   if (searchContext) {
     systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY AI INTELLIGENCE)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +

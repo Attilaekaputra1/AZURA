@@ -412,7 +412,12 @@ async function handleIncomingMessage(message, isEdit = false) {
         const refResolved = await resolveUserMentions(referencedMsg.content || '', client, message.guild);
         const refContent = refResolved.resolvedText.trim();
         if (refContent) {
-          replyContextPrompt = `[Konteks Membalas Pesan @${refAuthor}]: "${refContent.slice(0, 600)}"`;
+          const { buildReplyCausalAnchor } = require('./reasoningEngine');
+          replyContextPrompt = buildReplyCausalAnchor({
+            authorName: refAuthor,
+            text: refContent,
+            isFromBot: referencedMsg.author.id === client.user.id
+          }, '');
         }
       }
     } catch (refErr) {

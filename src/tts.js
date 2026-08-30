@@ -49,7 +49,7 @@ function detectLanguage(text) {
  */
 async function generateVoiceNote(text, client = null) {
   const cleanText = text
-    .slice(0, 400)
+    .slice(0, 700)
     .replace(/<[^>]+>/g, '')
     .replace(/\*\*/g, '')
     .replace(/[*_~`#]/g, '')

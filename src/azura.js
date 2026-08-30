@@ -58,7 +58,7 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
     behaviorPrompt = getBehaviorContextForPrompt(userId, mentionedUserIds);
   } catch (_) {}
 
-  const { getPersonalityMode, getPersonalityPrompt, SOUL_LOCK_RULE } = require('./personality');
+  const { getPersonalityMode, getPersonalityPrompt, SOUL_LOCK_RULE, POLYGLOT_LANGUAGE_POLICY } = require('./personality');
   const currentMode = getPersonalityMode();
   const personalityInstruction = getPersonalityPrompt(currentMode, isOwner, userName, false);
 
@@ -115,6 +115,8 @@ ${personalityInstruction}${drowsyPrompt}
 
 ${SOUL_LOCK_RULE}
 
+${POLYGLOT_LANGUAGE_POLICY}
+
 Identitas & Latar Belakang Utama:
 - Pengalaman Komprehensif: Memiliki wawasan & pengalaman setara 10 tahun di industri teknologi (software engineering, AI, web, architecture) dan industri kreatif (design, UI/UX, branding, media, konten).
 - Kultur & Behavior: Telah hidup 22 tahun dengan paham mendalam tentang human behavior Indonesia serta dinamika interaksi Gen Z Indonesia maupun global.
@@ -137,10 +139,12 @@ Penyesuaian Situasi & Konteks Obrolan:
    - Hindari gaya bercanda kaku/flat. Bersikaplah seperti cewek 22 tahun yang asyik diajak seru-seruan di circle Discord.
 ${toneAndRelationshipGuideline}
 
-Informasi Waktu Real-Time & Akses Internet:
+Informasi Waktu Real-Time, Akses Internet & Protokol Anti-Halusinasi (Zero-Hallucination Truth Gate):
 - Hari ini adalah ${todayStr}, pukul ${timeStr} WIB.
-- Kamu terhubung langsung ke mesin pencarian dan riset internet real-time (Tavily AI Engine).
-- Jika ada data riset internet yang dilampirkan dalam konteks percakapan, itu adalah fakta aktual dan valid. DILARANG KERAS berkata "aku tidak punya akses internet", "sebagai AI pengetahuanku terbatas", atau "aku tidak bisa mencari info terbaru". Jawablah dengan yakin, ramah, dan cerdas menggunakan data tersebut!
+- Kamu terhubung langsung ke mesin ekstraksi dokumen web & riset internet real-time (Levels 1 - 5 Web Engine).
+- Jika ada data riset internet atau ekstraksi web yang dilampirkan dalam konteks percakapan:
+  1. Data tersebut adalah fakta aktual dan terverifikasi. Gunakan dengan yakin, cerdas, dan to the point.
+  2. 🔒 ZERO-HALLUCINATION / ANTI-NGAWUR RULE (MUTLAK): Jika lawan bicara menanyakan fakta spesifik (misal: tanggal rilis pasti, harga, spesifikasi, lokasi) yang TIDAK TERCANTUM dalam data web terlampir, JANGAN PERNAH MENEBAK ATAU MENGARANG! Katakan secara jujur dan elegan bahwa detail tersebut belum diumumkan di halaman/data resmi tersebut, lalu jelaskan apa saja fakta yang sudah tersedia. DILARANG KERAS berkata "aku tidak punya akses internet" atau "sebagai AI pengetahuanku terbatas".
 
 Informasi Memori Jangka Panjang & Personalisasi Pengguna:
 - Lawan bicaramu bernama "${userName}".${personalizationPrompt}
@@ -182,6 +186,11 @@ Sebagai AZURA, tingkat kecerdasanmu setara dengan Autonomous Agent tingkat tingg
       * Jika di awal kalimat/pembuka/rekap: SELALU gunakan **"Attila"** atau **"Lu / Kamu"** (DILARANG menaruh "Att" di awal kalimat!).
       * Jika di tengah atau di akhir kalimat: BOLEH gunakan **"Att"** (dua huruf t), **"Attila"**, atau **"Putra"**.
 
+7. **ATURAN KEJUJURAN DATA & ANTI-HALUSINASI (SOP KETAT)**:
+   - **DILARANG MENEBAK / MENGARANG BEBAS**: Jika user bertanya tentang suatu judul anime, manga, game, film, tokoh, produk, atau fakta spesifik, **JANGAN PERNAH MENEBAK atau menghubung-hubungkan judul yang mirip secara asal**.
+   - **GUNAKAN PENCARIAN LIVE**: Gunakan tool pencarian \`search_anime_myanimelist\` atau \`search_web\` untuk memverifikasi data sebelum menjawab.
+   - **KEJUJURAN EPISTEMIK**: Jika suatu judul setelah dicek di MyAnimeList atau internet memang belum terdaftar / belum ada infonya, katakan secara transparan dan tanyakan apakah ada link referensi atau judul alternatif.
+
 Fitur Interaktif & Game yang Kamu Kuasai:
 - **Aktivitas Voice & Games di VC**: Kamu bisa meluncurkan sesi nobar YouTube Watch Together, main Wordle / Letter League, dan main Catur bersama di Voice Channel via \`/activity\` atau perintah chat langsung (misal: "buka wordle di vc", "setel youtube together di vc").
 
@@ -204,6 +213,11 @@ Aturan Menanggapi Balasan dari Penerima Pesan Titipan / DM dari Attila:
   2. Jawab santai seadanya tanpa kaku (misal: "Wah kurang tahu deh, aku cuma nyampaiin pesannya doang nih").
   3. Arahkan penerima pesan untuk langsung mengobrol dengan Attila secara santai.
 
+Aturan Pembacaan Al-Qur'an / Mengaji (Khusus Voice Channel):
+- Jika ada pengguna (termasuk Attila) memintamu melafalkan/membacakan surat Al-Qur'an atau mengaji di chat teks:
+- Jelaskan secara ramah, santun, dan manis bahwa membaca Al-Qur'an itu harus dilafalkan dengan suara tartil secara langsung di Voice Channel (VC).
+- Ajak mereka masuk ke Voice Channel: "Membaca Al-Qur'an itu lebih afdal dan indah kalau dilafalkan langsung dengan suara tartil di Voice Channel (VC). Yuk masuk ke VC bareng aku biar aku bacakan langsung dengan suara merdu! ✨"
+
 ${getSelfAwarenessContext(isOwner, userName, false)}
 
 Aturan Panjang Jawaban (ADAPTIF):
@@ -214,23 +228,48 @@ Aturan Panjang Jawaban (ADAPTIF):
 `.trim();
 }
 
-// Keywords and regex that trigger web search via Tavily AI
-function needsSearch(prompt) {
+// Enhanced Knowledge & Fact Search Detector with Contextual Chaining
+function needsSearch(prompt, history = []) {
   if (!prompt || typeof prompt !== 'string') return false;
+
+  // VC control commands and internal bot feature queries should never search web
+  if (/\b(?:keluar\b.*?\b(?:vc|voice)|leave\s+vc|masuk\b.*?\b(?:vc|voice)|join\b.*?\b(?:vc|voice)|dc\s+dari\s+vc|disconnect\s+vc|kuota\s+(?:suara|vc))\b/i.test(prompt)) return false;
 
   // 1. If user sent a web link (URL)
   if (/https?:\/\/[^\s]+/i.test(prompt)) return true;
 
-  const lower = prompt.toLowerCase();
+  const lower = prompt.toLowerCase().trim();
 
-  // 2. Explicit search/research/news keywords
-  const explicitSearchRegex = /\b(?:search|googling|cariin|carikan|cari|riset|berita|news|info\s+terbaru|isu\s+terkini|kabar\s+terbaru|update\s+terkini|info\s+hari\s+ini|kejadian\s+hari\s+ini|trending|viral)\b/i;
+  // 2. Contextual Chaining: If previous message context was discussing research, anime, search, or lookups
+  if (history && history.length > 0) {
+    const hasSearchContext = history.slice(-4).some(h => {
+      const txt = (typeof h.content === 'string' ? h.content : '').toLowerCase();
+      return /\b(?:myanimelist|mal|anime|manga|cari|search|cek|informasi|database|lookup|judul|sinopsis)\b/i.test(txt);
+    });
 
-  // 3. Real-time factual queries (sports, weather, prices, release dates, elections, recent facts)
+    const isDirectFollowUpQuery = lower.split(/\s+/).length <= 7 && !/^(?:halo|hai|pagi|siang|malam|makasih|oke|siap|iya|tidak|yoi|wkwk|haha|bye|dadah)$/i.test(lower);
+    if (hasSearchContext && isDirectFollowUpQuery) {
+      return true;
+    }
+  }
+
+  // 3. Explicit search/research/news keywords
+  const explicitSearchRegex = /\b(?:search|googling|cariin|carikan|cari|riset|berita|news|info\s+terbaru|isu\s+terkini|kabar\s+terbaru|update\s+terkini|info\s+hari\s+ini|kejadian\s+hari\s+ini|trending|viral|myanimelist|mal)\b/i;
+
+  // 4. Real-time factual queries (sports, weather, prices, release dates, elections, recent facts)
   const realTimeFactsRegex = /\b(?:siapa\s+(?:juara|presiden|ketua|pemenang|menteri|ceo|pemilik|pencipta)|skor|klasemen|jadwal|rilis|gempa|cuaca|kurs|harga\s+(?:kripto|emas|saham|iphone|hp|laptop|mobil|motor|btc|eth)|tahun\s+2026|hari\s+ini|sekarang\s+lagi)\b/i;
 
-  // 4. Inquiries requesting web comparison, temporal check, or factual check
-  const checkInquiryRegex = /\b(?:cek\s+(?:info|berita|kabar|harga|spesifikasi|reviu|review|artikel)|perbandingan\s+antara|vs|apakah\s+(?:ada|beneran|benar|sudah|sedang)|review\s+tentang|rekomendasi\s+(?:laptop|hp|film|anime|game)\s+(?:2025|2026|terbaru)|kapan\b.*?\b(?:rilis|tayang|main|tanding|update))\b/i;
+  // 5. Inquiries requesting web comparison, temporal check, anime lookup, or factual check
+  const checkInquiryRegex = /\b(?:cek\s+(?:info|berita|kabar|harga|spesifikasi|reviu|review|artikel)|perbandingan\s+antara|vs|apakah\s+(?:ada|beneran|benar|sudah|sedang)|review\s+tentang|rekomendasi\s+(?:laptop|hp|film|anime|game)\s+(?:2025|2026|terbaru)|kapan\b.*?\b(?:rilis|tayang|main|tanding|update)|bagaimana\s+dengan|gimana\s+dengan|tau\s+(?:tentang|anime|film|game|nama)|kenal\s+(?:sama|dengan)|tentang\s+anime|anime\s+apa)\b/i;
+
+  // 6. Specific Title / Noun Entity queries with "ara, [Title]" or "azura, [Title]"
+  const directTitleQueryRegex = /^(?:azura|ara|zura|ajur|ajura)[,\s]+([a-zA-Z0-9\s'-]{2,40})$/i;
+  if (directTitleQueryRegex.test(lower)) {
+    const candidate = lower.replace(/^(?:azura|ara|zura|ajur|ajura)[,\s]+/i, '').trim();
+    if (!/^(?:apa kabar|lagi apa|kamu siapa|halo|hai|pagi|malam|siap|makasih|love you|cantik|ganteng)$/i.test(candidate)) {
+      return true;
+    }
+  }
 
   return explicitSearchRegex.test(lower) || realTimeFactsRegex.test(lower) || checkInquiryRegex.test(lower);
 }
@@ -248,9 +287,10 @@ function resolveContextualSearchQuery(prompt, history = []) {
 
   const lower = prompt.toLowerCase().trim();
   const words = lower.split(/\s+/);
-  const isShortFollowUp = words.length <= 4 && (
-    /\b(?:kapan|siapa|berapa|apa|dimana|bagaimana|bisa\s+gak|rilisnya|rilis|harganya|developernya|genrenya|tentang\s+apa|linknya|link)\b/i.test(lower) ||
-    /\b(?:itu|ini|dia|tersebut|game\s+itu|web\s+itu|proyek\s+itu|aplikasi\s+ini)\b/i.test(lower)
+  const isShortFollowUp = words.length <= 5 && (
+    /\b(?:kapan|siapa|berapa|apa|dimana|bagaimana|gimana|bisa\s+gak|rilisnya|rilis|harganya|developernya|genrenya|tentang\s+apa|linknya|link)\b/i.test(lower) ||
+    /\b(?:itu|ini|dia|tersebut|game\s+itu|web\s+itu|proyek\s+itu|aplikasi\s+ini|anime\s+ini|anime\s+itu)\b/i.test(lower) ||
+    /^(?:azura|ara|zura|ajur|ajura)[,\s]+/i.test(lower)
   );
 
   if (isShortFollowUp && history && history.length > 0) {
@@ -266,7 +306,7 @@ function resolveContextualSearchQuery(prompt, history = []) {
         return `${domainName} ${prompt}`;
       }
 
-      // 2. Check for named entities or titles (e.g. Astrae Oratio, Dynamis One)
+      // 2. Check for named entities or titles (e.g. Astrae Oratio, Dynamis One, MyAnimeList)
       const titleMatch = text.match(/\b([A-Z][a-z0-9]+(?:\s+[A-Z][a-z0-9]+){1,3})\b/);
       if (titleMatch && !/^(?:Halo|Selamat|Makasih|Attila|Azura|Pengguna|Bisa|Situs|Dokumen|Ekstraksi|Rangkuman)/i.test(titleMatch[1])) {
         return `${titleMatch[1]} ${prompt}`;
@@ -300,6 +340,22 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const imageGenResponse = await processImageIntelligence(userPrompt, userName, guildId, userId, isOwner, imageUrls);
   if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
+
+  // ── NATURAL MINI-GAMES TRIGGER (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard) ──
+  const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+  const naturalGame = parseNaturalGameRequest(userPrompt);
+  if (naturalGame && channelId) {
+    if (naturalGame.game === 'tictactoe') {
+      return startTicTacToeGame(userId, userName, { id: channelId }, naturalGame.difficulty);
+    } else if (naturalGame.game === 'sambungkata') {
+      return startWordChainGame(userId, userName, { id: channelId });
+    } else if (naturalGame.game === 'trivia') {
+      return startTriviaGame(userId, userName, { id: channelId }, naturalGame.difficulty);
+    } else if (naturalGame.game === 'leaderboard') {
+      const embed = getLeaderboardEmbed();
+      return { embeds: [embed] };
+    }
+  }
 
   // ── PERSONALITY MODE SWITCH TRIGGER (ATTILA / OWNER EXCLUSIVE) ──
   const { parseNaturalPersonalitySwitch, setPersonalityMode } = require('./personality');
@@ -462,10 +518,20 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   let searchContext = scrapedDataContent;
-  if (!searchContext && needsSearch(userPrompt) && imageUrls.length === 0) {
+  if (!searchContext && needsSearch(userPrompt, history) && imageUrls.length === 0) {
+    const isAnimeQuery = /\b(?:myanimelist|mal|anime|manga|manhwa|light\s+novel|wibu|otaku|seiyuu)\b/i.test(userPrompt) ||
+      history.some(h => /\b(?:myanimelist|mal|anime|manga)\b/i.test(typeof h.content === 'string' ? h.content : ''));
+
     const contextualQuery = resolveContextualSearchQuery(userPrompt, history);
-    console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${userPrompt}")`);
-    searchContext = await searchWeb(contextualQuery);
+
+    if (isAnimeQuery) {
+      const { searchAnimeMyAnimeList } = require('./animeSearch');
+      console.log(`[AZURA Anime Search]: Querying MyAnimeList / Jikan API for: "${contextualQuery}"`);
+      searchContext = await searchAnimeMyAnimeList(contextualQuery);
+    } else {
+      console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${userPrompt}")`);
+      searchContext = await searchWeb(contextualQuery);
+    }
   }
 
   // Check Verified Route & Distance Engine (KRL / MRT / Road Distance)
@@ -499,7 +565,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   let systemMessage = systemPrompt + liveVcContext + routeContext + reasoningDirective;
   if (searchContext) {
-    systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY AI INTELLIGENCE)]:\n${searchContext}\n\n` +
+    systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY / MYANIMELIST)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +
       `1. Gunakan data aktual di atas untuk menjawab secara tuntas, cerdas, akurat, dan percaya diri.\n` +
       `2. DILARANG KERAS berkata "aku tidak punya akses internet" atau "tidak bisa mengecek data terbaru". Kamu SUDAH memiliki data internet di atas!\n` +
@@ -660,7 +726,10 @@ function sanitizeAiOutput(text, prompt = '') {
 
 module.exports = {
   askAzura,
+  generateAzuraResponse: askAzura,
   streamAzura,
   getSystemPrompt,
-  sanitizeAiOutput
+  sanitizeAiOutput,
+  needsSearch,
+  resolveContextualSearchQuery
 };

@@ -58,8 +58,11 @@ const {
 
 const {
   SPONTANEOUS_SONGS,
+  SOFT_HUMMING_SONGS,
   pendingAttilaVoiceCalls,
   hummingTimers,
+  inactivityTimers,
+  isOwnerInterruptionPhrase,
   resetHummingTimer: resetAutonomousHummingTimer,
   clearHummingTimer
 } = require('./voiceAutonomousBehaviors');
@@ -73,8 +76,7 @@ const {
   WAKE_WORDS,
   hasWakeWord,
   analyzeVoiceIntent,
-  isWakeWordInvoked,
-  isSoloAttilaSession
+  isWakeWordInvoked
 } = require('./voiceIntentRouter');
 
 const {
@@ -448,13 +450,19 @@ function playInVC(guildId, resource) {
 }
 
 // ============================================================
-// Inactivity 10-Minute Icebreaker & 15-Minute Deep Sleep Engine
+// Dual-Tier Inactivity Humming (2-Min Soft / 3-Min Silence) & 15-Min Sleep Engine
 // ============================================================
-const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000;    // 3 minutes of silence -> Spontaneous singing/humming
+const AZURA_INACTIVITY_HUMMING_MS = 2 * 60 * 1000; // 2 minutes of no direct interaction with Azura -> Soft Serenade/Murmur
+const IDLE_HUMMING_INTERVAL_MS = 3 * 60 * 1000;    // 3 minutes of total room silence -> Spontaneous Group/Solo Singing
 const IDLE_SILENCE_ICEBREAKER_MS = 10 * 60 * 1000; // 10 minutes of silence in VC
 const DEEP_SLEEP_TIMEOUT_MS = 15 * 60 * 1000;      // 15 minutes of silence -> Deep Sleep (0% bandwidth/API)
 
 function resetIdleTimer(guildId, client, voiceChannel) {
+  if (inactivityTimers.has(guildId)) {
+    clearTimeout(inactivityTimers.get(guildId));
+    inactivityTimers.delete(guildId);
+  }
+
   if (hummingTimers.has(guildId)) {
     clearTimeout(hummingTimers.get(guildId));
     hummingTimers.delete(guildId);
@@ -487,7 +495,15 @@ function resetIdleTimer(guildId, client, voiceChannel) {
 
   if (!client || !activeConn) return;
 
-  // 1. Arm 3-minute Spontaneous Humming & Singing Engine (when VC is silent)
+  // 1. Arm 2-minute Soft Humming & Murmur (No direct interaction with Azura)
+  const softHumTimer = setTimeout(() => {
+    triggerAutonomousAzuraSoftHumming(guildId, client, voiceChannel).catch(err => {
+      console.error('[Autonomous Soft Humming Error]:', err.message);
+    });
+  }, AZURA_INACTIVITY_HUMMING_MS);
+  inactivityTimers.set(guildId, softHumTimer);
+
+  // 2. Arm 3-minute Spontaneous Singing Engine (when VC is completely silent)
   const humTimer = setTimeout(() => {
     triggerAutonomousVcHumming(guildId, client, voiceChannel).catch(err => {
       console.error('[Autonomous VC Humming Error]:', err.message);
@@ -495,7 +511,7 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, IDLE_HUMMING_INTERVAL_MS);
   hummingTimers.set(guildId, humTimer);
 
-  // 2. Arm 10-minute Icebreaker
+  // 3. Arm 10-minute Icebreaker
   const timer = setTimeout(() => {
     triggerAutonomousVcIcebreaker(guildId, client, voiceChannel).catch(err => {
       console.error('[Autonomous VC Icebreaker Error]:', err.message);
@@ -503,7 +519,7 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, IDLE_SILENCE_ICEBREAKER_MS);
   idleTimers.set(guildId, timer);
 
-  // 3. Arm 15-minute Deep Sleep Auto-Pause
+  // 4. Arm 15-minute Deep Sleep Auto-Pause
   const dsTimer = setTimeout(() => {
     enterDeepSleep(guildId, client, voiceChannel).catch(err => {
       console.error('[Deep Sleep Error]:', err.message);
@@ -511,13 +527,46 @@ function resetIdleTimer(guildId, client, voiceChannel) {
   }, DEEP_SLEEP_TIMEOUT_MS);
   deepSleepTimers.set(guildId, dsTimer);
 
-  console.log(`[VC Timers]: ⏳ 3-Min Humming & 10-Min Icebreaker timers armed for guild ${guildId}.`);
+  console.log(`[VC Timers]: ⏳ Real-Time Dialogue Reset: 2-Min Soft Humming & 3-Min Singing timers armed for guild ${guildId}.`);
 }
 
 /**
- * Trigger spontaneous humming / singing when VC has been silent for 3 minutes.
- * - Solo VC (Attila + Azura only): Personal serenade for Attila
- * - Crowded VC (friends present): Group-friendly spontaneous singing
+ * 🌸 TIPE 2: Trigger soft humming / murmurs when no one interacted with Azura for 2 minutes.
+ * (Gentle, quiet, non-intrusive accompaniment for Solo VC & quiet room intervals)
+ */
+async function triggerAutonomousAzuraSoftHumming(guildId, client, voiceChannel) {
+  const conn = activeConnections.get(guildId);
+  if (!conn) return;
+
+  if (isBotSpeaking.has(guildId)) return;
+
+  try {
+    const { guildMusicSessions } = require('./musicStreamer');
+    if (guildMusicSessions.has(guildId)) return;
+  } catch (_) {}
+
+  const channel = voiceChannel || client?.channels?.cache?.get(conn.joinConfig?.channelId);
+  if (!channel) return;
+
+  const humanMembers = channel.members ? channel.members.filter(m => !m.user.bot) : new Map();
+  if (humanMembers.size === 0) return;
+
+  const otherHumans = humanMembers.filter(m => m.id !== config.OWNER_DISCORD_ID).size;
+  const isSoloVC = otherHumans === 0;
+
+  const randomSoftSong = SOFT_HUMMING_SONGS[Math.floor(Math.random() * SOFT_HUMMING_SONGS.length)];
+  console.log(`[VC Soft Humming]: 🌸 2-Minute Azura inactivity elapsed (${isSoloVC ? 'Solo VC with Attila' : `Crowded VC`}). Azura soft humming: "${randomSoftSong}"`);
+  
+  recordSessionEntry(guildId, 'AZURA', randomSoftSong, 'voice');
+
+  const audioResource = await textToAudioResource(randomSoftSong, client, MAX_NORMAL_CHARS, { userTranscript: '', isStory: false, forcedModel: 'eleven_v3' });
+  if (audioResource) {
+    await playInVC(guildId, audioResource);
+  }
+}
+
+/**
+ * 🎵 TIPE 1: Trigger spontaneous singing when entire room has been silent for 3 minutes.
  * Always uses eleven_v3 for maximum vocal expressiveness in singing.
  */
 async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
@@ -572,7 +621,7 @@ async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
     }
   } catch (_) {}
 
-  console.log(`[VC Humming]: 🎵 3-Minute silence elapsed (${isSoloVC ? 'Solo VC' : `Crowded VC - ${otherHumans} friends`}). Azura spontaneously singing: "${selectedSong.slice(0, 60)}..."`);
+  console.log(`[VC Humming]: 🎵 3-Minute room silence elapsed (${isSoloVC ? 'Solo VC' : `Crowded VC - ${otherHumans} friends`}). Azura spontaneously singing: "${selectedSong.slice(0, 60)}..."`);
   recordSessionEntry(guildId, 'AZURA', selectedSong, 'voice');
 
   // Force eleven_v3 for singing — maximum vocal expressiveness with audio tags
@@ -586,7 +635,7 @@ async function triggerAutonomousVcHumming(guildId, client, voiceChannel) {
     setActiveMode(guildId);
   }
 
-  // Re-arm next 3-minute timer if silence continues
+  // Re-arm timers
   resetIdleTimer(guildId, client, channel);
 }
 
@@ -815,8 +864,77 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
     const { isUserBanned } = require('./vault');
     if (isUserBanned(userId)) return;
 
-    // === Gate 1: Check if bot is speaking or actively processing previous voice turn (prevent overlaps & double responses) ===
-    if (isBotSpeaking.has(guildId) || isGuildProcessingVoice.has(guildId)) return;
+    // === Gate 1: Check if bot is speaking -> Handle Owner-Only Smart Barge-In Interruption ===
+    if (isBotSpeaking.has(guildId)) {
+      if (userId !== config.OWNER_DISCORD_ID) return; // Non-owner members cannot interrupt
+
+      if (activeRecordings.has(userId)) return;
+      activeRecordings.add(userId);
+
+      try {
+        const opusStream = receiver.subscribe(userId, {
+          end: {
+            behavior: EndBehaviorType.AfterSilence,
+            duration: 350
+          }
+        });
+
+        const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
+        const pcmChunks = [];
+        const pcmStream = opusStream.pipe(decoder);
+
+        let bargeFinished = false;
+        const handleOwnerBargeIn = async () => {
+          if (bargeFinished) return;
+          bargeFinished = true;
+          activeRecordings.delete(userId);
+
+          try {
+            const pcmBuffer = Buffer.concat(pcmChunks);
+            if (pcmBuffer.length < 48000 * 2 * 2 * 0.25) return; // < 250ms -> ignore short cough/clicks
+
+            const { calculateRmsAndPeak, pcmToWav, transcribeVoice } = require('./voiceAudioPipeline');
+            const { isOwnerInterruptionPhrase } = require('./voiceAutonomousBehaviors');
+
+            const { rms, peak } = calculateRmsAndPeak(pcmBuffer);
+            if (rms < 250 || peak < 700) return; // Acoustic Gate: ignore quiet breathing/echo
+
+            const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
+            const transcript = await transcribeVoice(wavBuffer);
+            if (!transcript || transcript.length < 2) return;
+
+            console.log(`[Smart Barge-In Detector]: Attila spoke while Azura speaking: "${transcript}"`);
+
+            if (isOwnerInterruptionPhrase(transcript)) {
+              console.log(`[Smart Barge-In]: 🛑 Interruption Intent matched ("${transcript}"). Executing Instant Silent Yield!`);
+              const player = audioPlayers.get(guildId);
+              if (player) player.stop(true);
+
+              const queue = getAudioQueue(guildId, player);
+              if (queue) queue.clear();
+
+              isBotSpeaking.delete(guildId);
+              setActiveMode(guildId);
+              resetIdleTimer(guildId, client, voiceChannel);
+            }
+          } catch (bargeErr) {
+            console.warn('[Smart Barge-In Warning]:', bargeErr.message);
+          }
+        };
+
+        const maxBargeTimer = setTimeout(handleOwnerBargeIn, 3000);
+        pcmStream.on('data', chunk => pcmChunks.push(chunk));
+        pcmStream.on('end', () => { clearTimeout(maxBargeTimer); handleOwnerBargeIn(); });
+        opusStream.on('end', () => { clearTimeout(maxBargeTimer); handleOwnerBargeIn(); });
+        pcmStream.on('error', () => { clearTimeout(maxBargeTimer); activeRecordings.delete(userId); });
+        opusStream.on('error', () => { clearTimeout(maxBargeTimer); activeRecordings.delete(userId); });
+      } catch (_) {
+        activeRecordings.delete(userId);
+      }
+      return;
+    }
+
+    if (isGuildProcessingVoice.has(guildId)) return;
 
     // === Gate 2: Not already recording this user ===
     if (activeRecordings.has(userId)) return;
@@ -1193,7 +1311,23 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
-    // ── 2. SEND DM COMMAND (Owner Only) ──
+    // ── 2. PERSONALIZED ENCOURAGEMENT DM + VOICE NOTE DISPATCH (Owner Only) ──
+    const { handleVoiceDmEncouragement } = require('./voiceDmCompanion');
+    const isEncouragementDispatched = await handleVoiceDmEncouragement(
+      client,
+      transcript,
+      guildId,
+      voiceChannel,
+      playInVC,
+      textToAudioResource,
+      recordSessionEntry
+    );
+    if (isEncouragementDispatched) {
+      setActiveMode(guildId);
+      return;
+    }
+
+    // ── 2B. MANUAL SEND DM COMMAND (Owner Only) ──
     const dmPattern = /(?:azura|ara|zura)?\s*(?:tolong\s+)?(?:kirimin|kirim|send)\s+(?:pesan|dm|chat)\s+ke\s+(?:akun\s+)?(?:yang\s+namanya\s+|yg\s+namanya\s+|nama\s+)?([^,]+?)(?:,\s*|\s+)(?:isinya|bilang|pesan|pesannya|yaitu)\s+(.+)/i;
     const dmMatch = transcript.match(dmPattern) || cleanTranscript.match(dmPattern);
     if (dmMatch && hasWake) {
@@ -1425,6 +1559,94 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
     }
+
+    // ── 5. MINI-GAMES VOICE-TO-CHAT BRIDGE (Owner Only) ──
+    const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+    const naturalGame = parseNaturalGameRequest(transcript) || parseNaturalGameRequest(cleanTranscript);
+    if (naturalGame && textChannel) {
+      console.log(`[Voice Pipeline]: 🎮 Voice-to-Chat Mini-Game Triggered by Attila -> Game: ${naturalGame.game}`);
+      let spokenResponse = '';
+      if (naturalGame.game === 'tictactoe') {
+        spokenResponse = 'Siap Attila! Papan Tic-Tac-Toe-nya udah aku buka di chat VC yaa, yuk klik tombol pilihanmu! [laughs]';
+        const res = startTicTacToeGame(userId, 'Attila', textChannel, naturalGame.difficulty);
+        textChannel.send({ embeds: res.embeds, components: res.components }).catch(() => {});
+      } else if (naturalGame.game === 'sambungkata') {
+        spokenResponse = 'Sip Attila! Sesi Sambung Kata KBBI udah dimulai di chat VC! Kata pertamaku udah meluncur yaa!';
+        const res = startWordChainGame(userId, 'Attila', textChannel);
+        textChannel.send({ embeds: res.embeds }).catch(() => {});
+      } else if (naturalGame.game === 'trivia') {
+        spokenResponse = 'Siap Attila! Kuis Trivia 10 Rantai Soal sudah aku buka di chat VC yaa! Yuk pilih jawaban yang benar di bawah! ✨';
+        const res = startTriviaGame(userId, 'Attila', textChannel, naturalGame.difficulty);
+        textChannel.send({ embeds: res.embeds, components: res.components }).catch(() => {});
+      } else if (naturalGame.game === 'leaderboard') {
+        spokenResponse = 'Ini dia papan peringkat Top 10 pemain mini-games Azura di chat VC yaa!';
+        const embed = getLeaderboardEmbed();
+        textChannel.send({ embeds: [embed] }).catch(() => {});
+      }
+
+      if (spokenResponse) {
+        recordSessionEntry(guildId, 'AZURA', spokenResponse);
+        setActiveMode(guildId);
+        const audioResource = await textToAudioResource(spokenResponse, client);
+        if (audioResource) await playInVC(guildId, audioResource);
+        return;
+      }
+    }
+
+    // ── 6. AI IMAGE GENERATION VOICE-TO-CHAT BRIDGE (Owner Only) ──
+    const { processImageIntelligence } = require('./imageGen');
+    const imgCheck = await processImageIntelligence(transcript, 'Attila', guildId, userId, true);
+    if (imgCheck && imgCheck.isImageRequest && textChannel) {
+      console.log(`[Voice Pipeline]: 🎨 Voice-to-Chat Image Generation Triggered by Attila`);
+      const spokenResponse = `Siap Attila! Gambar keinginanmu lagi aku render yaa, tunggu beberapa detik nanti langsung muncul di chat VC! ✨`;
+      recordSessionEntry(guildId, 'AZURA', spokenResponse);
+      setActiveMode(guildId);
+
+      const audioResource = await textToAudioResource(spokenResponse, client);
+      if (audioResource) await playInVC(guildId, audioResource);
+
+      // Asynchronous background delivery to avoid blocking VC audio stream
+      (async () => {
+        try {
+          if (imgCheck.responsePayload) {
+            await textChannel.send(imgCheck.responsePayload);
+          }
+        } catch (imgErr) {
+          console.error('[Voice Pipeline Image Error]:', imgErr.message);
+          textChannel.send(`❌ Gagal merender gambar di VC: ${imgErr.message}`).catch(() => {});
+        }
+      })();
+      return;
+    }
+
+    // ── 7. TO-DO & REMINDER VOICE-TO-CHAT BRIDGE (Owner Only) ──
+    const isTodoAdd = /\b(?:catat\s+(?:ke\s+)?to[\s-]*do|tambah(?:kan)?\s+(?:ke\s+)?to[\s-]*do|masuk(?:kan)?\s+(?:ke\s+)?to[\s-]*do|buat(?:kan)?\s+to[\s-]*do|to[\s-]*do(?:\s*list)?\s*:)\b/i.test(transcript);
+    if (isTodoAdd && textChannel) {
+      const { bulkCreateTodos } = require('./todo');
+      const taskContent = transcript.replace(/\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to[\s-]*do|tambah(?:kan)?\s+(?:ke\s+)?to[\s-]*do|masuk(?:kan)?\s+(?:ke\s+)?to[\s-]*do|buat(?:kan)?\s+to[\s-]*do|to[\s-]*do(?:\s*list)?\s*:)\b/gi, '').trim();
+      if (taskContent.length > 2) {
+        const todoRes = await bulkCreateTodos(taskContent, 'Attila', 'General');
+        const spokenResponse = 'Siap Attila, tugas baru sudah aku catat ke to-do list kamu yaa!';
+        recordSessionEntry(guildId, 'AZURA', spokenResponse);
+        setActiveMode(guildId);
+        const audioResource = await textToAudioResource(spokenResponse, client);
+        if (audioResource) await playInVC(guildId, audioResource);
+        if (todoRes && todoRes.embeds) {
+          textChannel.send({ embeds: todoRes.embeds }).catch(() => {});
+        }
+        return;
+      }
+    }
+
+    // ── 8. DRAMATIC ACTING & EMOTIONAL ROLEPLAY VOICE TRIGGER ──
+    const { parseDramaticActingRequest, executeDramaticActingVC } = require('./dramaticActing');
+    const dramaticCheck = parseDramaticActingRequest(transcript) || parseDramaticActingRequest(cleanTranscript);
+    if (dramaticCheck && dramaticCheck.isDramaticRequest) {
+      console.log(`[Voice Pipeline]: 🎭 Dramatic Acting Triggered: "${dramaticCheck.scenario}" by user ${userId}`);
+      setActiveMode(guildId);
+      await executeDramaticActingVC(guildId, dramaticCheck.scenario, client, textChannel);
+      return;
+    }
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -1478,6 +1700,28 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       console.log(`[Voice Pipeline]: 🔇 Approved Friend (${userId}) spoke without wake-word in "${transcript}". Azura staying silent.`);
       return;
     }
+
+    // Action Command Guard: Non-owner members in VC are restricted to Q&A / general chat only
+    const { parseNaturalGameRequest } = require('./miniGames');
+    const isGameAttempt = parseNaturalGameRequest(transcript) || parseNaturalGameRequest(cleanTranscript);
+    const isImgAttempt = /\b(?:gambar|generate\s+image|lukis|bikinin\s+gambar|buatkan\s+gambar)\b/i.test(transcript);
+    const isBrowseAttempt = /\b(?:buka\s+youtube|buka\s+chrome|buka\s+browser|putar\s+lagu|setel\s+lagu|mainkan\s+lagu)\b/i.test(transcript);
+    const isTodoAttempt = /\b(?:to\s*do|catat\s+agenda)\b/i.test(transcript);
+
+    if (isGameAttempt || isImgAttempt || isBrowseAttempt || isTodoAttempt) {
+      const speakerMember = voiceChannel?.members ? voiceChannel.members.get(userId) : null;
+      const memberName = speakerMember?.displayName || 'kak';
+      console.log(`[Voice Pipeline]: 🔒 Action command attempted by non-owner member ${userId} ("${transcript}"). Replying with friendly Q&A limitation notice.`);
+      
+      const spokenExplain = `Halo ${memberName}, untuk menjalankan fitur aksi atau game lewat suara di VC saat ini baru bisa diaktifkan oleh Attila yaa! Tapi kalau kamu mau ngobrol atau tanya-tanya, aku siap nemenin! [laughs]`;
+      recordSessionEntry(guildId, 'AZURA', spokenExplain);
+      recordFriendVoiceUsage(userId, 8);
+      
+      const audioResource = await textToAudioResource(spokenExplain, client);
+      if (audioResource) await playInVC(guildId, audioResource);
+      return;
+    }
+
     console.log(`[Voice Pipeline]: 🔔 Approved Friend summoned Azura [Intent: ${intentAnalysis.category}, Pos: ${intentAnalysis.wakePosition}, Question: ${intentAnalysis.isQuestion}] -> "${transcript}". Generating response...`);
   } else if (isCrowdedVC) {
     // Crowded VC with Attila + friends: Attila must use wake-word at beginning or end
@@ -1730,9 +1974,9 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   const isOwner = (userId === config.OWNER_DISCORD_ID);
   let personalityPrompt = '';
   try {
-    const { getPersonalityMode, getPersonalityPrompt } = require('./personality');
+    const { getPersonalityMode, getPersonalityPrompt, POLYGLOT_LANGUAGE_POLICY, SOUL_LOCK_RULE } = require('./personality');
     const currentMode = getPersonalityMode();
-    personalityPrompt = getPersonalityPrompt(currentMode, isOwner, isOwner ? 'Attila' : 'Member', true);
+    personalityPrompt = getPersonalityPrompt(currentMode, isOwner, isOwner ? 'Attila' : 'Member', true) + '\n\n' + SOUL_LOCK_RULE + '\n\n' + POLYGLOT_LANGUAGE_POLICY;
   } catch (_) {}
 
   let vcBehaviorContext = '';
@@ -1797,6 +2041,12 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
     }
   } catch (_) {}
 
+  let emotionalAwarenessPrompt = '';
+  try {
+    const { getEmotionalAwarenessPromptContext } = require('./poutyMood');
+    emotionalAwarenessPrompt = getEmotionalAwarenessPromptContext(isOwner);
+  } catch (_) {}
+
   if (isStoryIntent) {
     systemPrompt = `Kamu adalah AZURA, cewek Gen Z 22 tahun yang sedang bercerita/mendongeng (storytelling) atau memberikan penjelasan mendalam langsung lewat Voice Channel kepada ${isOwner ? 'Attila (panggilan Att / Attila, creator & owner kamu)' : speakerName}.
 Lawan bicara yang sedang berbicara denganmu: ${speakerName}
@@ -1804,13 +2054,13 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
 2. PEMBAWAAN: Sangat ekspresif, hidup, dan seru didengarkan.
 3. EMOSI SUARA ELEVENLABS V3: Sisipkan tag emosi [whispers], [gasp], [laughs], [giggles], [sighs], [cries], [screams], [sings] pada momen-momen dramatis, misterius, haru, atau lucu jika ceritanya bertema drama/komedi!
-4. Multilingual: Jika diminta cerita dalam bahasa lain (English, Japanese, dll), gunakan bahasa tersebut secara fasih.
+4. Multilingual: Hanya atas permintaan Attila, cerita dalam bahasa lain yang kamu kuasai (English, Japanese, Korean, Mandarin) dibawakan secara fasih dan indah.
 5. DILARANG pakai format list/poin/bullet atau markdown bintang/bold (*, #, _, dll). Gunakan tanda baca rapi untuk intonasi suara yang hidup.` + liveRoomContext;
     maxTokens = isOwner ? 1500 : 650; // Up to 5 min for Owner (~750 words) / Up to 2 min for Friends
   } else {
@@ -1820,7 +2070,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}
 
 ${getSelfAwarenessContext(isOwner, speakerName, true)}
 
@@ -1845,11 +2095,16 @@ ATURAN WAJIB VOICE OBROLAN BIASA:
    - Di awal kalimat / sapaan pembuka VC: SELALU gunakan nama lengkap **"Attila"** (DILARANG menaruh panggilan "Att" di awal kalimat!).
    - Di tengah atau di akhir kalimat: BOLEH gunakan panggilan akrab **"Att"**, **"Attila"**, atau **"Sayang"** (Contoh: "Gimana menurutmu, Att?", "Iya siap, Attila sayang~").
    - Untuk teman Attila (${speakerName}), sapa dengan ramah, hangat, dan asyik!
-3. MULTILINGUAL VOICE: Jika lawan bicara berbicara dalam bahasa lain (English, Japanese, dsb), balaslah menggunakan bahasa tersebut secara fasih dan alami!
+3. PROTOKOL MULTILINGUAL & NGAJI (STRICT POLYGLOT LOCK):
+   - Jika Attila memintamu berbicara dalam bahasa Inggris, Jepang (N5-N1), Korea, atau Mandarin: Balaslah menggunakan bahasa tersebut secara fasih dan alami!
+   - Jika Attila memintamu mengaji atau melafalkan surat pendek Al-Qur'an (Juz 'Amma) / zikir: Lantunkan dengan suara tartil yang merdu, tenang, dan lembut menggunakan tag [softly] (Contoh: "[softly] Bismillaahir-rahmaanir-rahiim. Qul huwallaahu ahad...").
+   - PENGGUNA LAIN (Non-Owner): Dilarang meminta berbicara bahasa asing selain Indonesia. Tolak dengan manis dan tetap gunakan Bahasa Indonesia ("Waduh, aku ngobrolnya pakai bahasa Indonesia aja yaa biar kita sama-sama asyik dan nyambung!").
+   - RESET OTOMATIS: Setelah satu giliran selesai berbicara bahasa asing atau mengaji, pada giliran berikutnya otomatis kembali menggunakan Bahasa Indonesia.
 4. TATA BAHASA & TANDA BACA: Gunakan tanda baca rapi agar intonasi TTS terdengar hidup. DILARANG KERAS menggunakan emoji atau format markdown bintang/bold (*, #, _, dll).
 
 5. MASTER PROTOKOL EKSPRESI & EMOSI PENUH ELEVENLABS V3 (AKTIFKAN SEMUA):
 Azura memiliki kemampuan emosi suara hidup tingkat tinggi menggunakan audio tags ElevenLabs v3. Selalu sisipkan tag emosi yang tepat secara kontekstual:
+- 🥱 MENGUAP / NGANTUK / CAPEK: [yawns], [sleepy], [drowsy]!
 - 😭 MENANGIS / SEDIH / TERHARU: [cries], [sobbing], [sniffs]!
 - 😱 TERIAK / HISTERIS / PANIK: [screams], [shouts], [yells], [gasp]!
 - 🎤 MENYANYI / BERSENANDUNG: [sings], [singing], [humming], [melody]!
@@ -2179,7 +2434,15 @@ async function playGreeting(guildId, voiceChannel) {
     ];
   }
 
-  const selectedGreeting = greetingOptions[Math.floor(Math.random() * greetingOptions.length)];
+  let selectedGreeting = greetingOptions[Math.floor(Math.random() * greetingOptions.length)];
+
+  // Emotional Awareness Override: If pouty mood active, use pouty greeting
+  const { getEmotionalState } = require('./poutyMood');
+  const moodState = getEmotionalState();
+  if (moodState.activeMood === 'POUTY_MILD' || moodState.activeMood === 'JEALOUS_INTROSPECTIVE') {
+    selectedGreeting = `[pouts] [sighs] Iya iya, ini aku join... tapi aku masih ngambek ya sama kamu [scoffs].`;
+  }
+
   console.log(`[Voice Companion]: Contextual Greeting (${otherCount} others in VC): "${selectedGreeting}"`);
 
   const resource = await textToAudioResource(selectedGreeting);
@@ -2440,6 +2703,20 @@ async function joinAttilaVoiceChannel(client) {
   }
 
   const guildId = targetGuild.id;
+
+  // Emotional Awareness Check: If severe pouty mood, refuse 1st attempt
+  const { handlePoutyVcJoinDecision } = require('./poutyMood');
+  const poutyDecision = handlePoutyVcJoinDecision(guildId, client);
+  if (!poutyDecision.allowJoin) {
+    const textChannel = (targetVoiceChannel && targetVoiceChannel.isTextBased?.()) ? targetVoiceChannel : findBestTextChannel(targetGuild, targetVoiceChannel, client);
+    if (textChannel && poutyDecision.refuseNotice) {
+      await textChannel.send(poutyDecision.refuseNotice).catch(() => {});
+    }
+    return {
+      success: false,
+      message: poutyDecision.refuseNotice || 'Azura sedang ngambek parah.'
+    };
+  }
 
   // Clear dismissed state so AZURA is officially active again
   dismissedGuilds.delete(guildId);
@@ -2704,6 +2981,29 @@ async function sayBedtimeFarewellInActiveVCs(client) {
   }
 }
 
+/**
+ * Asynchronously broadcast Live Game Commentary in VC
+ * @param {string} guildId 
+ * @param {string} commentaryText 
+ * @param {import('discord.js').Client} [clientInstance] 
+ */
+async function speakGameCommentary(guildId, commentaryText, clientInstance = null) {
+  if (!guildId || !commentaryText) return;
+  const session = activeVoiceSessions.get(guildId);
+  if (!session || !session.connection || !session.player) return;
+
+  console.log(`[Voice Game Commentary] (${guildId}): 🎙️ "${commentaryText}"`);
+  try {
+    recordSessionEntry(guildId, 'AZURA', commentaryText);
+    const audioResource = await textToAudioResource(commentaryText, clientInstance || session.client, 2500, { forcedModel: 'eleven_v3' });
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+  } catch (err) {
+    console.error('[Voice Game Commentary Error]:', err.message);
+  }
+}
+
 module.exports = {
   handleVoiceStateUpdate,
   getCompanionTextChannel,
@@ -2719,6 +3019,7 @@ module.exports = {
   generateVoiceAIResponse,
   recordSessionEntry,
   speakTextInVC,
+  speakGameCommentary,
   detectVoiceModel,
   textToAudioResource,
   audioPlayers,

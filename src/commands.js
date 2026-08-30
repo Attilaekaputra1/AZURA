@@ -504,7 +504,62 @@ const commands = [
         .addStringOption(opt => opt.setName('password').setDescription('Password prosedural (@Timetosleepara)').setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('status')
-        .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA'))
+        .setDescription('Cek status aktif/tidur, jadwal, dan penggunaan resource memori AZURA')),
+
+  new SlashCommandBuilder()
+    .setName('emotion')
+    .setDescription('Kelola & Reset Status Emosional / Ngambek AZURA ke Idle (Master Calming Override)')
+    .addSubcommand(sub =>
+      sub.setName('reset')
+        .setDescription('Pulihkan emosi AZURA secara instan ke damai & ceria (IDLE Original Soul)'))
+    .addSubcommand(sub =>
+      sub.setName('status')
+        .setDescription('Cek status emosi, tingkat ngambek, dan sisa waktu aktif mood')),
+
+  new SlashCommandBuilder()
+    .setName('tictactoe')
+    .setDescription('Mulai permainan Tic-Tac-Toe / XOXO melawan AZURA')
+    .addStringOption(opt =>
+      opt.setName('kesulitan')
+        .setDescription('Pilih tingkat kecerdasan AI Azura')
+        .setRequired(false)
+        .addChoices(
+          { name: '🟢 Easy (Santai / Pemula)', value: 'easy' },
+          { name: '🟡 Medium (Kasual / Sedang)', value: 'medium' },
+          { name: '🔴 Hard (Taktis / Menantang)', value: 'hard' },
+          { name: '💀 Expert (Master / Unbeatable Minimax)', value: 'expert' }
+        )),
+
+  new SlashCommandBuilder()
+    .setName('sambungkata')
+    .setDescription('Mulai permainan Sambung Kata KBBI melawan AZURA'),
+
+  new SlashCommandBuilder()
+    .setName('trivia')
+    .setDescription('Mulai Kuis Trivia Cerdas Cermat 10 Rantai Soal melawan AZURA')
+    .addStringOption(opt =>
+      opt.setName('kesulitan')
+        .setDescription('Pilih tingkat kesulitan kuis')
+        .setRequired(false)
+        .addChoices(
+          { name: '🟢 Easy (Santai / Pemula)', value: 'easy' },
+          { name: '🟡 Medium (Kasual / Sedang)', value: 'medium' },
+          { name: '🔴 Hard (Tantangan / Ahli)', value: 'hard' }
+        ))
+    .addStringOption(opt =>
+      opt.setName('kategori')
+        .setDescription('Pilih kategori kuis')
+        .setRequired(false)
+        .addChoices(
+          { name: '🎮 Gaming', value: 'Gaming' },
+          { name: '💻 Tech & Coding', value: 'Tech' },
+          { name: '🎌 Anime & Pop Culture', value: 'Anime' },
+          { name: '🇮🇩 Indonesia & Budaya', value: 'Indonesia' }
+        )),
+
+  new SlashCommandBuilder()
+    .setName('leaderboard')
+    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA')
 ];
 
 const fs = require('fs');
@@ -1909,6 +1964,86 @@ async function handleSlashCommand(interaction, startTime) {
           `• **Alasan:** ${state.reason || '-'}`
         )
         .setFooter({ text: 'AZURA System Health Engine' })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+  } else if (commandName === 'game' || commandName === 'tictactoe' || commandName === 'sambungkata' || commandName === 'trivia' || commandName === 'leaderboard') {
+    const { startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+    const sub = interaction.options.getSubcommand(false);
+
+    if (commandName === 'tictactoe' || sub === 'tictactoe') {
+      const difficulty = interaction.options.getString('kesulitan');
+      const res = startTicTacToeGame(user.id, user.displayName || user.username, interaction.channel, difficulty);
+      return interaction.reply({ embeds: res.embeds, components: res.components });
+    } else if (commandName === 'sambungkata' || sub === 'sambungkata') {
+      const res = startWordChainGame(user.id, user.displayName || user.username, interaction.channel);
+      return interaction.reply({ embeds: res.embeds });
+    } else if (commandName === 'trivia' || sub === 'trivia') {
+      const difficulty = interaction.options.getString('kesulitan');
+      const category = interaction.options.getString('kategori');
+      const res = startTriviaGame(user.id, user.displayName || user.username, interaction.channel, difficulty, category);
+      return interaction.reply({ embeds: res.embeds, components: res.components });
+    } else if (commandName === 'leaderboard' || sub === 'leaderboard') {
+      const embed = getLeaderboardEmbed();
+      return interaction.reply({ embeds: [embed] });
+    }
+  } else if (commandName === 'vn' || commandName === 'voicenote') {
+    const rawTeks = interaction.options.getString('teks');
+    await interaction.deferReply();
+    const isOwner = (user.id === config.OWNER_ID);
+    const { parseVoiceNoteRequest, executeVoiceNote } = require('./voiceNote');
+    const vnReq = parseVoiceNoteRequest(`vn "${rawTeks}"`, isOwner, user.id, user.displayName || user.username);
+
+    if (vnReq.status === 'TOO_LONG') {
+      return interaction.editReply(vnReq.protestMessage);
+    }
+    const vnExec = await executeVoiceNote(vnReq.textToSpeak, user.id, user.displayName || user.username, isOwner, interaction.client);
+    if (vnExec.success) {
+      const prefixNotice = vnReq.notice ? `${vnReq.notice}\n\n` : '';
+      return interaction.editReply({ content: `${prefixNotice}${vnExec.caption}`, files: [vnExec.attachment] });
+    } else {
+      return interaction.editReply(`❌ Gagal merender Voice Note: ${vnExec.error}`);
+    }
+  } else if (commandName === 'emotion') {
+    const sub = interaction.options.getSubcommand();
+    const { masterResetEmotion, getEmotionalState } = require('./poutyMood');
+    const isOwner = interaction.user.id === config.OWNER_DISCORD_ID;
+
+    if (sub === 'reset') {
+      if (!isOwner) {
+        return interaction.reply({ content: '⛔ Hanya Owner (Attila) yang dapat mereset emosi Azura.', flags: 64 });
+      }
+      const resetSpeech = masterResetEmotion('Slash Command /emotion reset');
+      const cleanText = resetSpeech.replace(/\[.*?\]/g, '').trim();
+      const embed = new EmbedBuilder()
+        .setColor(0x57F287)
+        .setTitle('🕊️ [MASTER EMOTION RESET: 100% IDLE RESTORED]')
+        .setDescription(
+          `Status emosi kemarahan/ngambek AZURA telah **dibersihkan total**:\n\n` +
+          `• **State Emosi:** \`IDLE (Damai & Tenang)\`\n` +
+          `• **Intensitas:** \`0 (Normal)\`\n` +
+          `• **Humming & Ice-Breaker:** \`Dipulihkan Kembali\`\n\n` +
+          `💬 **Azura:** *"${cleanText}"*`
+        )
+        .setFooter({ text: 'AZURA Emotional Awareness Engine • Master Override Active' })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (sub === 'status') {
+      const state = getEmotionalState();
+      const embed = new EmbedBuilder()
+        .setColor(state.activeMood === 'IDLE' ? 0x57F287 : 0xE67E22)
+        .setTitle('🧠 [STATUS AWARENESS EMOSI AZURA]')
+        .setDescription(
+          `• **Mood Aktif:** \`${state.activeMood}\`\n` +
+          `• **Intensitas:** \`${state.intensity} / 2\`\n` +
+          `• **Pemicu:** \`${state.reason || 'Tidak ada (Normal)'}\`\n` +
+          `• **Sisa Waktu Cooldown:** \`${state.expiresAt > Date.now() ? Math.ceil((state.expiresAt - Date.now()) / 1000) + ' detik' : 'Idle'}\`\n` +
+          `• **Humming Aktif:** \`${state.hummingDisabled ? '❌ Dinonaktifkan (Sedang Ngambek)' : '✅ Aktif'}\`\n` +
+          `• **Ice-Breaker VC:** \`${state.iceBreakerDisabled ? '❌ Dinonaktifkan (Sedang Ngambek)' : '✅ Aktif'}\``
+        )
+        .setFooter({ text: 'Gunakan /emotion reset untuk mereset emosi' })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }

@@ -9,6 +9,7 @@ const config = {
   DISCORD_TOKEN: (process.env.DISCORD_TOKEN || '').trim(),
   DISCORD_CLIENT_ID: (process.env.DISCORD_CLIENT_ID || '').trim(),
   OPENAI_API_KEY: (process.env.OPENAI_API_KEY || '').trim(),
+  GROQ_API_KEY: (process.env.GROQ_API_KEY || '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').trim(),
   OWNER_DISCORD_ID: (process.env.OWNER_DISCORD_ID || '').trim(),
   ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c').trim(),
   ELEVENLABS_VOICE_ID: (process.env.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T').trim(), // Kak Ceria

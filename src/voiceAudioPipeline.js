@@ -122,30 +122,79 @@ function calculateRmsAndPeak(pcmBuffer) {
   return { rms, peak };
 }
 
+let groqInstance = null;
+function getGroq() {
+  if (!groqInstance && config.GROQ_API_KEY) {
+    groqInstance = new OpenAI({
+      apiKey: config.GROQ_API_KEY,
+      baseURL: 'https://api.groq.com/openai/v1',
+      timeout: 10000,
+      maxRetries: 1
+    });
+  }
+  return groqInstance;
+}
+
 let openaiInstance = null;
 function getOpenAI() {
   if (!openaiInstance && config.OPENAI_API_KEY) {
-    openaiInstance = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+    openaiInstance = new OpenAI({
+      apiKey: config.OPENAI_API_KEY,
+      timeout: 20000,
+      maxRetries: 2
+    });
   }
   return openaiInstance;
 }
 
 /**
- * Transcribe WAV audio buffer using OpenAI Whisper
+ * Transcribe WAV audio buffer using Fast Groq Whisper LPU (Primary)
+ * with seamless automatic fallback to OpenAI Whisper-1 (Fallback).
  */
 async function transcribeVoice(wavBuffer) {
+  const prompt = 'Azura, Ara, Zura, Attila, Putra, halo, apa kabar';
+
+  // ── PASS 1: Turbo Fast-Track via Groq LPU (whisper-large-v3) ──
+  const groq = getGroq();
+  if (groq) {
+    try {
+      const t0 = Date.now();
+      const file = await toFile(wavBuffer, 'voice_input.wav', { type: 'audio/wav' });
+      const response = await groq.audio.transcriptions.create({
+        file,
+        model: 'whisper-large-v3',
+        language: 'id',
+        prompt
+      });
+      const elapsed = Date.now() - t0;
+      if (response && response.text && response.text.trim()) {
+        console.log(`[Groq STT Turbo]: ⚡ Transcribed in ${elapsed}ms (whisper-large-v3) | "${response.text.trim()}"`);
+        return response.text.trim();
+      }
+    } catch (groqErr) {
+      console.warn(`[Groq STT Warning]: Groq failed (${groqErr.message}), seamlessly falling back to OpenAI Whisper...`);
+    }
+  }
+
+  // ── PASS 2: Rock-Solid Fallback via OpenAI Whisper (whisper-1) ──
   const openai = getOpenAI();
   if (!openai) return null;
 
   try {
-    const file = await toFile(wavBuffer, 'voice_input.wav', { type: 'audio/wav' });
+    const t0 = Date.now();
+    const fallbackFile = await toFile(wavBuffer, 'voice_input.wav', { type: 'audio/wav' });
     const response = await openai.audio.transcriptions.create({
-      file,
+      file: fallbackFile,
       model: 'whisper-1',
       language: 'id',
-      prompt: 'Azura, Ara, Zura, Attila, Putra, halo, apa kabar'
+      prompt
     });
-    return response.text ? response.text.trim() : null;
+    const elapsed = Date.now() - t0;
+    if (response && response.text && response.text.trim()) {
+      console.log(`[OpenAI STT Fallback]: 🛡️ Transcribed in ${elapsed}ms (whisper-1) | "${response.text.trim()}"`);
+      return response.text.trim();
+    }
+    return null;
   } catch (err) {
     console.error('[Whisper Pipeline Error]:', err.message);
     return null;

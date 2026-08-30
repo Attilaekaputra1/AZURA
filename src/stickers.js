@@ -71,6 +71,62 @@ function parseMessageStickers(message) {
   };
 }
 
+/**
+ * Handle on-demand sticker sending requested by Owner
+ * @param {import('discord.js').Message} message 
+ * @param {string} prompt 
+ * @returns {Promise<boolean>}
+ */
+async function handleOwnerStickerRequest(message, prompt) {
+  if (!prompt || typeof prompt !== 'string') return false;
+  const isOwner = message.author.id === '704555848773959730' || message.author.id === 'owner';
+  if (!isOwner) return false;
+
+  const stickerPattern = /\b(?:tolong\s+)?(?:kirim|kasih|share|bagi|drop|post)\s*(?:kan\s+)?stiker(?:\s+(.+))?/i;
+  const match = prompt.match(stickerPattern);
+  if (!match) return false;
+
+  const query = (match[1] || '').trim().toLowerCase();
+  console.log(`[Sticker Handler]: 🏷️ Owner requested sticker -> Query: "${query}"`);
+
+  // 1. Check if the Guild has custom stickers available
+  if (message.guild && message.guild.stickers) {
+    try {
+      const guildStickers = await message.guild.stickers.fetch().catch(() => message.guild.stickers.cache);
+      if (guildStickers) {
+        const list = Array.from(guildStickers.values ? guildStickers.values() : guildStickers);
+        if (list.length > 0) {
+          let matchingSticker = null;
+          if (query) {
+            matchingSticker = list.find(s => (s.name && s.name.toLowerCase().includes(query)) || (s.tags && s.tags.toLowerCase().includes(query)));
+          }
+          if (!matchingSticker) {
+            matchingSticker = list[0];
+          }
+
+          if (matchingSticker) {
+            await message.channel.send({ stickers: [matchingSticker.id] }).catch(() => {});
+            return true;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Sticker Fetch Warning]:', err.message);
+    }
+  }
+
+  // 2. If in DM or no custom guild stickers exist on the server yet:
+  const isDM = !message.guild;
+  if (isDM) {
+    await message.reply('Siap Attila! Karena di DM belum ada slot stiker server, nanti kalau stiker khusus Azura buatanmu udah jadi, bisa kita daftarkan langsung yaa! ✨').catch(() => {});
+    return true;
+  } else {
+    await message.reply('Siap Attila! Di server ini belum ada stiker khusus yang di-upload nih. Begitu stiker khusus Azura buatanmu selesai di-upload ke server, Azura bakal langsung kirim stikernya pas kamu minta! ✨').catch(() => {});
+    return true;
+  }
+}
+
 module.exports = {
-  parseMessageStickers
+  parseMessageStickers,
+  handleOwnerStickerRequest
 };

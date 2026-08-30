@@ -63,6 +63,14 @@ client.once(Events.ClientReady, async () => {
   // Initialize Autonomous Conversation Catalyst Engine
   await initAutonomousCatalyst(client);
 
+  // Initialize Daily 09:00 WIB Morning Greeting & Motivation Engine
+  const { initMorningGreeting } = require('./morningGreeting');
+  initMorningGreeting(client);
+
+  // Initialize Emotional Awareness & Pouty Mood Engine
+  const { initEmotionalAwareness } = require('./poutyMood');
+  initEmotionalAwareness();
+
   // Initialize Live WebRTC/WebSocket Companion Stream Portal
   const { initLivePortal } = require('./livePortal');
   initLivePortal();
@@ -193,6 +201,14 @@ async function handleIncomingMessage(message, isEdit = false) {
     }
   } catch (_) {}
 
+  // Active Sambung Kata Word Chain Interceptor in Channel
+  try {
+    const { handleWordChainMessage } = require('./miniGames');
+    if (handleWordChainMessage(message)) {
+      return;
+    }
+  } catch (_) {}
+
   // Record user interaction in encrypted vault (Zero-Knowledge AES-256-GCM Storage & Strict Lock-In)
   const nameActionResult = recordUserInteraction(message.author.id, {
     username: message.author.username,
@@ -225,13 +241,19 @@ async function handleIncomingMessage(message, isEdit = false) {
         }
       }
 
-      return message.reply(
+      const confirmText =
         `✨ Halo **${nameActionResult.name}**! Senang kenalan sama kamu. Alias / nama panggilanmu sudah tersimpan yaa! 🔒\n\n` +
         `🔒 **Privasi & Kenyamananmu:**\n` +
         `• AZURA akan menyapamu dengan panggilan **${nameActionResult.name}** di setiap percakapan.\n` +
         `• Privasi dan data aslimu tetap aman terjaga.\n` +
-        `• Mau ngobrol atau butuh bantuan apa hari ini? Yuk mulai! 💖`
-      );
+        `• Mau ngobrol atau butuh bantuan apa hari ini? Yuk mulai! 💖`;
+
+      if (isDM) {
+        return message.reply(confirmText);
+      } else {
+        await message.author.send(confirmText).catch(() => {});
+        return; // Silent in server channel!
+      }
     } else if (nameActionResult.status === 'PENDING_APPROVAL') {
       if (config.OWNER_DISCORD_ID) {
         const owner = await client.users.fetch(config.OWNER_DISCORD_ID).catch(() => null);
@@ -261,11 +283,29 @@ async function handleIncomingMessage(message, isEdit = false) {
           await owner.send({ embeds: [embed], components: [row] }).catch(() => {});
         }
       }
-      return message.reply(`Nama panggilan kamu saat ini sudah tersimpan sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`);
+      const pendingText = `Nama panggilan kamu saat ini sudah tersimpan sebagai **${nameActionResult.currentName}** 🔒.\nPermintaanmu untuk ganti nama panggilan jadi **${nameActionResult.requestedName}** sudah aku teruskan ke Attila untuk konfirmasi yaa!`;
+      if (isDM) {
+        return message.reply(pendingText);
+      } else {
+        await message.author.send(pendingText).catch(() => {});
+        return;
+      }
     } else if (nameActionResult.status === 'ALIAS_ALREADY_TAKEN') {
-      return message.reply(`⚠️ Maaf ya <@${message.author.id}>, alias/inisial **"${nameActionResult.requestedName}"** sudah terdaftar dan dipakai oleh pengguna lain di database AZURA.\n\n🔒 *Ketentuan AZURA: 1 Alias/Inisial = 1 Profil.* Silakan gunakan alias, inisial, atau nama panggilan unik lainnya yaa! ✨`);
+      const takenText = `⚠️ Maaf ya <@${message.author.id}>, alias/inisial **"${nameActionResult.requestedName}"** sudah terdaftar dan dipakai oleh pengguna lain di database AZURA.\n\n🔒 *Ketentuan AZURA: 1 Alias/Inisial = 1 Profil.* Silakan gunakan alias, inisial, atau nama panggilan unik lainnya yaa! ✨`;
+      if (isDM) {
+        return message.reply(takenText);
+      } else {
+        await message.author.send(takenText).catch(() => {});
+        return;
+      }
     } else if (nameActionResult.status === 'IMPERSONATION_BLOCKED') {
-      return message.reply(`⚠️ Nama panggilan **${nameActionResult.requestedName}** dilindungi oleh sistem keamanan identitas AZURA dan tidak dapat digunakan.`);
+      const blockedText = `⚠️ Nama panggilan **${nameActionResult.requestedName}** dilindungi oleh sistem keamanan identitas AZURA dan tidak dapat digunakan.`;
+      if (isDM) {
+        return message.reply(blockedText);
+      } else {
+        await message.author.send(blockedText).catch(() => {});
+        return;
+      }
     }
   }
 
@@ -316,14 +356,20 @@ async function handleIncomingMessage(message, isEdit = false) {
       const regPrompt =
         `✨ **[Kenalan Dulu Yuk!]**\n\n` +
         `Halo <@${message.author.id}>! 👋 Biar obrolan kita lebih akrab dan personal, mau dipanggil apa nih sama AZURA? ✨\n\n` +
-        `👉 **Cara Mudah:** Cukup balas pesan ini dengan menyebutkan nama panggilan, alias, atau inisial santai yang kamu sukai, contoh:\n` +
+        `👉 **Cara Mudah:** Cukup balas DM ini dengan menyebutkan nama panggilan, alias, atau inisial santai yang kamu sukai, contoh:\n` +
         `\`panggil aku [Nama/Alias/Inisial]\` atau \`namaku [Nama Panggilanmu]\`\n\n` +
         `🔒 **Jaminan Privasi:**\n` +
         `• Bebas gunakan nama panggilan, alias, atau inisial yang nyaman buat kamu.\n` +
         `• AZURA sangat menghormati privasi dan menjaga keamanan datamu! 💖`;
 
-      await message.reply(regPrompt);
-      // STRICT RULE: Respond ONLY where the user interacted. Do NOT send unprompted DMs!
+      if (isDM) {
+        await message.reply(regPrompt);
+      } else {
+        // STRICT PRIVACY RULE: Never spam server channels with configuration prompts. Send exclusively to user's DM!
+        await message.author.send(regPrompt).catch((dmErr) => {
+          console.warn(`[Registration DM Warning]: Could not send DM to @${message.author.username} (${dmErr.message})`);
+        });
+      }
       return;
     }
     return; // Ignore general server chatter if user is not registered
@@ -512,22 +558,93 @@ async function handleIncomingMessage(message, isEdit = false) {
       } catch (_) {
         // Fallback: send temporary self-deleting message in channel
         const tempMsg = await message.channel.send(`🔒 <@${message.author.id}>, masukan/laporanmu sudah diteruskan secara rahasia ke Creator yaa! (Pesan ini akan terhapus otomatis)`).catch(() => null);
-        if (tempMsg) {
-          setTimeout(() => tempMsg.delete().catch(() => {}), 8000);
-        }
+      if (tempMsg) {
+        setTimeout(() => tempMsg.delete().catch(() => {}), 8000);
       }
-      return;
-    } else {
-      return message.reply(fbRes.message);
     }
+    return;
+  } else {
+    return message.reply(fbRes.message);
   }
+}
 
-  let finalPrompt = rawPrompt;
+// Handle Natural Mini-Game Triggers (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard)
+const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+const naturalGame = parseNaturalGameRequest(rawPrompt || message.content);
+if (naturalGame) {
+  if (naturalGame.game === 'tictactoe') {
+    const res = startTicTacToeGame(message.author.id, userName, message.channel, naturalGame.difficulty);
+    return message.reply({ embeds: res.embeds, components: res.components });
+  } else if (naturalGame.game === 'sambungkata') {
+    const res = startWordChainGame(message.author.id, userName, message.channel);
+    return message.reply({ embeds: res.embeds });
+  } else if (naturalGame.game === 'trivia') {
+    const res = startTriviaGame(message.author.id, userName, message.channel, naturalGame.difficulty);
+    return message.reply({ embeds: res.embeds, components: res.components });
+  } else if (naturalGame.game === 'leaderboard') {
+    const embed = getLeaderboardEmbed();
+    return message.reply({ embeds: [embed] });
+  }
+}
+
+// ── NATURAL VOICE NOTE (VN) ENGINE ──
+const { parseVoiceNoteRequest, executeVoiceNote } = require('./voiceNote');
+const vnReq = parseVoiceNoteRequest(rawPrompt || message.content, isOwner, message.author.id, userName);
+if (vnReq) {
+  if (vnReq.status === 'EMPTY' || vnReq.status === 'TOO_LONG') {
+    return message.reply(vnReq.protestMessage);
+  }
+  await message.channel.sendTyping().catch(() => {});
+  const vnExec = await executeVoiceNote(vnReq.textToSpeak, message.author.id, userName, isOwner, client);
+  if (vnExec.success) {
+    const prefixNotice = vnReq.notice ? `${vnReq.notice}\n\n` : '';
+    return message.reply({ content: `${prefixNotice}${vnExec.caption}`, files: [vnExec.attachment] });
+  } else {
+    return message.reply(`❌ Gagal merender Voice Note: ${vnExec.error}`);
+  }
+}
+
+// ── DRAMATIC ACTING & EMOTIONAL ROLEPLAY VOICE ENGINE ──
+const { parseDramaticActingRequest, executeDramaticActingVN } = require('./dramaticActing');
+const dramaticActingReq = parseDramaticActingRequest(rawPrompt || message.content);
+if (dramaticActingReq && isOwner) {
+  await message.channel.sendTyping().catch(() => {});
+  const actingExec = await executeDramaticActingVN(rawPrompt || message.content, message.author.id, userName, isOwner, client);
+  if (actingExec.success) {
+    return message.reply({ embeds: [actingExec.embed], files: [actingExec.attachment] });
+  } else {
+    return message.reply(`❌ Gagal merender Akting Tangisan: ${actingExec.error}`);
+  }
+}
+
+// ── EMOTIONAL AWARENESS MASTER RESET & AUTONOMOUS TRIGGER INTERCEPTOR ──
+const { isMasterResetRequested, masterResetEmotion, analyzeAutonomousEmotionalTrigger, getEmotionalAwarenessPromptContext } = require('./poutyMood');
+if (isOwner && isMasterResetRequested(rawPrompt || message.content, isOwner)) {
+  const resetSpeech = masterResetEmotion('Verbal Owner Reset Command');
+  const cleanReset = resetSpeech.replace(/\[.*?\]/g, '').trim();
+  return message.reply(cleanReset);
+}
+
+// Analyze situational triggers (Comparison, Silencing, Devaluation)
+analyzeAutonomousEmotionalTrigger(rawPrompt || message.content, isOwner, 'CHAT');
+
+// ── ON-DEMAND OWNER STICKER REQUEST ──
+const { handleOwnerStickerRequest } = require('./stickers');
+const stickerHandled = await handleOwnerStickerRequest(message, rawPrompt || message.content);
+if (stickerHandled) return;
+
+let finalPrompt = rawPrompt;
   if (mentionContextPrompt) {
     finalPrompt = `${finalPrompt}${mentionContextPrompt}`;
   }
   if (replyContextPrompt) {
     finalPrompt = `${replyContextPrompt}\n${finalPrompt}`;
+  }
+
+  // Inject Emotional Awareness context (if pouty/jealous mood is active)
+  const emotionalContext = getEmotionalAwarenessPromptContext(isOwner);
+  if (emotionalContext) {
+    finalPrompt = `${finalPrompt}\n${emotionalContext}`;
   }
 
   // 3rd-Person Reference Contextual Disambiguation (Only triggers on 3rd passive mention)
@@ -823,6 +940,16 @@ client.on('interactionCreate', async (interaction) => {
     // Handle VC Response Choice buttons (Chat vs VC Voice)
     if (interaction.customId.startsWith('vc_opt_')) {
       return handleVcChoiceButton(interaction);
+    }
+
+    // Handle Mini-Games Interactive Buttons (Tic-Tac-Toe & Trivia Quiz)
+    if (interaction.customId.startsWith('ttt_') || interaction.customId.startsWith('tttdiff_')) {
+      const { handleTicTacToeButton } = require('./miniGames');
+      return handleTicTacToeButton(interaction);
+    }
+    if (interaction.customId.startsWith('trivia_') || interaction.customId.startsWith('triviadiff_') || interaction.customId.startsWith('triviastop_')) {
+      const { handleTriviaButton } = require('./miniGames');
+      return handleTriviaButton(interaction);
     }
 
     // Handle Direct Music Streaming control buttons

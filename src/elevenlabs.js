@@ -24,11 +24,33 @@ const ELEVENLABS_MODELS = {
 };
 
 /**
- * Get optimized voice settings per ElevenLabs model
+ * Get optimized voice settings per ElevenLabs model (with dynamic dramatic acting & crying adaptation)
  * @param {string} modelId 
+ * @param {string} [text='']
+ * @param {object|null} [customSettings=null]
  * @returns {object}
  */
-function getModelVoiceSettings(modelId) {
+function getModelVoiceSettings(modelId, text = '', customSettings = null) {
+  if (customSettings && typeof customSettings === 'object') {
+    return {
+      stability: customSettings.stability !== undefined ? customSettings.stability : 0.38,
+      similarity_boost: customSettings.similarity_boost !== undefined ? customSettings.similarity_boost : 0.80,
+      style: customSettings.style !== undefined ? customSettings.style : 0.35,
+      use_speaker_boost: true
+    };
+  }
+
+  const hasDramaticCrying = /\[(?:cries|wailing|sobbing|screams in tears|breaking down|hyperventilating|choked up|voice trembling|whimpering)\]/i.test(text);
+
+  if (hasDramaticCrying) {
+    return {
+      stability: 0.22,       // Low stability produces authentic voice cracking, trembling, and sobbing bursts
+      similarity_boost: 0.75,
+      style: 0.55,           // High style parameter unlocks deep emotional range
+      use_speaker_boost: true
+    };
+  }
+
   switch (modelId) {
     case ELEVENLABS_MODELS.FLASH:
       return {
@@ -75,9 +97,10 @@ function normalizePhonetics(text) {
  * @param {string|null} voiceId 
  * @param {string|null} modelId ('eleven_v3' | 'eleven_flash_v2_5' | 'eleven_multilingual_v2')
  * @param {import('discord.js').Client|null} client
+ * @param {object|null} [customSettings=null]
  * @returns {Promise<Buffer>}
  */
-function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = null) {
+function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = null, customSettings = null) {
   return new Promise((resolve, reject) => {
     const phoneticText = normalizePhonetics(text);
     const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
@@ -90,11 +113,15 @@ function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = nu
       return reject(new Error(`ElevenLabs Circuit Open: ${circuitBreakerReason}`));
     }
     const selectedVoice = voiceId || config.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
-    let selectedModel = modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH;
+    
+    // If text contains dramatic crying tags, automatically route to ElevenLabs V3
+    const hasDramaticCrying = /\[(?:cries|wailing|sobbing|screams in tears|breaking down|hyperventilating|choked up|voice trembling|whimpering)\]/i.test(text);
+    let selectedModel = hasDramaticCrying ? ELEVENLABS_MODELS.V3 : (modelId || config.ELEVENLABS_MODEL_ID || ELEVENLABS_MODELS.FLASH);
+    
     if (!selectedModel || selectedModel === 'auto' || !Object.values(ELEVENLABS_MODELS).includes(selectedModel)) {
-      selectedModel = ELEVENLABS_MODELS.FLASH;
+      selectedModel = hasDramaticCrying ? ELEVENLABS_MODELS.V3 : ELEVENLABS_MODELS.FLASH;
     }
-    const voiceSettings = getModelVoiceSettings(selectedModel);
+    const voiceSettings = getModelVoiceSettings(selectedModel, text, customSettings);
 
     const postData = JSON.stringify({
       text: phoneticText,
@@ -234,6 +261,7 @@ module.exports = {
   generateElevenLabsTTS,
   streamElevenLabsTTS,
   getModelVoiceSettings,
+  normalizePhonetics,
   ELEVENLABS_MODELS,
   DEFAULT_VOICE_ID
 };

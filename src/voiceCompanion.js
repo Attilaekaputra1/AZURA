@@ -3252,8 +3252,6 @@ function playDirectAudioFile(guildId, filePath) {
     const conn = activeConnections.get(guildId);
     if (!player || !conn || !fs.existsSync(filePath)) return null;
 
-    try { conn.rejoin({ selfMute: false, selfDeaf: false }); } catch (_) {}
-
     const { createAudioResource } = require('@discordjs/voice');
     const resource = createAudioResource(filePath);
     player.play(resource);

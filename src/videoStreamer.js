@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const config = require('./config');
 
 let ffmpegPath = null;
@@ -14,7 +15,7 @@ if (ffmpegPath) {
   process.env.FFMPEG_PATH = ffmpegPath;
 }
 
-// Active camera stream sessions: guildId -> { streamer, abortController, isIntroPlaying, currentPhase, textChannel }
+// Active camera stream sessions: guildId -> { streamer, abortController, ffmpegProcess, isIntroPlaying }
 const activeCameraSessions = new Map();
 
 // Helper Selfbot Client Singleton
@@ -111,7 +112,9 @@ function isVideoIntroPlaying(guildId) {
 }
 
 /**
- * Start 2-Phase Video Camera Streaming in Voice Channel
+ * Start Continuous Seamless Video Camera Streaming in Voice Channel
+ * Using single-pipe FFmpeg concat for seamless Video 1 -> Video 2 transition
+ * 
  * @param {string} guildId 
  * @param {string} channelId 
  * @param {any} textChannel 
@@ -155,23 +158,21 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
     const sessionData = {
       streamer,
       abortController,
+      ffmpegProcess: null,
       guildId,
       channelId,
       textChannel,
-      isIntroPlaying: false,
-      currentPhase: 'INIT'
+      isIntroPlaying: false
     };
 
     activeCameraSessions.set(guildId, sessionData);
 
-    // Run 2-phase pipeline in background
-    execute2PhasePipeline(sessionData, introPath, loopPath, introExists, loopExists).catch(err => {
-      console.error('[Video Streamer Pipeline Error]:', err.message);
-    });
+    // Launch continuous video stream pipeline
+    executeContinuousPipeline(sessionData, introPath, loopPath, introExists, loopExists);
 
     return {
       success: true,
-      message: `🎥 Kamera Azura berhasil dinyalakan oleh **${requesterName}**! (Fase 1: Sambutan ➔ Fase 2: Looping Cam)`
+      message: `🎥 Kamera Azura berhasil dinyalakan oleh **${requesterName}**! (Video 1: Sambutan ➔ Video 2: Looping Cam)`
     };
   } catch (err) {
     console.error('[Video Streamer Error]: Failed to start stream:', err.message);
@@ -184,75 +185,110 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
 }
 
 /**
- * 2-Phase Stream Orchestrator using @dank074/discord-video-stream v6 API
+ * Continuous FFmpeg Video Stream Pipeline
+ * Plays Video 1 -> instantly transitions to Video 2 in ONE single WebRTC stream!
  */
-async function execute2PhasePipeline(session, introPath, loopPath, introExists, loopExists) {
+async function executeContinuousPipeline(session, introPath, loopPath, introExists, loopExists) {
   const { streamer, abortController, guildId } = session;
 
   try {
-    const { prepareStream, playStream } = await import('@dank074/discord-video-stream');
+    const { playStream } = await import('@dank074/discord-video-stream');
 
-    // ── PHASE 1: Video 1 (Intro Sambutan with Synchronized Audio) ──
-    if (introExists && !abortController.signal.aborted) {
-      session.currentPhase = 'PHASE_1_INTRO';
+    const bin = ffmpegPath || 'ffmpeg';
+    let ffmpegArgs = [];
+
+    if (introExists && loopExists) {
       session.isIntroPlaying = true;
-      console.log(`[Video Streamer]: 🎬 [Phase 1] Playing Video 1 (Intro Visual + Audio)... Azura TTS muted.`);
+      console.log(`[Video Streamer]: 🎬 [Seamless Concat] Playing Video 1 (Intro) -> Video 2 (Looping)...`);
 
-      // Play audio track directly in VC via Azura AudioPlayer (100% native Discord Opus)
+      // Play audio of intro through bot AudioPlayer (Native Discord Opus)
       try {
         const { playDirectAudioFile } = require('./voiceCompanion');
         playDirectAudioFile(guildId, introPath);
-      } catch (audioErr) {
-        console.warn('[Video Streamer]: Direct audio play notice:', audioErr.message);
-      }
+      } catch (_) {}
 
-      try {
-        const { output } = prepareStream(introPath, {
-          width: 1280,
-          height: 720,
-          frameRate: 24,
-          bitrateVideo: 3300,
-          includeAudio: false
-        }, abortController.signal);
-
-        await playStream(output, streamer, {
-          type: 'camera'
-        }, abortController.signal);
-      } catch (introErr) {
-        if (!abortController.signal.aborted) {
-          console.warn('[Video Streamer Warning]: Intro playback completed/transitioned:', introErr.message);
+      // Intro duration timer (~10s)
+      setTimeout(() => {
+        if (session && !abortController.signal.aborted) {
+          session.isIntroPlaying = false;
+          console.log(`[Video Streamer]: 🔄 [Loop Active] Video 1 finished. Video 2 looping smoothly. Azura TTS active.`);
         }
-      }
+      }, 10500);
+
+      // Single FFmpeg command concatenating intro (1x) + loop (infinite)
+      ffmpegArgs = [
+        '-re',
+        '-i', introPath,
+        '-stream_loop', '-1',
+        '-i', loopPath,
+        '-filter_complex', '[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v0];[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v1];[v0][v1]concat=n=2:v=1:a=0[outv]',
+        '-map', '[outv]',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-pix_fmt', 'yuv420p',
+        '-b:v', '3300k',
+        '-maxrate', '3500k',
+        '-bufsize', '1650k',
+        '-g', '24',
+        '-keyint_min', '24',
+        '-bf', '0',
+        '-f', 'nut',
+        'pipe:1'
+      ];
+    } else {
+      const targetVideo = loopExists ? loopPath : introPath;
+      session.isIntroPlaying = false;
+      console.log(`[Video Streamer]: 🎬 Playing video loop: ${path.basename(targetVideo)}`);
+
+      ffmpegArgs = [
+        '-re',
+        '-stream_loop', '-1',
+        '-i', targetVideo,
+        '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-pix_fmt', 'yuv420p',
+        '-b:v', '3300k',
+        '-maxrate', '3500k',
+        '-bufsize', '1650k',
+        '-g', '24',
+        '-keyint_min', '24',
+        '-bf', '0',
+        '-f', 'nut',
+        'pipe:1'
+      ];
     }
 
-    if (abortController.signal.aborted) return;
+    const ffmpegProc = spawn(bin, ffmpegArgs, {
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
 
-    // ── PHASE 2: Video 2 (Looping Visual Mute) ──
-    session.isIntroPlaying = false;
-    session.currentPhase = 'PHASE_2_LOOP';
-    console.log(`[Video Streamer]: 🔄 [Phase 2] Seamlessly transitioning to Video 2 (Looping Visual Mute). Azura TTS active.`);
+    session.ffmpegProcess = ffmpegProc;
 
-    const targetLoopVideo = loopExists ? loopPath : introPath;
+    ffmpegProc.stderr.on('data', (d) => {
+      // Optional debug: console.log('[FFmpeg Video]:', d.toString());
+    });
 
-    while (activeCameraSessions.has(guildId) && !abortController.signal.aborted) {
-      try {
-        const { output } = prepareStream(targetLoopVideo, {
-          width: 1280,
-          height: 720,
-          frameRate: 24,
-          bitrateVideo: 3300,
-          includeAudio: false,
-          customInputOptions: ['-stream_loop', '-1']
-        }, abortController.signal);
-
-        await playStream(output, streamer, {
-          type: 'camera'
-        }, abortController.signal);
-      } catch (loopErr) {
-        if (abortController.signal.aborted || !activeCameraSessions.has(guildId)) break;
-        await new Promise(r => setTimeout(r, 600));
+    ffmpegProc.on('error', (err) => {
+      if (!abortController.signal.aborted) {
+        console.error('[Video Streamer FFmpeg Error]:', err.message);
       }
-    }
+    });
+
+    ffmpegProc.on('close', (code) => {
+      if (!abortController.signal.aborted) {
+        console.log(`[Video Streamer FFmpeg]: Process exited with code ${code}`);
+      }
+    });
+
+    // Feed FFmpeg stdout pipe directly to playStream
+    await playStream(ffmpegProc.stdout, streamer, {
+      type: 'camera',
+      format: 'nut'
+    }, abortController.signal);
+
   } catch (globalErr) {
     if (!abortController.signal.aborted) {
       console.error('[Video Streamer Pipeline Error]:', globalErr.message);
@@ -280,6 +316,12 @@ async function stopCameraStream(guildId) {
   } catch (_) {}
 
   try {
+    if (session.ffmpegProcess) {
+      try {
+        session.ffmpegProcess.kill('SIGTERM');
+      } catch (_) {}
+    }
+
     if (session.streamer) {
       try {
         session.streamer.signalVideo?.(false);

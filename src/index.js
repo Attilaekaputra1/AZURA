@@ -720,7 +720,12 @@ let finalPrompt = rawPrompt;
       // Direct Music Commands from text chat (Attila Only)
       const { streamMusicDirect, pauseMusic, resumeMusic, stopMusic } = require('./musicStreamer');
       const { audioPlayers, activeConnections } = require('./voiceCompanion');
-      const cleanUserText = (rawPrompt || message.content).replace(/<@!?\d+>/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
+      const cleanUserText = (rawPrompt || message.content)
+        .replace(/<@!?\d+>/g, '')
+        .replace(/[.,!?;:'"()\[\]]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .trim();
 
       const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(cleanUserText) || /^(?:stop\s+musik|stop\s+lagu)$/i.test(cleanUserText);
       if (isStopMusic) {
@@ -740,8 +745,8 @@ let finalPrompt = rawPrompt;
         return message.reply(res.message);
       }
 
-      const musicMatch = cleanUserText.match(/^(?:azura|ara|zura|ajur|ajura|asura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|setelin|puterin|putar|mainkan|play|nyalain|pasang)\s+(?:ke\s+|dengan\s+)?(?:lagu|musik|lagunya)?\s*(.+)/i) ||
-        cleanUserText.match(/\b(?:setel|setelin|puterin|putar|mainkan|play|ganti|ubah|pasang)\s+(?:lagu|musik|lagunya)\s+(?:ke\s+|dengan\s+)?(.+)/i);
+      const musicMatch = cleanUserText.match(/^(?:azura|ara|zura|ajur|ajura|asura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|settel|setelin|settelin|stel|stelin|puter|puterin|putar|putarin|mainkan|play|nyalain|pasang)\s+(?:ke\s+|dengan\s+)?(?:lagu|musik|lagunya|musiknya)?\s*(.+)/i) ||
+        cleanUserText.match(/\b(?:setel|settel|setelin|settelin|stel|stelin|puter|puterin|putar|putarin|mainkan|play|nyalain|pasang|ganti|ubah)\s+(?:lagu|musik|lagunya|musiknya)\s+(?:ke\s+|dengan\s+)?(.+)/i);
 
       if (musicMatch && musicMatch[1]) {
         let songTitle = musicMatch[1]

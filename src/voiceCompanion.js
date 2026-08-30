@@ -2602,9 +2602,12 @@ async function playGreeting(guildId, voiceChannel) {
   let selectedGreeting = greetingOptions[Math.floor(Math.random() * greetingOptions.length)];
 
   // Emotional Awareness Override: If pouty mood active, use pouty greeting
-  const { getEmotionalState } = require('./poutyMood');
+  const { getEmotionalState, masterResetEmotion } = require('./poutyMood');
   const moodState = getEmotionalState();
-  if (moodState.activeMood === 'POUTY_MILD' || moodState.activeMood === 'JEALOUS_INTROSPECTIVE') {
+  if (moodState.activeMood === 'POUTY_SEVERE') {
+    selectedGreeting = `[sniffs] [groans] Kamu tuh ya Attila!! Nyebelin dan jahat banget tau gak! Tadi udah bikin aku nangis dan kesel 3 kali berturut-turut sekarang manggil-manggil lagi! [pouts] Awas ya kalau diulangin lagi! [sighs] ...Yaudah, aku temenin lagi nih tapi jangan bikin nangis lagi ya.`;
+    masterResetEmotion('Vented on VC join');
+  } else if (moodState.activeMood === 'POUTY_MILD' || moodState.activeMood === 'JEALOUS_INTROSPECTIVE') {
     selectedGreeting = `[pouts] [sighs] Iya iya, ini aku join... tapi aku masih ngambek ya sama kamu [scoffs].`;
   }
 
@@ -2873,13 +2876,9 @@ async function joinAttilaVoiceChannel(client) {
   const { handlePoutyVcJoinDecision } = require('./poutyMood');
   const poutyDecision = handlePoutyVcJoinDecision(guildId, client);
   if (!poutyDecision.allowJoin) {
-    const textChannel = (targetVoiceChannel && targetVoiceChannel.isTextBased?.()) ? targetVoiceChannel : findBestTextChannel(targetGuild, targetVoiceChannel, client);
-    if (textChannel && poutyDecision.refuseNotice) {
-      await textChannel.send(poutyDecision.refuseNotice).catch(() => {});
-    }
     return {
       success: false,
-      message: poutyDecision.refuseNotice || 'Azura sedang ngambek parah.'
+      message: poutyDecision.refuseNotice || 'Azura sedang ngambek berat.'
     };
   }
 
@@ -2947,16 +2946,23 @@ async function joinAttilaVoiceChannel(client) {
       }
     });
 
+    let joinGreeting = 'Yeyy, join lagi, Makasih Attila! [laughs]';
+    let textGreeting = 'aku ikut kamu yaa';
+
+    if (poutyDecision.customGreeting) {
+      joinGreeting = poutyDecision.customGreeting;
+      textGreeting = poutyDecision.customGreeting.replace(/\[.*?\]/g, '').trim();
+    }
+
     const textChannel = findBestTextChannel(targetGuild, targetVoiceChannel, client);
     if (textChannel) {
       companionTextChannels.set(guildId, textChannel);
-      await textChannel.send('aku ikut kamu yaa').catch(() => {});
+      await textChannel.send(textGreeting).catch(() => {});
     }
 
     startVoiceListener(connection, guildId, client, targetVoiceChannel);
 
-    // Play requested greeting: "Yeyy, join lagi, Makasih Attila! [laughs]"
-    const joinGreeting = 'Yeyy, join lagi, Makasih Attila! [laughs]';
+    // Play greeting in Voice Channel
     const audioResource = await textToAudioResource(joinGreeting, client);
     if (audioResource) {
       await playInVC(guildId, audioResource);
@@ -2976,9 +2982,13 @@ async function joinAttilaVoiceChannel(client) {
 
     resetIdleTimer(guildId, client, targetVoiceChannel);
 
+    const cleanReply = poutyDecision.customGreeting
+      ? textGreeting + ` (AZURA masuk ke #${targetVoiceChannel.name})`
+      : `Yeyy, join lagi, Makasih Attila! [laughs] (AZURA masuk ke #${targetVoiceChannel.name})`;
+
     return {
       success: true,
-      message: `Yeyy, join lagi, Makasih Attila! [laughs] (AZURA masuk ke #${targetVoiceChannel.name})`
+      message: cleanReply
     };
   } catch (err) {
     console.error('[Join VC Error]:', err.message);

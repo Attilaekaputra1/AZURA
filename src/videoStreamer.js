@@ -14,7 +14,7 @@ if (ffmpegPath) {
   process.env.FFMPEG_PATH = ffmpegPath;
 }
 
-// Active camera stream sessions: guildId -> { streamer, udp, isIntroPlaying, currentPhase, textChannel, process }
+// Active camera stream sessions: guildId -> { streamer, abortController, isIntroPlaying, currentPhase, textChannel }
 const activeCameraSessions = new Map();
 
 // Helper Selfbot Client Singleton
@@ -27,23 +27,27 @@ let streamerInitPromise = null;
  * Lazy initialize the Discord Helper Streamer Client using STREAMER_USER_TOKEN
  */
 async function initStreamerClient() {
-  if (isStreamerReady && streamerClient) return { streamerClient, streamerHelper };
+  if (isStreamerReady && streamerClient && streamerHelper) {
+    return { streamerClient, streamerHelper };
+  }
   if (streamerInitPromise) return streamerInitPromise;
 
   streamerInitPromise = (async () => {
     const token = config.STREAMER_USER_TOKEN;
     if (!token) {
-      console.warn('[Video Streamer]: ⚠️ STREAMER_USER_TOKEN not configured in .env. Video streaming disabled.');
+      console.warn('[Video Streamer]: ⚠️ STREAMER_USER_TOKEN not configured in .env.');
       return { streamerClient: null, streamerHelper: null };
     }
 
     try {
       let SelfbotClient, Streamer;
       try {
-        SelfbotClient = require('discord.js-selfbot-v13').Client;
-        Streamer = require('@dank074/discord-video-stream').Streamer;
+        const selfbotModule = require('discord.js-selfbot-v13');
+        SelfbotClient = selfbotModule.Client || selfbotModule.default?.Client || selfbotModule;
+        const videoStreamModule = await import('@dank074/discord-video-stream');
+        Streamer = videoStreamModule.Streamer;
       } catch (reqErr) {
-        console.warn('[Video Streamer]: ⚠️ Required packages (@dank074/discord-video-stream or discord.js-selfbot-v13) not available:', reqErr.message);
+        console.warn('[Video Streamer]: ⚠️ Failed to load video streamer dependencies:', reqErr.message);
         return { streamerClient: null, streamerHelper: null };
       }
 
@@ -57,8 +61,8 @@ async function initStreamerClient() {
 
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Streamer login timed out after 15s'));
-        }, 15000);
+          reject(new Error('Streamer login timed out after 20s'));
+        }, 20000);
 
         client.on('ready', () => {
           clearTimeout(timeout);
@@ -98,7 +102,6 @@ function isCameraActive(guildId) {
 
 /**
  * Check if Video 1 (Intro Sambutan) is currently playing
- * (When true, Azura TTS should stay quiet so speech does not clash)
  * @param {string} guildId 
  * @returns {boolean}
  */
@@ -108,10 +111,7 @@ function isVideoIntroPlaying(guildId) {
 }
 
 /**
- * Start 2-Phase Video Camera Streaming in Voice Channel:
- * Phase 1: cam_intro.mp4 (Sambutan with Audio, plays 1x)
- * Phase 2: cam_loop.mp4 (Looping Visual Mute, seamless infinite loop)
- * 
+ * Start 2-Phase Video Camera Streaming in Voice Channel
  * @param {string} guildId 
  * @param {string} channelId 
  * @param {any} textChannel 
@@ -126,7 +126,7 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
   const loopExists = fs.existsSync(loopPath);
 
   if (!introExists && !loopExists) {
-    const errorMsg = `⚠️ File video kamera belum tersedia di \`/assets/videos/\`.\nPastikan file \`cam_intro.mp4\` dan \`cam_loop.mp4\` sudah di-upload.`;
+    const errorMsg = `⚠️ File video kamera belum ditemukan di \`/assets/videos/\`.\nPastikan file \`cam_intro.mp4\` dan \`cam_loop.mp4\` sudah di-upload.`;
     console.warn(`[Video Streamer]: ${errorMsg}`);
     if (textChannel) {
       await textChannel.send(errorMsg).catch(() => {});
@@ -134,14 +134,14 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
     return { success: false, message: errorMsg };
   }
 
-  // Stop any existing stream first
+  // Stop any existing stream in this guild first
   if (activeCameraSessions.has(guildId)) {
     await stopCameraStream(guildId);
   }
 
   const { streamerHelper: streamer } = await initStreamerClient();
   if (!streamer) {
-    const errorMsg = '⚠️ Streamer Helper belum siap atau `STREAMER_USER_TOKEN` belum valid di `.env`.';
+    const errorMsg = '⚠️ Streamer Helper belum siap atau `STREAMER_USER_TOKEN` tidak valid.';
     console.warn(`[Video Streamer]: ${errorMsg}`);
     return { success: false, message: errorMsg };
   }
@@ -150,30 +150,28 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
     console.log(`[Video Streamer]: 🎥 Opening camera stream in guild ${guildId}, channel ${channelId}...`);
 
     await streamer.joinVoice(guildId, channelId);
-    const udp = await streamer.createStream();
 
-    udp.mediaConnection.setSpeaking(true);
-    udp.mediaConnection.setVideoStatus(true);
-
+    const abortController = new AbortController();
     const sessionData = {
       streamer,
-      udp,
+      abortController,
       guildId,
       channelId,
       textChannel,
       isIntroPlaying: false,
-      currentPhase: 'INIT',
-      aborted: false
+      currentPhase: 'INIT'
     };
 
     activeCameraSessions.set(guildId, sessionData);
 
-    // Launch streaming execution pipeline
-    execute2PhasePipeline(sessionData, introPath, loopPath, introExists, loopExists);
+    // Run 2-phase pipeline in background
+    execute2PhasePipeline(sessionData, introPath, loopPath, introExists, loopExists).catch(err => {
+      console.error('[Video Streamer Pipeline Error]:', err.message);
+    });
 
     return {
       success: true,
-      message: `🎥 Kamera Azura berhasil dinyalakan oleh ${requesterName}! (Fase 1: Sambutan ➔ Fase 2: Looping Cam)`
+      message: `🎥 Kamera Azura berhasil dinyalakan oleh **${requesterName}**! (Fase 1: Sambutan ➔ Fase 2: Looping Cam)`
     };
   } catch (err) {
     console.error('[Video Streamer Error]: Failed to start stream:', err.message);
@@ -186,65 +184,71 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
 }
 
 /**
- * Internal 2-Phase Stream Orchestrator
+ * 2-Phase Stream Orchestrator using @dank074/discord-video-stream v6 API
  */
 async function execute2PhasePipeline(session, introPath, loopPath, introExists, loopExists) {
-  const { udp, guildId, textChannel } = session;
+  const { streamer, abortController, guildId } = session;
 
   try {
-    // ══════════════════════════════════════════════════════════════
-    // ── PHASE 1: Video 1 (Intro Sambutan with Audio) ──────────────
-    // ══════════════════════════════════════════════════════════════
-    if (introExists && !session.aborted) {
+    const { prepareStream, playStream } = await import('@dank074/discord-video-stream');
+
+    // ── PHASE 1: Video 1 (Intro Sambutan with Audio) ──
+    if (introExists && !abortController.signal.aborted) {
       session.currentPhase = 'PHASE_1_INTRO';
       session.isIntroPlaying = true;
       console.log(`[Video Streamer]: 🎬 [Phase 1] Playing Video 1 (Intro with Audio)... Azura TTS muted.`);
 
       try {
-        // Stream intro video with video and audio enabled
-        await udp.playStream(introPath, {
+        const { output } = prepareStream(introPath, {
           width: 1280,
           height: 720,
-          fps: 24,
-          bitrateKbps: 3300,
+          frameRate: 24,
+          bitrateVideo: 3300,
           includeAudio: true
-        });
+        }, abortController.signal);
+
+        await playStream(output, streamer, {
+          type: 'camera'
+        }, abortController.signal);
       } catch (introErr) {
-        console.warn('[Video Streamer Warning]: Intro playback ended or error:', introErr.message);
+        if (!abortController.signal.aborted) {
+          console.warn('[Video Streamer Warning]: Intro playback completed/transitioned:', introErr.message);
+        }
       }
     }
 
-    if (session.aborted) return;
+    if (abortController.signal.aborted) return;
 
-    // ══════════════════════════════════════════════════════════════
-    // ── PHASE 2: Video 2 (Looping Visual Mute) ────────────────────
-    // ══════════════════════════════════════════════════════════════
+    // ── PHASE 2: Video 2 (Looping Visual Mute) ──
     session.isIntroPlaying = false;
     session.currentPhase = 'PHASE_2_LOOP';
     console.log(`[Video Streamer]: 🔄 [Phase 2] Seamlessly transitioning to Video 2 (Looping Visual Mute). Azura TTS active.`);
 
     const targetLoopVideo = loopExists ? loopPath : introPath;
 
-    // Loop continuously until session is stopped
-    while (activeCameraSessions.has(guildId) && !session.aborted) {
+    while (activeCameraSessions.has(guildId) && !abortController.signal.aborted) {
       try {
-        // Play loop video with includeAudio: false (Muted)
-        await udp.playStream(targetLoopVideo, {
+        const { output } = prepareStream(targetLoopVideo, {
           width: 1280,
           height: 720,
-          fps: 24,
-          bitrateKbps: 3300,
+          frameRate: 24,
+          bitrateVideo: 3300,
           includeAudio: false,
-          customFfmpegArgs: ['-stream_loop', '-1', '-an']
-        });
+          customInputOptions: ['-stream_loop', '-1']
+        }, abortController.signal);
+
+        await playStream(output, streamer, {
+          type: 'camera'
+        }, abortController.signal);
       } catch (loopErr) {
-        // If stopped by user or finished loop cycle, check if still active
-        if (!activeCameraSessions.has(guildId) || session.aborted) break;
-        await new Promise(r => setTimeout(r, 500));
+        if (abortController.signal.aborted || !activeCameraSessions.has(guildId)) break;
+        await new Promise(r => setTimeout(r, 600));
       }
     }
   } catch (globalErr) {
-    console.error('[Video Streamer Pipeline Error]:', globalErr.message);
+    if (!abortController.signal.aborted) {
+      console.error('[Video Streamer Pipeline Error]:', globalErr.message);
+    }
   }
 }
 
@@ -262,23 +266,19 @@ async function stopCameraStream(guildId) {
     };
   }
 
-  session.aborted = true;
   session.isIntroPlaying = false;
+  try {
+    session.abortController?.abort();
+  } catch (_) {}
 
   try {
-    if (session.udp) {
-      try {
-        session.udp.mediaConnection?.setVideoStatus(false);
-        session.udp.mediaConnection?.setSpeaking(false);
-      } catch (_) {}
-      try {
-        session.udp.stop();
-      } catch (_) {}
-    }
-
     if (session.streamer) {
       try {
-        await session.streamer.leaveVoice().catch(() => {});
+        session.streamer.signalVideo?.(false);
+        session.streamer.stopStream?.();
+      } catch (_) {}
+      try {
+        session.streamer.leaveVoice?.();
       } catch (_) {}
     }
   } catch (err) {

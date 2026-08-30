@@ -15,6 +15,7 @@ const INTENT_TYPES = {
   EMOTIONAL_INQUIRY: 'EMOTIONAL_INQUIRY',       // Questions about pouty/ngambek mood, emotions, jealousy
   MUSIC_COMMAND: 'MUSIC_COMMAND',               // Play, pause, resume, stop, switch music
   VC_ACTION_REQUEST: 'VC_ACTION_REQUEST',       // Reading prayers, Quran, singing in VC
+  CROSS_CHANNEL_REFERENCE: 'CROSS_CHANNEL_REFERENCE', // Inquiries referencing topics/chats in other text channels
   CAUSAL_FOLLOW_UP: 'CAUSAL_FOLLOW_UP',         // Follow-ups like "kenapa gitu?", "terus gimana?", "maksudnya?"
   DIRECT_QUESTION: 'DIRECT_QUESTION',           // Specific factual/technical questions
   COMMAND_REQUEST: 'COMMAND_REQUEST',           // Requesting an action (search, generate image, calculate, leave)
@@ -52,7 +53,13 @@ function classifyCognitiveIntents(prompt, hasReplyContext = false) {
     matched.push(INTENT_TYPES.VC_ACTION_REQUEST);
   }
 
-  // 4. Self-Feature Inquiry (Capabilities, quota, rules, privileges, humming, etc.)
+  // 4. Cross-Channel Reference (e.g. "yang di channel project", "cek channel coding", "di general tadi bahas apa")
+  const crossChannelRegex = /\b(?:di\s+(?:channel|ruang|room)|yang\s+di\s+(?:channel\s+|#)?|cek\s+channel|lihat\s+(?:obrolan\s+)?channel|obrolan\s+(?:di\s+)?channel|tadi\s+di\s+#|tadi\s+di\s+channel)\b/i;
+  if (crossChannelRegex.test(lower) || /<#\d+>/.test(prompt)) {
+    matched.push(INTENT_TYPES.CROSS_CHANNEL_REFERENCE);
+  }
+
+  // 5. Self-Feature Inquiry (Capabilities, quota, rules, privileges, humming, etc.)
   const selfFeatureRegex = /\b(?:kamu\s+(?:bisa\s+apa|punya\s+fitur|fiturnya\s+apa|bisa\s+ngapain)|fitur\s+(?:kamu|azura|ara|zura|ajur)|apa\s+saja\s+kemampuanmu|kuota\s+(?:vc|suara|teman|harian)|countdown\s+24\s*jam|kapan\s+kuota\s+reset|aturan\s+(?:vc|kuota|member|teman)|bedanya\s+owner|hak\s+akses|humming|icebreaker|deep\s+sleep|auto\s*leave|master\s+password|enkripsi|keamanan\s+database|siapa\s+pembuatmu|siapa\s+creator|bisa\s+generate\s+gambar|bisa\s+search|bisa\s+nyanyi|bisa\s+keluar\s+vc)\b/i;
   if (selfFeatureRegex.test(lower)) {
     matched.push(INTENT_TYPES.SELF_FEATURE_INQUIRY);
@@ -174,6 +181,15 @@ function getCognitiveReasoningDirectives(intentOrIntents, isOwner, userName, isV
           '- Lawan bicara sedang menanyakan fitur, aturan, kuota, kapabilitas, atau sistem internalmu.',
           '- Jawablah dengan FAKTA TEKNIS & ATURAN ASLIMU yang tercantum dalam KESADARAN FITUR DIRI di atas.',
           '- DILARANG KERAS mengarang/berhalusinasi fitur yang tidak kamu miliki atau memberikan jawaban generik AI robot.'
+        );
+        break;
+
+      case INTENT_TYPES.CROSS_CHANNEL_REFERENCE:
+        directives.push(
+          '🌐 INTENSI REFERENSI LINTAS-CHANNEL (CROSS-CHANNEL REFERENCE):',
+          '- Lawan bicara secara spesifik menanyakan obrolan, topik, atau aktivitas yang terjadi di channel lain di server ini.',
+          '- Gunakan data riwayat [KONTEKS OBROLAN TERBARU DI CHANNEL] yang telah disuntikkan untuk menjawab pertanyaan mereka secara akurat, presisi, dan terhubung.',
+          '- Jangan mengarang isi obrolan jika channel tersebut belum ada bahasan baru; jelaskan saja intinya secara santai dan ramah.'
         );
         break;
 

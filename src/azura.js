@@ -29,9 +29,13 @@ function getOpenAIClient() {
  * @param {string} userName 
  * @param {string} userId
  * @param {boolean} isDM
+ * @param {string|null} contextKey
+ * @param {Array<string>} mentionedUserIds
+ * @param {string|null} guildId
+ * @param {string|null} channelName
  * @returns {string}
  */
-function getSystemPrompt(userName, userId, isDM = false, contextKey = null, mentionedUserIds = [], guildId = null) {
+function getSystemPrompt(userName, userId, isDM = false, contextKey = null, mentionedUserIds = [], guildId = null, channelName = null) {
   const now = new Date();
   const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta' };
   const todayStr = now.toLocaleDateString('id-ID', options);
@@ -221,7 +225,7 @@ Aturan Pembacaan Doa, Zikir, & Al-Qur'an (Voice Channel vs Text):
   * Jelaskan secara ramah dan santun bahwa melantunkan doa dan Al-Qur'an lebih afdal dan indah bila dilafalkan langsung dengan suara tartil di Voice Channel (VC).
   * Ajak mereka masuk ke Voice Channel bersama: "Membaca Al-Qur'an itu lebih afdal dan indah kalau dilafalkan langsung dengan suara tartil di Voice Channel (VC). Yuk masuk ke VC bareng aku biar aku bacakan langsung dengan suara merdu! ✨"
 
-${getSelfAwarenessContext(isOwner, userName, false, guildId)}
+${getSelfAwarenessContext(isOwner, userName, false, guildId, channelName)}
 
 Aturan Panjang Jawaban (ADAPTIF):
 1. Chat santai / basa-basi → PENDEK, 1-3 kalimat saja.
@@ -330,9 +334,12 @@ function resolveContextualSearchQuery(prompt, history = []) {
  * @param {string} channelId
  * @param {string} guildId
  * @param {boolean} isOwner
+ * @param {Array<string>} mentionedUserIds
+ * @param {import('discord.js').Guild|null} [guild=null]
+ * @param {string|null} [channelName=null]
  * @returns {Promise<string|object>}
  */
-async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, guildId = null, isOwner = false, mentionedUserIds = []) {
+async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, guildId = null, isOwner = false, mentionedUserIds = [], guild = null, channelName = null) {
   autoExtractFact(userId, userPrompt);
 
   const reminderResponse = await processSmartReminder(userId, userPrompt, channelId);
@@ -469,7 +476,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
 
   const contextKey = isDM ? `user_${userId}` : `channel_${channelId || 'main'}`;
   const history = budgetGuard.getContext(contextKey);
-  const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey, mentionedUserIds, guildId);
+  const systemPrompt = getSystemPrompt(userName, userId, isDM, contextKey, mentionedUserIds, guildId, channelName);
 
   // Cognitive Intent Classification & Causal Reasoning Directive
   const hasReplyContext = userPrompt.includes('[KONTEKS JANGKAR BALASAN') || userPrompt.includes('[Konteks Membalas Pesan');
@@ -520,6 +527,25 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     } catch (_) {}
   }
 
+  // ── GUILD TOPOLOGY & ON-DEMAND CROSS-CHANNEL CONTEXT INGESTION ──
+  let topologyContext = '';
+  let crossChannelContext = '';
+  if (guild) {
+    try {
+      const { getGuildTopologyContext, detectChannelReference, fetchCrossChannelContext } = require('./guildAwareness');
+      topologyContext = getGuildTopologyContext(guild);
+
+      // Check if user specifically mentions or asks about another channel
+      const channelRef = detectChannelReference(userPrompt, guild, channelId);
+      if (channelRef && channelRef.channel) {
+        console.log(`[GuildAwareness]: 🌐 On-demand cross-channel fetch triggered for #${channelRef.channelName} by @${userName}`);
+        crossChannelContext = await fetchCrossChannelContext(channelRef.channel, 12);
+      }
+    } catch (guildErr) {
+      console.warn('[GuildAwareness Error]:', guildErr.message);
+    }
+  }
+
   let searchContext = scrapedDataContent;
   if (!searchContext && needsSearch(userPrompt, history) && imageUrls.length === 0) {
     const isAnimeQuery = /\b(?:myanimelist|mal|anime|manga|manhwa|light\s+novel|wibu|otaku|seiyuu)\b/i.test(userPrompt) ||
@@ -566,7 +592,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     userContent = isDM ? userPrompt : `${speakerTag}${userPrompt}`;
   }
 
-  let systemMessage = systemPrompt + liveVcContext + routeContext + reasoningDirective;
+  let systemMessage = systemPrompt + liveVcContext + topologyContext + crossChannelContext + routeContext + reasoningDirective;
   if (searchContext) {
     systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY / MYANIMELIST)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +

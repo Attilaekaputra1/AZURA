@@ -859,9 +859,21 @@ let finalPrompt = rawPrompt;
       }
     }
 
-    // Call OpenAI API via AZURA module (with optional images for Vision and Mention Resolution)
+    // Call OpenAI API via AZURA module (with optional images for Vision, Mention Resolution, and Guild Topology Awareness)
     const mentionedUserIds = (mentionResolution?.mentionedUsers || []).map(u => u.userId);
-    const response = await askAzura(message.author.id, finalPrompt, userName, imageUrls, isDM, message.channel.id, guildId, isOwner, mentionedUserIds);
+    const response = await askAzura(
+      message.author.id,
+      finalPrompt,
+      userName,
+      imageUrls,
+      isDM,
+      message.channel.id,
+      guildId,
+      isOwner,
+      mentionedUserIds,
+      message.guild || null,
+      message.channel?.name || null
+    );
 
     const elapsed = Date.now() - startTime;
     console.log(`[Response] User: ${message.author.tag} | Time: ${elapsed}ms`);
@@ -929,6 +941,37 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   const { isAzuraSleeping } = require('./sleepMode');
   if (isAzuraSleeping && isAzuraSleeping()) return; // Disallow auto-follow when sleeping
   await handleVoiceStateUpdate(oldState, newState, client);
+});
+
+// Event: Channel Lifecycle Awareness (Track creation, deletion, renaming)
+client.on('channelCreate', (channel) => {
+  if (channel.guild) {
+    try {
+      const { invalidateTopologyCache } = require('./guildAwareness');
+      invalidateTopologyCache(channel.guild.id);
+      console.log(`[GuildAwareness]: 📢 New channel detected: #${channel.name} in "${channel.guild.name}". Topology cache updated.`);
+    } catch (_) {}
+  }
+});
+
+client.on('channelDelete', (channel) => {
+  if (channel.guild) {
+    try {
+      const { invalidateTopologyCache } = require('./guildAwareness');
+      invalidateTopologyCache(channel.guild.id);
+      console.log(`[GuildAwareness]: 🗑️ Channel deleted: #${channel.name} in "${channel.guild.name}". Topology cache updated.`);
+    } catch (_) {}
+  }
+});
+
+client.on('channelUpdate', (oldChannel, newChannel) => {
+  if (newChannel.guild && oldChannel.name !== newChannel.name) {
+    try {
+      const { invalidateTopologyCache } = require('./guildAwareness');
+      invalidateTopologyCache(newChannel.guild.id);
+      console.log(`[GuildAwareness]: ✏️ Channel renamed: #${oldChannel.name} -> #${newChannel.name} in "${newChannel.guild.name}". Topology cache updated.`);
+    } catch (_) {}
+  }
 });
 
 // Event: Interaction (Slash Commands, Button Clicks, & Select Menus)

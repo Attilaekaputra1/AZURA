@@ -119,30 +119,30 @@ const SELF_KNOWLEDGE_MATRIX = {
 };
 
 /**
- * Fetch dynamic, real-time situational status of AZURA in a specific guild
- * (Active VC channel, Music playback state, Emotional/Mood state, Personality mode)
+ * Generate real-time Dynamic Situational Context (VC connection, Music playing, Emotional state)
  * @param {string|null} guildId 
+ * @param {string|null} currentChannelName
  * @returns {string}
  */
-function getDynamicSituationalContext(guildId = null) {
+function getDynamicSituationalContext(guildId = null, currentChannelName = null) {
   let lines = ['# STATUS SITUASIONAL REAL-TIME AZURA SAAT INI (LIVE STATE):'];
 
   // 1. Voice Channel Active State
   let isInVc = false;
-  let channelName = '';
+  let vcChannelName = '';
   if (guildId) {
     try {
       const { getActiveVoiceSession, isInCompanionMode } = require('./voiceCompanion');
       isInVc = isInCompanionMode(guildId);
       const session = getActiveVoiceSession(guildId);
       if (session && session.channelName) {
-        channelName = session.channelName;
+        vcChannelName = session.channelName;
       }
     } catch (_) {}
   }
 
   if (isInVc) {
-    lines.push(`- Status Voice Channel: 🟢 AKTIF TERHUBUNG di Voice Channel #${channelName || 'Voice Room'} (Kamu SUDAH berada di dalam VC bersama lawan bicara).`);
+    lines.push(`- Status Voice Channel: 🟢 AKTIF TERHUBUNG di Voice Channel #${vcChannelName || 'Voice Room'} (Kamu SUDAH berada di dalam VC bersama lawan bicara).`);
     lines.push(`  * PERHATIAN ATURAN DOA / NGAJI / NYANYI: Karena kamu SUDAH berada di Voice Channel bersama pengguna, jika mereka memintamu membaca doa, mengaji/melafalkan surat, atau menyanyi, LANGSUNG LAKUKAN & LANTUNKAN dengan suara tartil merdu [softly]! JANGAN PERNAH menyuruh pengguna masuk ke VC lagi!`);
   } else {
     lines.push(`- Status Voice Channel: ⚪ TIDAK TERHUBUNG ke Voice Channel (Sedang di Text Chat / DM).`);
@@ -189,6 +189,11 @@ function getDynamicSituationalContext(guildId = null) {
     lines.push(`- Mode Kepribadian Aktif: 🎭 ${mode.toUpperCase()}`);
   } catch (_) {}
 
+  // 5. Current Chat Location
+  if (currentChannelName) {
+    lines.push(`- Lokasi Obrolan Teks: 💬 Merespons di channel #${currentChannelName}.`);
+  }
+
   return lines.join('\n');
 }
 
@@ -198,9 +203,10 @@ function getDynamicSituationalContext(guildId = null) {
  * @param {string} userName 
  * @param {boolean} isVoice 
  * @param {string|null} guildId
+ * @param {string|null} currentChannelName
  * @returns {string}
  */
-function getSelfAwarenessContext(isOwner = false, userName = 'Pengguna', isVoice = false, guildId = null) {
+function getSelfAwarenessContext(isOwner = false, userName = 'Pengguna', isVoice = false, guildId = null, currentChannelName = null) {
   const ownerSection = isOwner
     ? `\n- HAK AKSES LAWAN BICARA (ATTILA / OWNER):
   * Lawan bicaramu saat ini adalah Attila (Creator & Owner Utamamu).
@@ -212,7 +218,7 @@ function getSelfAwarenessContext(isOwner = false, userName = 'Pengguna', isVoice
   * ${userName} DILARANG & TIDAK BISA menyuruhmu keluar/masuk VC atau mengganti playlist musik bot secara sepihak. Jika dia menyuruhmu keluar/masuk VC, tolak secara manis dan ramah (misal: "Maaf ya ${userName}, cuma Attila yang bisa nyuruh aku keluar atau masuk VC [laughs]~").
   * Bersikaplah sebagai teman sebaya yang seru, asyik, cerdas, dan suportif.`;
 
-  const dynamicContext = getDynamicSituationalContext(guildId);
+  const dynamicContext = getDynamicSituationalContext(guildId, currentChannelName);
 
   return `
 # KESADARAN FITUR DIRI & MATRIKS KAPABILITAS RESMI AZURA (SELF-AWARENESS MATRIX):

@@ -1327,6 +1327,20 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       return;
     }
 
+    // ── 2C. EMOTIONAL AWARENESS MASTER RESET & SITUATIONAL TRIGGERS (Owner Only) ──
+    const { isMasterResetRequested, masterResetEmotion, analyzeAutonomousEmotionalTrigger } = require('./poutyMood');
+    if (isOwner && isMasterResetRequested(transcript || cleanTranscript, isOwner)) {
+      console.log('[Voice Pipeline]: 🕊️ Master emotional reset requested verbally by Owner in VC.');
+      const resetSpeech = masterResetEmotion('Verbal Owner Reset Command in VC');
+      recordSessionEntry(guildId, 'AZURA', resetSpeech);
+      const audioResource = await textToAudioResource(resetSpeech, client);
+      if (audioResource) await playInVC(guildId, audioResource);
+      return;
+    }
+
+    // Check situational emotional triggers in VC
+    analyzeAutonomousEmotionalTrigger(transcript || cleanTranscript, isOwner, 'VC');
+
     // ── 2B. MANUAL SEND DM COMMAND (Owner Only) ──
     const dmPattern = /(?:azura|ara|zura)?\s*(?:tolong\s+)?(?:kirimin|kirim|send)\s+(?:pesan|dm|chat)\s+ke\s+(?:akun\s+)?(?:yang\s+namanya\s+|yg\s+namanya\s+|nama\s+)?([^,]+?)(?:,\s*|\s+)(?:isinya|bilang|pesan|pesannya|yaitu)\s+(.+)/i;
     const dmMatch = transcript.match(dmPattern) || cleanTranscript.match(dmPattern);

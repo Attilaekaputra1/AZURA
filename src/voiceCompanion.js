@@ -1738,7 +1738,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   // ── Step 4: General AI Voice Chat (Context-Aware Duration Engine) ──
   globalVoiceTelemetry.markTimestamp(turnId, 't4');
-  const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId, intentAnalysis);
+  const { spoken: spokenResponse, isStory } = await generateVoiceAIResponse(transcript, userId, guildId, intentAnalysis, client);
   globalVoiceTelemetry.markTimestamp(turnId, 't5');
 
     // Check if AI brain autonomously decided to leave VC (Owner Only)
@@ -1948,9 +1948,10 @@ const voiceChatHistories = new Map();
  * @param {string} userId 
  * @param {string} [guildId]
  * @param {object} [intentAnalysis]
+ * @param {import('discord.js').Client} [client]
  * @returns {Promise<{ spoken: string, isStory: boolean }>}
  */
-async function generateVoiceAIResponse(transcript, userId, guildId = null, intentAnalysis = null) {
+async function generateVoiceAIResponse(transcript, userId, guildId = null, intentAnalysis = null, client = null) {
   const openai = getOpenAI();
   if (!openai) return { spoken: 'Iya Attila, ada apa?', isStory: false };
 
@@ -2092,6 +2093,29 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
     } catch (_) {}
   }
 
+  // Ingest Guild Topology & On-Demand Cross-Channel Context for Voice AI
+  let guildTopologyVoiceContext = '';
+  let crossChannelVoiceContext = '';
+  if (guildId) {
+    try {
+      const discordClient = client || require('./index');
+      const guild = discordClient?.guilds?.cache?.get(guildId);
+      if (guild) {
+        const { getGuildTopologyContext, detectChannelReference, fetchCrossChannelContext } = require('./guildAwareness');
+        guildTopologyVoiceContext = getGuildTopologyContext(guild);
+
+        // Check if user specifically asks in VC about another channel (e.g. "yang tadi di general lagi bahas apa?")
+        const ref = detectChannelReference(transcript, guild);
+        if (ref && ref.channel) {
+          console.log(`[GuildAwareness]: 🌐 On-demand cross-channel fetch triggered in VC for #${ref.channelName} by @${speakerName}`);
+          crossChannelVoiceContext = await fetchCrossChannelContext(ref.channel, 10);
+        }
+      }
+    } catch (gErr) {
+      console.warn('[Voice GuildAwareness Warning]:', gErr.message);
+    }
+  }
+
   // Cognitive Reasoning Engine Directives for Voice
   let cognitiveReasoningDirective = '';
   try {
@@ -2107,7 +2131,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${cognitiveReasoningDirective}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
@@ -2123,7 +2147,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${cognitiveReasoningDirective}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}
 
 ${getSelfAwarenessContext(isOwner, speakerName, true, guildId)}
 

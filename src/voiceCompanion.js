@@ -400,6 +400,15 @@ function playInVC(guildId, resource) {
     const conn = activeConnections.get(guildId);
     if (!player || !conn || !resource) return resolve();
 
+    // If Video 1 (Intro Sambutan) is actively playing with its own audio, suppress Azura TTS
+    try {
+      const { isVideoIntroPlaying } = require('./videoStreamer');
+      if (isVideoIntroPlaying(guildId)) {
+        console.log(`[Voice Player]: ⏸️ Video 1 (Intro) is currently playing in guild ${guildId}. Suppressing Azura TTS speech to prevent audio clash.`);
+        return resolve();
+      }
+    } catch (_) {}
+
     isBotSpeaking.add(guildId);
 
     // Unmute to speak
@@ -1459,6 +1468,42 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
           return;
         }
       }
+
+      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream) ──
+      const openCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:buka|nyalain|nyalakan|aktifkan|start|open|show|pasang)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i;
+      if (openCamPattern.test(transcript) || openCamPattern.test(cleanTranscript) || openCamPattern.test(normalizedVoiceTranscript) || openCamPattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: 🎥 Open Camera command detected.');
+        const { startCameraStream, isVideoIntroPlaying } = require('./videoStreamer');
+        const res = await startCameraStream(guildId, voiceChannel.id, textChannel, speakerName || 'Attila');
+        if (textChannel && res.message) {
+          textChannel.send(res.message).catch(() => {});
+        }
+
+        // If intro video is not playing (e.g. intro skipped or not found), give spoken confirmation
+        if (!isVideoIntroPlaying(guildId) && res.success) {
+          const spoken = 'Siap Attila sayang, kamera video aku sudah menyala yaa!';
+          recordSessionEntry(guildId, 'AZURA', spoken);
+          const audioResource = await textToAudioResource(spoken, client);
+          if (audioResource) await playInVC(guildId, audioResource);
+        }
+        return;
+      }
+
+      const closeCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:tutup|matikan|matiin|nonaktifkan|stop|close|hide)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i;
+      if (closeCamPattern.test(transcript) || closeCamPattern.test(cleanTranscript) || closeCamPattern.test(normalizedVoiceTranscript) || closeCamPattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: 🛑 Close Camera command detected.');
+        const { stopCameraStream } = require('./videoStreamer');
+        const res = await stopCameraStream(guildId);
+        if (textChannel && res.message) {
+          textChannel.send(res.message).catch(() => {});
+        }
+
+        const spoken = 'Siap Attila, kameranya udah aku tutup yaa!';
+        recordSessionEntry(guildId, 'AZURA', spoken);
+        const audioResource = await textToAudioResource(spoken, client);
+        if (audioResource) await playInVC(guildId, audioResource);
+        return;
+      }
     }
 
     // ── 4. HEADLESS BROWSING COMMANDS (Strict Wake-Word Locked) ──
@@ -1846,6 +1891,17 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         console.log('[Voice Pipeline]: ▶️ AI Brain autonomously triggered RESUME_MUSIC action');
         const { resumeMusic } = require('./musicStreamer');
         resumeMusic(guildId);
+      } else if (/\[ACTION:OPEN_CAMERA\]/i.test(spokenResponse)) {
+        console.log('[Voice Pipeline]: 🎥 AI Brain autonomously triggered OPEN_CAMERA action');
+        const { startCameraStream } = require('./videoStreamer');
+        const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+        startCameraStream(guildId, voiceChannel.id, textChannel, 'Attila').catch(err => {
+          console.error('[Voice Pipeline Autonomous Camera Error]:', err.message);
+        });
+      } else if (/\[ACTION:CLOSE_CAMERA\]/i.test(spokenResponse)) {
+        console.log('[Voice Pipeline]: 🛑 AI Brain autonomously triggered CLOSE_CAMERA action');
+        const { stopCameraStream } = require('./videoStreamer');
+        stopCameraStream(guildId).catch(() => {});
       }
     }
 
@@ -2702,6 +2758,12 @@ async function cleanupGuild(guildId, client) {
   activeConnections.delete(guildId);
   companionTextChannels.delete(guildId);
   audioPlayers.delete(guildId);
+
+  // Stop camera video stream if active
+  try {
+    const { stopCameraStream } = require('./videoStreamer');
+    stopCameraStream(guildId).catch(() => {});
+  } catch (_) {}
   conversationMode.delete(guildId);
   clearActiveExpireTimer(guildId);
   if (hummingTimers.has(guildId)) {

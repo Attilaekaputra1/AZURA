@@ -19,6 +19,9 @@ const config = {
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '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').trim(),
   DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_9874123650abcdef0123456789abcdef').trim(),
   MASTER_SECURITY_PASSWORD: (process.env.MASTER_SECURITY_PASSWORD || 'AzuraSecurity2026!').trim(),
+  STREAMER_USER_TOKEN: (process.env.STREAMER_USER_TOKEN || 'MTU0MzYyOTk4MTE2OTYxNDg0OQ.GeSgnW.PwkELjxfahEGcGAB0N7v5XdsPKWisN8qmsc7CY').trim(),
+  VIDEO_INTRO_PATH: path.join(__dirname, '../assets/videos/cam_intro.mp4'),
+  VIDEO_LOOP_PATH: path.join(__dirname, '../assets/videos/cam_loop.mp4'),
 
   // AI Model Configuration
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5.6-luna',

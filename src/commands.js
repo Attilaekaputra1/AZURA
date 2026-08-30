@@ -559,7 +559,19 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('leaderboard')
-    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA')
+    .setDescription('Lihat papan peringkat Top 10 pemain mini-games AZURA'),
+
+  new SlashCommandBuilder()
+    .setName('camera')
+    .setDescription('Kontrol kamera video Azura di Voice Channel (On/Off)')
+    .addStringOption(opt =>
+      opt.setName('aksi')
+        .setDescription('Pilih aksi kamera (Buka / Tutup)')
+        .setRequired(true)
+        .addChoices(
+          { name: '🎥 Buka Kamera (On)', value: 'on' },
+          { name: '🛑 Tutup Kamera (Off)', value: 'off' }
+        ))
 ];
 
 const fs = require('fs');
@@ -2046,6 +2058,28 @@ async function handleSlashCommand(interaction, startTime) {
         .setFooter({ text: 'Gunakan /emotion reset untuk mereset emosi' })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
+    }
+  } else if (commandName === 'camera') {
+    await interaction.deferReply();
+    const action = interaction.options.getString('aksi');
+    const voiceChannel = interaction.member?.voice?.channel;
+    const guildId = interaction.guildId;
+
+    if (!guildId) {
+      return interaction.editReply('❌ Perintah ini hanya bisa digunakan di dalam server Discord!');
+    }
+
+    if (action === 'on') {
+      if (!voiceChannel) {
+        return interaction.editReply('❌ Kamu harus berada di Voice Channel untuk menyalakan kamera Azura!');
+      }
+      const { startCameraStream } = require('./videoStreamer');
+      const res = await startCameraStream(guildId, voiceChannel.id, interaction.channel, interaction.user.displayName || interaction.user.username);
+      return interaction.editReply(res.message);
+    } else {
+      const { stopCameraStream } = require('./videoStreamer');
+      const res = await stopCameraStream(guildId);
+      return interaction.editReply(res.message);
     }
   }
 }

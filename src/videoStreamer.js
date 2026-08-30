@@ -303,40 +303,44 @@ async function executeContinuousPipeline(session, introPath, loopPath, introExis
  */
 async function stopCameraStream(guildId) {
   const session = activeCameraSessions.get(guildId);
-  if (!session) {
-    return {
-      success: true,
-      message: 'Kamera Azura sudah dalam keadaan mati.'
-    };
+
+  // If session active, clean up session resources
+  if (session) {
+    session.isIntroPlaying = false;
+    try {
+      session.abortController?.abort();
+    } catch (_) {}
+
+    try {
+      if (session.ffmpegProcess) {
+        try { session.ffmpegProcess.kill('SIGTERM'); } catch (_) {}
+      }
+
+      if (session.streamer) {
+        try { session.streamer.signalVideo?.(false); } catch (_) {}
+        try { session.streamer.stopStream?.(); } catch (_) {}
+        try { session.streamer.leaveVoice?.(); } catch (_) {}
+      }
+    } catch (err) {
+      console.warn('[Video Streamer Warning]: Error during stream cleanup:', err.message);
+    } finally {
+      activeCameraSessions.delete(guildId);
+    }
   }
 
-  session.isIntroPlaying = false;
-  try {
-    session.abortController?.abort();
-  } catch (_) {}
-
-  try {
-    if (session.ffmpegProcess) {
-      try {
-        session.ffmpegProcess.kill('SIGTERM');
-      } catch (_) {}
-    }
-
-    if (session.streamer) {
-      try {
-        session.streamer.signalVideo?.(false);
-        session.streamer.stopStream?.();
-      } catch (_) {}
-      try {
-        session.streamer.leaveVoice?.();
-      } catch (_) {}
-    }
-  } catch (err) {
-    console.warn('[Video Streamer Warning]: Error during stream cleanup:', err.message);
-  } finally {
-    activeCameraSessions.delete(guildId);
-    console.log(`[Video Streamer]: 🛑 Camera stream stopped cleanly for guild ${guildId}.`);
+  // Failsafe: Ensure helper account leaves the voice channel in this guild
+  if (streamerClient && guildId) {
+    try {
+      const guild = streamerClient.guilds.cache.get(guildId);
+      const me = guild?.members?.me;
+      if (me && me.voice && me.voice.channel) {
+        await me.voice.disconnect().catch(() => {});
+        console.log(`[Video Streamer]: 🚪 Helper account auto-exited VC in guild ${guildId}.`);
+      }
+    } catch (_) {}
   }
+
+  console.log(`[Video Streamer]: 🛑 Camera stream stopped & helper exited for guild ${guildId}.`);
 
   return {
     success: true,

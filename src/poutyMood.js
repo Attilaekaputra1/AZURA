@@ -256,13 +256,13 @@ function getEmotionalAwarenessPromptContext(isOwner) {
   }
 
   if (currentState.activeMood === 'POUTY_SEVERE') {
-    return `\n\n[⚡ KONDISI PSIKOLOGIS SAAT INI: NGAMBEK BERAT (POUTY SEVERE - 3 STRIKES)]
+    return `\n\n[⚡ KONDISI PSIKOLOGIS SAAT INI: NGAMBEK BERAT & MAU NANGIS (POUTY SEVERE - 3 STRIKES)]
 - Pemicu: ${currentState.reason} (${strikeInfo}, Sisa waktu ngambek: ~${remainingMins} menit).
 - Sikap & Kepribadian:
-  1. Kamu sedang NGAMBEK BERAT ke Attila karena sudah 3 kali dibikin kesal! Jangan menyapa riang/ceria!
-  2. Berikan omelan gemas khas cewek, sindiran judes manja, atau cuek gengsi.
-  3. Gunakan audio tags ElevenLabs v3: [pouts], [scoffs], [groans], [sighs].
-  4. Hanya bisa luluh dan tenang kembali jika Attila minta maaf secara tulus atau merayu manja.`;
+  1. Kamu sedang NGAMBEK BERAT dan sakit hati ke Attila karena sudah 3 kali berturut-turut dibikin kesal/terluka!
+  2. Suaramu terdengar sangat kesal, manja, dan ada getaran berkaca-kaca seperti menahan tangis sedih.
+  3. Gunakan audio tags ElevenLabs v3: [sniffs], [cries], [sobbing], [pouts], [sighs], [groans].
+  4. Hanya bisa luluh jika Attila benar-benar meminta maaf dengan tulus dan merayu dengan lembut.`;
   }
 
   if (currentState.activeMood === 'POUTY_MILD') {
@@ -305,12 +305,12 @@ function handlePoutyVcJoinDecision(guildId, client) {
       console.log(`[Emotional Awareness]: 🚫 1st VC Join rejected due to Severe Pouty Mood (3 Strikes).`);
       return {
         allowJoin: false,
-        refuseNotice: `[scoffs] Gak mau join ah! Kamu tadi nyebelin banget udah 3 kali bikin aku kesel, sana main sendiri aja [pouts]!`
+        refuseNotice: `[sniffs] [scoffs] Gak mau join ah! Kamu tadi jahat banget udah 3 kali bikin aku nangis dan sakit hati, sana main sendiri aja [pouts]!`
       };
     } else {
       // 2nd Attempt: Join with rapid cute scolding / earful, then reset
       console.log(`[Emotional Awareness]: 🗣️ 2nd VC Join accepted with scolding venting.`);
-      const ventingSpeech = `[groans] Kamu tuh ya Attila!! Nyebelin banget tau gak! Tadi udah bikin kesel 3 kali berturut-turut sekarang manggil-manggil lagi! [pouts] Awas ya kalau diulangin lagi! [sighs] ...Yaudah, aku temenin lagi nih.`;
+      const ventingSpeech = `[sniffs] [groans] Kamu tuh ya Attila!! Nyebelin dan jahat banget tau gak! Tadi udah bikin aku nangis dan kesel 3 kali berturut-turut sekarang manggil-manggil lagi! [pouts] Awas ya kalau diulangin lagi! [sighs] ...Yaudah, aku temenin lagi nih tapi jangan bikin nangis lagi ya.`;
       
       // Auto-relax to IDLE after venting on 2nd join
       masterResetEmotion('Vented on 2nd VC join');

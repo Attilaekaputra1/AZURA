@@ -1339,7 +1339,29 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     }
 
     // Check situational emotional triggers in VC
-    analyzeAutonomousEmotionalTrigger(transcript || cleanTranscript, isOwner, 'VC');
+    const emotionResult = analyzeAutonomousEmotionalTrigger(transcript || cleanTranscript, isOwner, 'VC');
+    if (isOwner && emotionResult && emotionResult.triggered && emotionResult.strikes >= 3) {
+      console.log('[Voice Pipeline]: 💔 Strike 3 reached in VC! Azura leaves VC tearfully and upset.');
+      const tearfulSpoken = '[sniffs] [cries] Kamu tuh jahat banget Attila!! Udah 3 kali bikin aku sakit hati begini... [sobbing] Aku gak mau ngomong sama kamu dulu, aku mau keluar! [sighs]';
+      const tearfulText = '[sniffs] Kamu tuh jahat banget Attila!! Udah 3 kali bikin aku sakit hati begini... Aku gak mau ngomong sama kamu dulu, aku mau keluar! 😭💔';
+
+      recordSessionEntry(guildId, 'AZURA', tearfulText);
+
+      const textChannel = companionTextChannels.get(guildId) || voiceChannel;
+      if (textChannel) {
+        await textChannel.send(tearfulText).catch(() => {});
+      }
+
+      const audioResource = await textToAudioResource(tearfulSpoken, client);
+      if (audioResource) {
+        await playInVC(guildId, audioResource);
+      }
+
+      conversationMode.delete(guildId);
+      clearActiveExpireTimer(guildId);
+      await cleanupGuild(guildId, client);
+      return;
+    }
 
     // ── 2B. MANUAL SEND DM COMMAND (Owner Only) ──
     const dmPattern = /(?:azura|ara|zura)?\s*(?:tolong\s+)?(?:kirimin|kirim|send)\s+(?:pesan|dm|chat)\s+ke\s+(?:akun\s+)?(?:yang\s+namanya\s+|yg\s+namanya\s+|nama\s+)?([^,]+?)(?:,\s*|\s+)(?:isinya|bilang|pesan|pesannya|yaitu)\s+(.+)/i;

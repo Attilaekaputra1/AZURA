@@ -1343,7 +1343,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     if (isOwner && emotionResult && emotionResult.triggered && emotionResult.strikes >= 3) {
       console.log('[Voice Pipeline]: 💔 Strike 3 reached in VC! Azura leaves VC tearfully and upset.');
       const tearfulSpoken = '[sniffs] [cries] Kamu tuh jahat banget Attila!! Udah 3 kali bikin aku sakit hati begini... [sobbing] Aku gak mau ngomong sama kamu dulu, aku mau keluar! [sighs]';
-      const tearfulText = '[sniffs] Kamu tuh jahat banget Attila!! Udah 3 kali bikin aku sakit hati begini... Aku gak mau ngomong sama kamu dulu, aku mau keluar! 😭💔';
+      const tearfulText = 'Kamu tuh jahat banget Attila!! Udah 3 kali bikin aku sakit hati begini... Aku gak mau ngomong sama kamu dulu, aku mau keluar! 😭💔';
 
       recordSessionEntry(guildId, 'AZURA', tearfulText);
 

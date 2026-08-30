@@ -305,7 +305,7 @@ function handlePoutyVcJoinDecision(guildId, client) {
       console.log(`[Emotional Awareness]: 🚫 1st VC Join rejected due to Severe Pouty Mood (3 Strikes).`);
       return {
         allowJoin: false,
-        refuseNotice: `[sniffs] [scoffs] Gak mau join ah! Kamu tadi jahat banget udah 3 kali bikin aku nangis dan sakit hati, sana main sendiri aja [pouts]!`
+        refuseNotice: `Gak mau join ah! Kamu tadi jahat banget udah 3 kali bikin aku nangis dan sakit hati, sana main sendiri aja!`
       };
     } else {
       // 2nd Attempt: Join with rapid cute scolding / earful, then reset

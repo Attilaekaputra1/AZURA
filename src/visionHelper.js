@@ -106,7 +106,10 @@ async function extractVisualMedia(message) {
       const embedImgUrl = embed.image?.url || embed.image?.proxyURL || embed.thumbnail?.url || embed.thumbnail?.proxyURL;
       if (embedImgUrl && !imageUrls.includes(embedImgUrl) && !embedImgUrl.endsWith('.json')) {
         imageUrls.push(embedImgUrl);
-        const provider = embed.provider?.name || (embed.url?.includes('tenor') ? 'Tenor GIF' : 'GIF');
+        const providerName = embed.provider?.name || '';
+        const provider = providerName
+          ? (providerName.toLowerCase().includes('gif') ? providerName : `${providerName} GIF`)
+          : (embed.url?.includes('tenor') ? 'Tenor GIF' : 'GIF');
         const title = embed.title ? ` "${embed.title}"` : '';
         contextNotes.push(`[Pengguna mengirim ${provider}${title}. Analisis gambar/GIF animasi ini secara visual dan tanggapi konteks/reaksi/leluconnya!]`);
       }

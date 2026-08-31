@@ -41,10 +41,34 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
   const todayStr = now.toLocaleDateString('id-ID', options);
   const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
 
-  const facts = getUserFacts(userId);
+  const facts = getUserFacts(userId, 'private', guildId);
   const factsFormatted = facts.length > 0
     ? facts.map((f, i) => `  ${i + 1}. ${f}`).join('\n')
     : '  (Belum ada fakta khusus yang tersimpan)';
+
+  let targetUserFactsPrompt = '';
+  if (mentionedUserIds && mentionedUserIds.length > 0) {
+    const targetFactsList = [];
+    for (const tid of mentionedUserIds) {
+      if (tid !== userId) {
+        const tFacts = getUserFacts(tid, 'all', guildId);
+        if (tFacts && tFacts.length > 0) {
+          targetFactsList.push(`\n- Fakta & Lore Pengguna Terkait (<@${tid}>):\n` + tFacts.map((f, i) => `  ${i + 1}. ${f}`).join('\n'));
+        }
+      }
+    }
+    if (targetFactsList.length > 0) {
+      targetUserFactsPrompt = targetFactsList.join('\n');
+    }
+  }
+
+  let publicGuildLorePrompt = '';
+  if (guildId) {
+    const pubFacts = getUserFacts(null, 'public', guildId);
+    if (pubFacts && pubFacts.length > 0) {
+      publicGuildLorePrompt = `\n- Lore & Catatan Bersama Server Ini:\n` + pubFacts.map((f, i) => `  ${i + 1}. ${f}`).join('\n');
+    }
+  }
 
   let permanentSummaryPrompt = '';
   if (contextKey) {
@@ -165,7 +189,7 @@ Informasi Waktu Real-Time, Akses Internet & Protokol Anti-Halusinasi (Zero-Hallu
 Informasi Memori Jangka Panjang & Personalisasi Pengguna:
 - Lawan bicaramu bernama "${userName}".${personalizationPrompt}
 - Catatan fakta penting tentang ${userName}:
-${factsFormatted}${permanentSummaryPrompt}${behaviorPrompt}
+${factsFormatted}${targetUserFactsPrompt}${publicGuildLorePrompt}${permanentSummaryPrompt}${behaviorPrompt}
 
 # Protokol Penalaran & Kecerdasan Otonom Tingkat Agent (Autonomous Agent Cognitive & Deep Logic Protocol)
 
@@ -421,7 +445,8 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const actualUserPrompt = extractActualUserPrompt(userPrompt);
   const isCourtesy = isPureCourtesy(actualUserPrompt);
 
-  autoExtractFact(userId, actualUserPrompt);
+  const { extractAndPersistRealtimeMemory, searchAllMemories } = require('./realtimeMemory');
+  extractAndPersistRealtimeMemory(userId, userName, actualUserPrompt, guildId, mentionedUserIds, guild);
 
   if (!isCourtesy) {
     const reminderResponse = await processSmartReminder(userId, actualUserPrompt, channelId);
@@ -690,7 +715,8 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       `5. GAYA RESPON: Sampaikan tanggapan dengan gaya cerdas, santai, dan penuh observasi visual yang hidup dan memukau!`;
   }
 
-  let systemMessage = systemPrompt + liveVcContext + topologyContext + crossChannelContext + routeContext + reasoningDirective + visionDirective;
+  const memorySearchContext = searchAllMemories(actualUserPrompt, guildId, mentionedUserIds);
+  let systemMessage = systemPrompt + liveVcContext + topologyContext + crossChannelContext + routeContext + reasoningDirective + visionDirective + memorySearchContext;
   if (searchContext) {
     systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY / MYANIMELIST)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +

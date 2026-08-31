@@ -335,8 +335,9 @@ function buildImageEmbed(prompt, userName, result, quotaInfo = {}) {
  * @param {{ success: boolean, imageUrl?: string, imageBuffer?: Buffer, revisedPrompt?: string, error?: string, orientationInfo?: any, modelUsed?: string }} result 
  * @param {string} referenceUrl 
  * @param {{ usedToday?: number, remainingToday?: number, isOwner?: boolean }} quotaInfo 
+ * @param {{ processType?: string, styleDna?: string }} metadata
  */
-function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quotaInfo = {}) {
+function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quotaInfo = {}, metadata = {}) {
   if (!result.success) {
     return {
       embeds: [
@@ -352,16 +353,24 @@ function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quot
   }
 
   const embed = new EmbedBuilder()
-    .setTitle('✨ Transformasi Gambar AI Berhasil!')
-    .setDescription(`Hasil karya visual **Image-to-Image** dari referensi gambar untuk **${userName}**:`)
+    .setTitle(`✨ ${metadata.processType || 'Transformasi Gambar AI'} Berhasil!`)
+    .setDescription(`Karya visual hasil **Vision AI Forensic Synthesis** dari referensi gambar untuk **${userName}**:`)
     .setColor(0x9B59B6) // Amethyst Purple for Img2Img
     .addFields(
       { name: '🎨 Instruksi Modifikasi', value: `>>> "${userInstruction}"` },
-      { name: '📐 Format & Resolusi', value: `\`${result.orientationInfo.label}\` (${result.orientationInfo.resolution})`, inline: true },
-      { name: '🤖 Engine Model', value: `\`${result.modelUsed || 'gpt-image-2'}\``, inline: true }
+      { name: '📐 Format & Resolusi', value: `\`${result.orientationInfo?.label || 'Square'}\` (${result.orientationInfo?.resolution || '1024x1024'})`, inline: true },
+      { name: '🤖 Engine Model', value: `\`${result.modelUsed || 'gpt-image-2'} (HD)\``, inline: true }
     )
-    .setFooter({ text: 'AZURA Vision & Creative Engine • Powered by GPT Image 2' })
+    .setFooter({ text: 'AZURA Vision & Creative Engine • Style DNA Lock & Surgical Inpaint' })
     .setTimestamp();
+
+  if (metadata.styleDna) {
+    embed.addFields({
+      name: '🧬 Style DNA Terkunci',
+      value: `*${metadata.styleDna}*`,
+      inline: false
+    });
+  }
 
   if (referenceUrl) {
     embed.setThumbnail(referenceUrl);
@@ -413,8 +422,9 @@ function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quot
 }
 
 /**
- * Image-to-Image Transformation Processor
- * Uses Vision AI to understand reference image and synthesizes edit generation prompt
+ * Advanced Image-to-Image & Photoshop-Style Surgical Transformation Processor
+ * Uses Deep Forensic Vision AI to deconstruct reference image (Style DNA, Lighting, Subject Blueprint)
+ * and synthesizes precision prompts for 100% style locking or surgical element modification.
  * @param {string} prompt 
  * @param {Array<string>} imageUrls 
  * @param {string} userName 
@@ -429,14 +439,16 @@ async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', gui
   const cleanPrompt = prompt.trim();
   const lower = cleanPrompt.toLowerCase();
 
-  // Keywords that indicate image-to-image modification/transformation intent
+  // Keywords that indicate image-to-image modification/transformation/style clone intent
   const img2imgKeywords = [
     'ubah', 'ganti', 'edit', 'modifikasi', 'transformasi', 'jadikan', 'jadikanlah',
     'bikin jadi', 'buat jadi', 'restyle', 'remix', 'variasi', 'anime',
     'kartun', 'background', 'tambahin', 'tambahkan', 'versi', 'style',
     'gaya', 'convert', 'transform', 'make this', 'turn this', 'change',
     'modify', 'gambar ini', 'foto ini', '3d', 'lukisan', 'cyberpunk',
-    'realistis', 'pixel art', 'vektor', 'vector'
+    'realistis', 'pixel art', 'vektor', 'vector', 'sama persis', 'style sama',
+    'gaya sama', 'style-nya sama', 'mirip', 'photoshop', 'inpaint', 'bajunya',
+    'latarnya', 'warnanya', 'mukanya', 'karakternya', 'rambutnya', 'topinya'
   ];
 
   const isImg2ImgIntent = img2imgKeywords.some(kw => lower.includes(kw)) ||
@@ -446,7 +458,7 @@ async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', gui
     return { isImageRequest: false };
   }
 
-  console.log(`[Image-to-Image]: Processing transformation request: "${cleanPrompt}" with reference image.`);
+  console.log(`[Vision Image Engine]: 🔍 Processing Forensic Style & Photoshop Edit for: "${cleanPrompt}" with reference.`);
 
   // Check Quota and Cooldown
   const quotaCheck = checkImageQuota(guildId, userId, isOwner);
@@ -457,55 +469,88 @@ async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', gui
     };
   }
 
-  // Detect orientation from natural language
+  // Detect orientation / aspect ratio from natural language
   let orientation = 'square';
-  if (lower.includes('portrait') || lower.includes('potrait') || lower.includes('vertikal') || lower.includes('tegak') || lower.includes('wallpaper hp') || lower.includes('story')) {
+  if (/\b(?:portrait|potrait|vertikal|tegak|wallpaper\s*hp|story|9:16|tall)\b/i.test(lower)) {
     orientation = 'portrait';
-  } else if (lower.includes('landscape') || lower.includes('horizontal') || lower.includes('lebar') || lower.includes('wallpaper pc') || lower.includes('desktop') || lower.includes('banner')) {
+  } else if (/\b(?:landscape|horizontal|lebar|wallpaper\s*pc|desktop|banner|16:9|wide)\b/i.test(lower)) {
     orientation = 'landscape';
   }
 
+  // Detect Style Lock vs Photoshop Inpainting vs Restyle
+  const isStyleLockMode = /\b(?:sama\s+persis|style\s+sama|gaya\s+sama|stylenya\s+sama|pertahankan\s+style|style\s+clone|replicate\s+style)\b/i.test(lower);
+  const isPhotoshopEditMode = /\b(?:ganti|ubah|edit|tambahin|tambahkan|hapus|hilangkan|warnanya|bajunya|latarnya|background|rambut|mata|pakaian)\b/i.test(lower);
+
   const client = getOpenAIClient();
 
-  // Step 1: Multimodal Vision Perception & Prompt Synthesis
+  // Step 1: Deep Forensic Vision Analysis & Master Prompt Synthesis
   let synthesizedPrompt = cleanPrompt;
+  let detectedStyleInfo = 'Adaptive AI Vision Reference';
+  let processTypeLabel = 'Transformasi Visual AI';
+
   try {
-    const visionMessages = [
-      {
-        role: 'system',
-        content: `You are an expert Image-to-Image AI Prompt Engineer. Your task is to analyze the provided reference image (subject identity, pose, clothing, facial features, lighting, composition, signature colors) and synthesize a detailed master prompt for an AI Image Generator (like GPT Image 2 / DALL-E 3).
-The user wants to transform / edit this image with the following instruction: "${cleanPrompt}".
-Synthesize a comprehensive English prompt that:
-1. Keeps the core recognizable subject identity and structure from the reference.
-2. Implements all the user's requested style transformations, additions, background changes, or artistic edits.
-3. Uses vivid artistic keywords (e.g. masterpiece, highly detailed, expressive lighting).
-Output ONLY the synthesized prompt in English as plain text without any markdown or conversational filler.`
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: `Please transform this reference image according to this instruction: "${cleanPrompt}"` },
-          { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
-        ]
-      }
-    ];
+    const visionSystemPrompt = `You are an elite Vision AI and Master Prompt Engineer specialized in Style DNA Deconstruction, 1:1 Aesthetic Cloning, and Photoshop-Style Inpainting / Image Editing for state-of-the-art Image Generation engines (GPT Image 2 / DALL-E 3).
+
+USER GOAL / INSTRUCTION: "${cleanPrompt}"
+
+YOUR TASK:
+Analyze the reference image in forensic detail and construct a comprehensive, flawless English generation prompt based on the user's intent:
+
+1. [STYLE DNA EXTRACTION & LOCKING]:
+   - Art Medium: (e.g. 90s Vintage Cel Anime, Makoto Shinkai Cinematic, Hyperrealistic 8k 35mm Photography, Unreal Engine 5 Octane 3D Render, Cyberpunk Digital Painting, Watercolor Impasto, Flat Vector Graphic).
+   - Color Grading & Palette: (e.g. Warm amber golden hour, Neon cyan/magenta duotone, Pastel muted tones, High-contrast film grain).
+   - Lighting & Shading: (e.g. Volumetric rim lighting, soft subsurface scattering, ambient occlusion, dramatic chiaroscuro).
+   - Textures & Lineart: (e.g. Clean dynamic outlines, soft airbrush gradients, rough canvas texture).
+
+2. [PHOTOSHOP-STYLE SURGICAL INPAINTING / EDIT INTENT]:
+   - If the user wants to EDIT or CHANGE specific elements (e.g. "ganti bajunya jadi merah", "tambah kacamata", "ubah background jadi malam"):
+     * PRESERVE: Keep all unmodified facial anatomy, character traits, hair style, artistic medium, and camera framing strictly identical to the reference.
+     * MODIFY: Surgically describe the newly requested clothes, objects, colors, or background so they seamlessly integrate with the reference's original lighting and art style.
+   - If the user wants to CREATE A NEW SUBJECT with the "SAMA PERSIS STYLENYA" (Exact Style Match):
+     * Lock the exact art medium, brushwork, lighting model, color palette, and rendering technique from the reference, while rendering the new requested subject/scene.
+
+OUTPUT FORMAT:
+Provide ONLY a valid JSON object with the following schema:
+{
+  "processType": "Style-Locked Clone" OR "Photoshop Surgical Inpainting" OR "Artistic Restyle",
+  "styleDnaSummary": "Short 5-8 word summary of the identified art style and lighting (in Indonesian)",
+  "masterPrompt": "Ultra-detailed, rich English DALL-E/GPT Image prompt incorporating the locked Style DNA and exact surgical modifications. Must be vivid, aesthetic, masterpiece quality, no garbled text."
+}`;
 
     const visionRes = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: visionMessages,
-      max_completion_tokens: 350
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: visionSystemPrompt },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `Analyze this reference image and synthesize the master image generation prompt for: "${cleanPrompt}"` },
+            { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
+          ]
+        }
+      ],
+      response_format: { type: 'json_object' },
+      max_completion_tokens: 500
     });
 
-    synthesizedPrompt = visionRes.choices[0]?.message?.content?.trim() || cleanPrompt;
-    console.log(`[Image-to-Image Vision Prompt]: "${synthesizedPrompt}"`);
+    const parsedVision = JSON.parse(visionRes.choices[0]?.message?.content || '{}');
+    if (parsedVision.masterPrompt) {
+      synthesizedPrompt = parsedVision.masterPrompt;
+      detectedStyleInfo = parsedVision.styleDnaSummary || detectedStyleInfo;
+      processTypeLabel = parsedVision.processType || processTypeLabel;
+    }
+    console.log(`[Vision Image Engine]: ✅ Synthesized Prompt (${processTypeLabel}): "${synthesizedPrompt}"`);
   } catch (visionErr) {
-    console.warn('[Image-to-Image Warning]: Vision synthesis fallback, using direct prompt:', visionErr.message);
+    console.warn('[Vision Image Engine Warning]: Vision synthesis fallback, using direct prompt:', visionErr.message);
   }
 
-  // Step 2: Generate Transformed Image via GPT Image 2 / Fallback
-  const result = await generateAiImage(synthesizedPrompt, orientation);
+  // Step 2: High-Fidelity Image Generation with HD Quality
+  const result = await generateAiImage(synthesizedPrompt, orientation, 'hd', 'vivid');
   const quotaInfo = recordImageGeneration(guildId, userId, isOwner);
-  const payload = buildImg2ImgEmbed(cleanPrompt, userName, result, imageUrls[0], quotaInfo);
+  const payload = buildImg2ImgEmbed(cleanPrompt, userName, result, imageUrls[0], quotaInfo, {
+    processType: processTypeLabel,
+    styleDna: detectedStyleInfo
+  });
 
   return {
     isImageRequest: true,

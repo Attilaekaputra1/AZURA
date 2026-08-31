@@ -1479,13 +1479,6 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
           textChannel.send(res.message).catch(() => {});
         }
 
-        // If intro video is not playing (e.g. intro skipped or not found), give spoken confirmation
-        if (!isVideoIntroPlaying(guildId) && res.success) {
-          const spoken = 'Siap Attila sayang, kamera video aku sudah menyala yaa!';
-          recordSessionEntry(guildId, 'AZURA', spoken);
-          const audioResource = await textToAudioResource(spoken, client);
-          if (audioResource) await playInVC(guildId, audioResource);
-        }
         return;
       }
 

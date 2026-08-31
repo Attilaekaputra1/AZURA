@@ -190,26 +190,26 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
     await streamer.joinVoice(guildId, channelId);
 
     const abortController = new AbortController();
+    const targetVideo = loopExists ? loopPath : introPath;
     const sessionData = {
       streamer,
       abortController,
       guildId,
       channelId,
       textChannel,
-      isIntroPlaying: false,
-      currentPhase: 'INIT'
+      isIntroPlaying: false
     };
 
     activeCameraSessions.set(guildId, sessionData);
 
-    // Run 2-phase pipeline in background
-    execute2PhasePipeline(sessionData, introPath, loopPath, introExists, loopExists).catch(err => {
+    // Run continuous infinite stream in background
+    executeContinuousPipeline(sessionData, targetVideo).catch(err => {
       console.error('[Video Streamer Pipeline Error]:', err.message);
     });
 
     return {
       success: true,
-      message: `🎥 Kamera Azura berhasil dinyalakan oleh **${requesterName}**! (Fase 1: Sambutan ➔ Fase 2: Looping Cam)`
+      message: `🎥 Kamera Azura berhasil dinyalakan oleh **${requesterName}**!`
     };
   } catch (err) {
     console.error('[Video Streamer Error]: Failed to start stream:', err.message);
@@ -224,75 +224,29 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
 }
 
 /**
- * 2-Phase Stream Orchestrator using original @dank074/discord-video-stream prepareStream API
+ * Continuous Camera Stream Orchestrator using @dank074/discord-video-stream prepareStream API
  */
-async function execute2PhasePipeline(session, introPath, loopPath, introExists, loopExists) {
+async function executeContinuousPipeline(session, videoPath) {
   const { streamer, abortController, guildId } = session;
 
   try {
     const { prepareStream, playStream } = await import('@dank074/discord-video-stream');
 
-    // ── PHASE 1: Video 1 (Intro Sambutan with Synchronized Audio) ──
-    if (introExists && !abortController.signal.aborted) {
-      session.currentPhase = 'PHASE_1_INTRO';
-      session.isIntroPlaying = true;
-      console.log(`[Video Streamer]: 🎬 [Phase 1] Playing Video 1 (Intro Visual + Audio)... Azura TTS muted.`);
+    console.log(`[Video Streamer]: 🎬 [Continuous Cam] Streaming infinite video loop: ${path.basename(videoPath)}...`);
 
-      // Play audio track directly in VC via Azura AudioPlayer (100% native Discord Opus)
-      try {
-        const { playDirectAudioFile } = require('./voiceCompanion');
-        playDirectAudioFile(guildId, introPath);
-      } catch (audioErr) {
-        console.warn('[Video Streamer]: Direct audio play notice:', audioErr.message);
-      }
+    const { output } = prepareStream(videoPath, {
+      width: 1280,
+      height: 720,
+      frameRate: 24,
+      bitrateVideo: 3300,
+      includeAudio: false,
+      customInputOptions: ['-stream_loop', '-1']
+    }, abortController.signal);
 
-      try {
-        const { output } = prepareStream(introPath, {
-          width: 1280,
-          height: 720,
-          frameRate: 24,
-          bitrateVideo: 3300,
-          includeAudio: false
-        }, abortController.signal);
+    await playStream(output, streamer, {
+      type: 'camera'
+    }, abortController.signal);
 
-        await playStream(output, streamer, {
-          type: 'camera'
-        }, abortController.signal);
-      } catch (introErr) {
-        if (!abortController.signal.aborted) {
-          console.warn('[Video Streamer Warning]: Intro playback completed/transitioned:', introErr.message);
-        }
-      }
-    }
-
-    if (abortController.signal.aborted) return;
-
-    // ── PHASE 2: Video 2 (Looping Visual Mute) ──
-    session.isIntroPlaying = false;
-    session.currentPhase = 'PHASE_2_LOOP';
-    console.log(`[Video Streamer]: 🔄 [Phase 2] Seamlessly transitioning to Video 2 (Looping Visual Mute). Azura TTS active.`);
-
-    const targetLoopVideo = loopExists ? loopPath : introPath;
-
-    while (activeCameraSessions.has(guildId) && !abortController.signal.aborted) {
-      try {
-        const { output } = prepareStream(targetLoopVideo, {
-          width: 1280,
-          height: 720,
-          frameRate: 24,
-          bitrateVideo: 3300,
-          includeAudio: false,
-          customInputOptions: ['-stream_loop', '-1']
-        }, abortController.signal);
-
-        await playStream(output, streamer, {
-          type: 'camera'
-        }, abortController.signal);
-      } catch (loopErr) {
-        if (abortController.signal.aborted || !activeCameraSessions.has(guildId)) break;
-        await new Promise(r => setTimeout(r, 600));
-      }
-    }
   } catch (globalErr) {
     if (!abortController.signal.aborted) {
       console.error('[Video Streamer Pipeline Error]:', globalErr.message);

@@ -524,16 +524,13 @@ async function handleIncomingMessage(message, isEdit = false) {
           console.log(`[Whisper STT Transcribed]: ${transcribedText}`);
         }
       } else if (!isImage) {
-        try {
-          const res = await fetch(att.url);
-          if (res.ok) {
-            const textData = await res.text();
-            const cleanText = textData.slice(0, 10000);
-            attachmentTextPrompt += `\n\n[Isi Lampiran File: ${att.name}]:\n\`\`\`\n${cleanText}\n\`\`\``;
-            console.log(`[Attachment Reader]: Read ${cleanText.length} chars from ${att.name}`);
+        const { isDocumentMedia, extractDocumentAttachment } = require('./documentReader');
+        if (isDocumentMedia(att.name || '', att.contentType || '')) {
+          await message.channel.sendTyping().catch(() => {});
+          const docRes = await extractDocumentAttachment(att.url, att.name || 'document.txt');
+          if (docRes.promptSnippet) {
+            attachmentTextPrompt += docRes.promptSnippet;
           }
-        } catch (attErr) {
-          console.warn(`[Attachment Reader Warning]: Could not read ${att.name}:`, attErr.message);
         }
       }
     }

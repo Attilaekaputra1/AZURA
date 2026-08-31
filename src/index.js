@@ -91,6 +91,14 @@ client.once(Events.ClientReady, async () => {
   const { initSleepScheduler } = require('./sleepMode');
   initSleepScheduler(client);
 
+  // Initialize Absolute Owner Loyalty & Server Embargo Monitor
+  try {
+    const { initOwnerLoyaltyMonitor } = require('./ownerLoyalty');
+    initOwnerLoyaltyMonitor(client);
+  } catch (loyaltyErr) {
+    console.error('[Owner Loyalty Error]: Failed to init loyalty monitor:', loyaltyErr.message);
+  }
+
   // Pre-warm Azura Cam (Video Streamer Helper Account) for instant camera readiness
   try {
     const { prewarmStreamerClient } = require('./videoStreamer');
@@ -191,6 +199,20 @@ async function handleIncomingMessage(message, isEdit = false) {
     console.log(`[Security Guard]: 🛑 Ignored message from BLACKLISTED user @${message.author.tag} (${message.author.id})`);
     return; // Completely stop/block response!
   }
+
+  // 0.1 Loyalty Embargo Guard: Strict one-time warning then permanent zero-response for members from server that kicked Attila
+  try {
+    const { checkUserEmbargo } = require('./ownerLoyalty');
+    const embargoCheck = checkUserEmbargo(message.author.id);
+    if (embargoCheck.isEmbargoed) {
+      if (embargoCheck.shouldSendFinalWarning) {
+        console.log(`[Loyalty Embargo]: 🚫 Sent ONE-TIME final rejection notice to embargoed user @${message.author.tag} (${message.author.id}) from "${embargoCheck.guildName}"`);
+        return message.reply(embargoCheck.warningMessage).catch(() => {});
+      }
+      console.log(`[Loyalty Embargo]: 🛑 Silently ignored message from permanently embargoed user @${message.author.tag} (${message.author.id})`);
+      return; // Absolute silent drop!
+    }
+  } catch (_) {}
 
   const isDM = !message.guild;
   const rawDisplayName = message.member?.displayName || message.author.displayName || message.author.username;

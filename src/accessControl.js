@@ -54,6 +54,12 @@ loadApprovedFriends();
 function isApprovedFriend(userId) {
   if (!userId) return false;
   if (userId === config.OWNER_DISCORD_ID) return true;
+
+  try {
+    const { checkUserEmbargo } = require('./ownerLoyalty');
+    if (checkUserEmbargo(userId).isEmbargoed) return false;
+  } catch (_) {}
+
   loadApprovedFriends();
   return approvedFriendsCache.has(userId);
 }

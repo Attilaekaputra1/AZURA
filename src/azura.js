@@ -663,19 +663,29 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   let userContent;
   if (imageUrls.length > 0) {
     userContent = [
-      { type: 'text', text: `${speakerTag}${userPrompt || 'Coba lihat gambar ini dan kasih tanggapan kamu.'}` }
+      { type: 'text', text: `${speakerTag}${userPrompt || 'Coba lihat gambar/video ini dan kasih tanggapan kamu.'}` }
     ];
     for (const url of imageUrls) {
       userContent.push({
         type: 'image_url',
-        image_url: { url: url, detail: 'low' }
+        image_url: { url: url, detail: 'high' }
       });
     }
   } else {
     userContent = isDM ? userPrompt : `${speakerTag}${userPrompt}`;
   }
 
-  let systemMessage = systemPrompt + liveVcContext + topologyContext + crossChannelContext + routeContext + reasoningDirective;
+  let visionDirective = '';
+  if (imageUrls.length > 0) {
+    visionDirective = `\n\n[PEDOMAN ANALISIS VISUAL MULTIMODAL TINGKAT TINGGI (HIGH-DEFINITION VISION & VIDEO ANALYSIS)]:\n` +
+      `1. Kamu sedang melihat visual beresolusi tinggi (gambar, foto, tangkapan layar, stiker, atau rangkaian frame video kronologis).\n` +
+      `2. ANALISIS MENYELURUH & MENDALAM: Perhatikan secara teliti detail objek, komposisi, estetika, pencahayaan, suasana/vibe, ekspresi karakter/wajah, gestur, serta detail kecil di latar belakang.\n` +
+      `3. EKSTRAKSI TEKS & OCR PRESISI: Jika terdapat teks tertulis, meme, kode program, UI aplikasi, angka, atau dokumen, baca dan kutip teks tersebut secara presisi.\n` +
+      `4. ANALISIS VIDEO (JIKA RANGKAIAN FRAME VIDEO): Hubungkan perubahan adegan antar-frame secara kronologis, pahami dinamika gerakan/aksi, transkrip suara/dialog, dan berikan evaluasi alur cerita/kejadian secara utuh.\n` +
+      `5. GAYA RESPON: Sampaikan tanggapan dengan gaya cerdas, santai, dan penuh observasi visual yang hidup dan memukau!`;
+  }
+
+  let systemMessage = systemPrompt + liveVcContext + topologyContext + crossChannelContext + routeContext + reasoningDirective + visionDirective;
   if (searchContext) {
     systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY / MYANIMELIST)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +

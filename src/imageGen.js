@@ -163,13 +163,8 @@ async function generateAiImage(prompt, orientation = 'square', quality = 'standa
     size: orientationConfig.size
   };
 
-  if (quality) {
-    if (targetModel.includes('dall-e')) {
-      requestPayload.quality = (quality === 'high' || quality === 'hd') ? 'hd' : 'standard';
-    } else {
-      // gpt-image-2 accepts 'low', 'medium', 'high', 'auto'
-      requestPayload.quality = (quality === 'hd' || quality === 'high') ? 'high' : 'auto';
-    }
+  if (quality && targetModel.includes('dall-e')) {
+    requestPayload.quality = (quality === 'high' || quality === 'hd') ? 'hd' : 'standard';
   }
 
   try {

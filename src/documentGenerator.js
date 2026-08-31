@@ -76,14 +76,13 @@ function parseDocumentGenRequest(prompt) {
 }
 
 /**
- * Generate comprehensive, structured document content using OpenAI LLM
+ * Generate comprehensive, structured document content using OpenAI LLM with Groq Fallback
  * @param {string} topic 
  * @param {string} format 'pdf' | 'docx'
  * @param {string} userName 
- * @returns {Promise<{ title: string, subtitle: string, sections: Array<{ heading: string, body: string, table?: Array<Array<string>>, list?: string[] }> }>}
+ * @returns {Promise<{ title: string, subtitle: string, category: string, sections: Array<{ heading: string, body: string, table?: Array<Array<string>>, list?: string[] }> }>}
  */
 async function generateDocumentStructure(topic, format, userName = 'Pengguna') {
-  const client = getOpenAIClient();
   const prompt = `Kamu adalah perancang dokumen profesional tingkat tinggi.
 Buatkan isi dokumen formal, terstruktur, tajam, dan lengkap untuk topik berikut:
 "${topic}"
@@ -91,7 +90,7 @@ Buatkan isi dokumen formal, terstruktur, tajam, dan lengkap untuk topik berikut:
 Penulis / Pemohon: ${userName}
 Format Output yang Dituju: ${format.toUpperCase()}
 
-KEMBALIKAN HANYA JSON MURNI (tanpa markdown blok \`\`\`json) dengan skema berikut:
+KEMBALIKAN HANYA JSON MURNI (tanpa teks pembuka atau markdown blok \`\`\`json) dengan format skema persis:
 {
   "title": "Judul Dokumen Lengkap & Menarik",
   "subtitle": "Subjudul atau Deskripsi Singkat Dokumen",
@@ -100,25 +99,71 @@ KEMBALIKAN HANYA JSON MURNI (tanpa markdown blok \`\`\`json) dengan skema beriku
     {
       "heading": "Nama Bab / Subjudul",
       "body": "Paragraf penjelasan yang mendalam, formal, dan komprehensif.",
-      "list": ["Poin 1", "Poin 2"] (Opsional jika ada daftar poin),
-      "table": [ ["Kolom 1", "Kolom 2"], ["Data A", "Data B"] ] (Opsional jika ada tabel data)
+      "list": ["Poin 1", "Poin 2"],
+      "table": [ ["Kolom 1", "Kolom 2"], ["Data A", "Data B"] ]
     }
   ]
 }`;
 
-  const response = await client.chat.completions.create({
-    model: config.OPENAI_MODEL,
-    messages: [
-      { role: 'system', content: 'Kamu adalah AI Document Architect yang menghasilkan data dokumen terstruktur dalam format JSON valid.' },
-      { role: 'user', content: prompt }
-    ]
-  });
+  let rawJson = '';
 
-  const rawJson = response.choices[0]?.message?.content?.trim() || '{}';
-  const cleanJson = rawJson.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+  // 1. Primary: OpenAI LLM (gpt-5.6-luna) with explicit temperature guard
+  try {
+    const client = getOpenAIClient();
+    if (client) {
+      const response = await client.chat.completions.create({
+        model: config.OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: 'Kamu adalah AI Document Architect yang menghasilkan data dokumen terstruktur dalam format JSON valid.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 1
+      });
+      rawJson = response.choices[0]?.message?.content?.trim() || '';
+    }
+  } catch (openaiErr) {
+    console.warn(`[DocGen Warning]: Primary OpenAI model failed (${openaiErr.message}), falling back to secondary engine...`);
+  }
+
+  // 2. Fallback: Groq LLM (llama-3.3-70b-versatile)
+  if (!rawJson && config.GROQ_API_KEY) {
+    try {
+      const Groq = require('groq-sdk');
+      const groq = new Groq({ apiKey: config.GROQ_API_KEY });
+      const groqRes = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: 'Kamu adalah AI Document Architect yang menghasilkan data dokumen terstruktur dalam format JSON valid.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        response_format: { type: 'json_object' }
+      });
+      rawJson = groqRes.choices[0]?.message?.content?.trim() || '';
+    } catch (groqErr) {
+      console.warn(`[DocGen Warning]: Groq fallback failed (${groqErr.message})`);
+    }
+  }
+
+  if (!rawJson) {
+    throw new Error('Semua AI engine gagal menghasilkan struktur dokumen.');
+  }
+
+  // Robust JSON Extraction
+  let cleanJson = rawJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const firstBrace = cleanJson.indexOf('{');
+  const lastBrace = cleanJson.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleanJson = cleanJson.slice(firstBrace, lastBrace + 1);
+  }
 
   try {
-    return JSON.parse(cleanJson);
+    const parsed = JSON.parse(cleanJson);
+    if (!parsed.title) parsed.title = topic.slice(0, 60);
+    if (!parsed.sections || !Array.isArray(parsed.sections)) {
+      parsed.sections = [{ heading: 'Ringkasan', body: topic }];
+    }
+    return parsed;
   } catch (err) {
     console.warn('[DocGen]: JSON parse error, falling back to simple structure:', err.message);
     return {

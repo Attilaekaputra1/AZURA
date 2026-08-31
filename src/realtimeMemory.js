@@ -139,25 +139,43 @@ function searchAllMemories(query, guildId = null, mentionedUserIds = []) {
   if (!query || typeof query !== 'string') return '';
 
   const cleanQuery = query.toLowerCase().trim();
+  const stopwords = new Set([
+    'siapa', 'apa', 'kenapa', 'gimana', 'kapan', 'ara', 'azura', 'zura', 'ajur', 'dan', 'yang',
+    'ini', 'itu', 'adalah', 'di', 'ke', 'dari', 'ya', 'kan', 'dong', 'si', 'dia', 'aku', 'gw',
+    'gue', 'lu', 'kamu', 'tentang', 'soal', 'nih', 'deh', 'tuh', 'nya', 'ada', 'gak', 'nggak', 'tidak', 'kok'
+  ]);
+
   const searchTerms = cleanQuery
     .replace(/[?,!.:;'"()[\]]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length >= 2 && !['siapa', 'apa', 'kenapa', 'gimana', 'kapan', 'ara', 'azura', 'zura', 'ajur', 'dan', 'yang', 'ini', 'itu', 'adalah', 'di', 'ke', 'dari', 'ya', 'kan', 'dong'].includes(w));
+    .filter(w => w.length >= 2 && !stopwords.has(w));
 
   if (searchTerms.length === 0) return '';
 
-  const matchedFacts = new Set();
+  const candidateMap = new Map(); // fact -> score
   const userMems = loadMemories();
   const guildMems = loadGuildMemories();
+
+  function evaluateFact(fact) {
+    if (!fact || typeof fact !== 'string') return;
+    const factLower = fact.toLowerCase();
+    let score = 0;
+    for (const term of searchTerms) {
+      if (factLower.includes(term)) {
+        score += term.length >= 4 ? 2 : 1;
+      }
+    }
+    if (score > 0) {
+      const existingScore = candidateMap.get(fact) || 0;
+      if (score > existingScore) candidateMap.set(fact, score);
+    }
+  }
 
   // 1. Search in user private facts
   for (const [uid, userRecord] of Object.entries(userMems)) {
     if (userRecord && userRecord.facts && Array.isArray(userRecord.facts)) {
       for (const fact of userRecord.facts) {
-        const factLower = fact.toLowerCase();
-        if (searchTerms.some(term => factLower.includes(term))) {
-          matchedFacts.add(fact);
-        }
+        evaluateFact(fact);
       }
     }
   }
@@ -165,10 +183,7 @@ function searchAllMemories(query, guildId = null, mentionedUserIds = []) {
   // 2. Search in guild public facts
   if (guildId && guildMems[guildId] && guildMems[guildId].facts) {
     for (const fact of guildMems[guildId].facts) {
-      const factLower = fact.toLowerCase();
-      if (searchTerms.some(term => factLower.includes(term))) {
-        matchedFacts.add(fact);
-      }
+      evaluateFact(fact);
     }
   }
 
@@ -178,19 +193,24 @@ function searchAllMemories(query, guildId = null, mentionedUserIds = []) {
     for (const uid of mentionedUserIds) {
       const beh = getUserBehavior(uid);
       if (beh) {
-        if (beh.summary) matchedFacts.add(`Profil @${beh.displayName || uid}: ${beh.summary}`);
+        if (beh.summary) evaluateFact(`Profil @${beh.displayName || uid}: ${beh.summary}`);
         if (beh.positiveTraits && beh.positiveTraits.length > 0) {
-          matchedFacts.add(`Karakter @${beh.displayName || uid}: ${beh.positiveTraits.join(', ')}`);
+          evaluateFact(`Karakter @${beh.displayName || uid}: ${beh.positiveTraits.join(', ')}`);
         }
       }
     }
   } catch (_) {}
 
-  if (matchedFacts.size === 0) return '';
+  if (candidateMap.size === 0) return '';
 
-  const factList = Array.from(matchedFacts).slice(0, 8);
+  // Sort by highest score first
+  const sortedFacts = Array.from(candidateMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(entry => entry[0])
+    .slice(0, 8);
+
   return `\n\n[HASIL PENCARIAN MEMORI & LORE REALTIME (TERVERIFIKASI DI DATABASE)]:\n` +
-    factList.map((f, i) => `• ${f}`).join('\n') + `\n\n` +
+    sortedFacts.map((f, i) => `• ${f}`).join('\n') + `\n\n` +
     `PEDOMAN MEMORI:\n` +
     `Gunakan fakta terverifikasi dari database di atas sebagai KEBENARAN MUTLAK saat menjawab pertanyaan lawan bicara!`;
 }

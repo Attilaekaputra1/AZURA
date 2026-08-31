@@ -922,19 +922,25 @@ let finalPrompt = rawPrompt;
 
     // Standard Discord message splitter (max 2000 chars) or Rich Embed Payload
     if (typeof response === 'object') {
-      await message.reply(response);
+      await message.reply(response).catch(async (replyErr) => {
+        console.warn('[Message Reply Fallback]: Direct reply failed (' + replyErr.message + '). Sending to channel directly...');
+        await message.channel.send(response).catch(sendErr => console.error('[Channel Send Fail]:', sendErr.message));
+      });
     } else if (response.length <= 2000) {
-      await message.reply(response);
+      await message.reply(response).catch(async (replyErr) => {
+        console.warn('[Message Reply Fallback]: Direct reply failed (' + replyErr.message + '). Sending to channel directly...');
+        await message.channel.send(response).catch(sendErr => console.error('[Channel Send Fail]:', sendErr.message));
+      });
     } else {
       // Split into chunks of max 1900 chars
       const chunks = response.match(/[\s\S]{1,1900}/g) || [response];
       for (const chunk of chunks) {
-        await message.channel.send(chunk);
+        await message.channel.send(chunk).catch(err => console.error('[Send Fail]:', err.message));
       }
     }
   } catch (error) {
     console.error('[AZURA Message Error]:', error.message || error);
-    await message.reply('bentar, otak gw lagi error dikit. coba bentar lagi ya!');
+    await message.channel.send('bentar, otak gw lagi error dikit. coba bentar lagi ya!').catch(() => {});
   }
 }
 

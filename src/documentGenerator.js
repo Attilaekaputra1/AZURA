@@ -372,20 +372,21 @@ async function renderAestheticPdf(docData, userName = 'Pengguna') {
 
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });
 
   try {
     const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'networkidle' });
+    await page.setContent(htmlContent, { waitUntil: 'load', timeout: 15000 });
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '16mm', bottom: '16mm', left: '16mm', right: '16mm' }
+      margin: { top: '16mm', bottom: '16mm', left: '16mm', right: '16mm' },
+      timeout: 15000
     });
     return pdfBuffer;
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
   }
 }
 

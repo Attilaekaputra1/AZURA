@@ -258,13 +258,12 @@ async function executeContinuousPipeline(session, introPath, loopPath, introExis
         }
       }, 10500);
 
-      // Single FFmpeg command concatenating intro (1x) + loop (infinite)
+      // Single FFmpeg command concatenating intro (1x) + loop (infinite) with realtime filter locking 24fps
       ffmpegArgs = [
-        '-re',
         '-i', introPath,
         '-stream_loop', '-1',
         '-i', loopPath,
-        '-filter_complex', '[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v0];[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v1];[v0][v1]concat=n=2:v=1:a=0[outv]',
+        '-filter_complex', '[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v0];[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v1];[v0][v1]concat=n=2:v=1:a=0,setpts=N/(24*TB),realtime[outv]',
         '-map', '[outv]',
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
@@ -285,10 +284,9 @@ async function executeContinuousPipeline(session, introPath, loopPath, introExis
       console.log(`[Video Streamer]: 🎬 Playing video loop: ${path.basename(targetVideo)}`);
 
       ffmpegArgs = [
-        '-re',
         '-stream_loop', '-1',
         '-i', targetVideo,
-        '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1',
+        '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,setpts=N/(24*TB),realtime',
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
         '-tune', 'zerolatency',

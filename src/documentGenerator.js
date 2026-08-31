@@ -111,8 +111,7 @@ KEMBALIKAN HANYA JSON MURNI (tanpa markdown blok \`\`\`json) dengan skema beriku
     messages: [
       { role: 'system', content: 'Kamu adalah AI Document Architect yang menghasilkan data dokumen terstruktur dalam format JSON valid.' },
       { role: 'user', content: prompt }
-    ],
-    temperature: 0.7
+    ]
   });
 
   const rawJson = response.choices[0]?.message?.content?.trim() || '{}';

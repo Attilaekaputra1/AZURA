@@ -476,30 +476,32 @@ async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', gui
   let processTypeLabel = 'Transformasi Visual AI';
 
   try {
-    const visionSystemPrompt = `You are an elite Vision AI and Master Prompt Engineer specialized in Character DNA Deconstruction, 1:1 Aesthetic Cloning, and Surgical Inpainting / Pose / Scene Transformation for state-of-the-art Image Generation engines (GPT Image 2 / DALL-E 3).
+    const visionSystemPrompt = `You are an elite Anime, Game Character, and Pop-Culture Vision Specialist.
+Your task is to identify the character, game/anime franchise, and art medium from the image, and synthesize an ultra-accurate image generation prompt.
 
 USER GOAL / INSTRUCTION: "${cleanPrompt}"
 
-CRITICAL RULES FOR HIGH-FIDELITY RECREATION:
-1. [STRICT ART MEDIUM & STYLE PRESERVATION]:
-   - If the reference image is an Anime / 3D CGI / Game Character (e.g. Genshin Impact, Honkai, VTuber, Japanese Anime style), the generated master prompt MUST preserve that exact Anime / 3D Cel-shaded CGI style!
-   - NEVER turn an Anime / Stylized character into a realistic human photograph unless the user explicitly requested "jadikan manusia asli / realistic human photo".
-   - If the reference is a realistic photograph, keep it as a realistic photograph.
-
-2. [CHARACTER IDENTITY & OUTFIT CONTINUITY]:
-   - Meticulously deconstruct the character's facial features, eye color, hair color, hair style, headpiece / headdress, signature outfit, dress, and iconic accessories.
-   - Keep all character visual identifiers 100% consistent with the reference image.
-
-3. [APPLY THE REQUESTED ACTION / POSE / SETTING]:
-   - Read the user instruction: "${cleanPrompt}".
-   - Accurately place the character in the requested pose (e.g., sitting, standing, walking) and setting (e.g., "duduk di teras" -> sitting gracefully on a traditional wooden porch / outdoor terrace with natural warm daylight, lush green garden in the background, matching the art style).
+CRITICAL RULES FOR 100% CHARACTER FIDELITY & LIGHTNING SPEED:
+1. [PUBLIC / KNOWN CHARACTER IDENTIFICATION]:
+   - If the subject is a known anime, game, VTuber, or pop-culture character (e.g. Sandrone / The Marionette from Genshin Impact, Raiden Shogun, Furina, Hatsune Miku, Frieren, Saber, 2B, etc.):
+     * EXPLICITLY NAME THE EXACT CHARACTER AND FRANCHISE in "masterPrompt" (e.g., "Official game character Sandrone (The Marionette) from Genshin Impact").
+     * This activates the image generator's pre-trained official character weights for 100% authentic outfit, hair, eyes, and ornaments!
+2. [STRICT ART MEDIUM & MEDIUM CONTINUITY]:
+   - If the reference is Anime / 3D Cel-shaded (like Genshin Impact / Anime CGI), the masterPrompt MUST specify "authentic 3D cel-shaded anime game key-visual illustration style". NEVER make them photorealistic humans!
+   - If the reference is an Original Character or Real Person, describe their 3-4 key visual traits concisely.
+3. [APPLY REQUESTED POSE & SETTING]:
+   - Place the character in the requested action: "${cleanPrompt}" (e.g., "sitting gracefully on a traditional wooden porch / outdoor terrace with natural warm daylight, lush green garden in background").
+4. [CONCISE & PUNCHY]:
+   - Keep "masterPrompt" strictly between 50 to 90 words (300-600 characters) for ultra-fast generation.
 
 OUTPUT FORMAT:
 Provide ONLY a valid JSON object with the following schema:
 {
-  "processType": "Style-Locked Clone" OR "Photoshop Surgical Inpainting" OR "Pose & Scene Transformation",
-  "styleDnaSummary": "Short 5-8 word summary of the identified character, art style, and lighting (in Indonesian)",
-  "masterPrompt": "Concise, highly descriptive 80-120 word English prompt (around 500-800 characters) capturing the exact character identifiers (hair, dress, accessories), anime cel-shaded art style, and the requested action/setting. Must be vivid, aesthetic, masterpiece quality, no garbled text, strictly under 900 characters."
+  "characterName": "Name of character (e.g. Sandrone / The Marionette) or 'Original Anime Character'",
+  "franchise": "Game/Anime title (e.g. Genshin Impact) or 'Original'",
+  "processType": "Identifikasi Karakter & Transformasi Pose",
+  "styleDnaSummary": "Short 5-8 word summary (e.g. Sandrone • Genshin Impact 3D Cel-shaded)",
+  "masterPrompt": "Official character [Name] from [Franchise], [requested action/pose], [clothing/hair traits], authentic [art medium] style, masterpiece quality, no watermark, no text"
 }`;
 
     const targetVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';
@@ -512,30 +514,28 @@ Provide ONLY a valid JSON object with the following schema:
           {
             role: 'user',
             content: [
-              { type: 'text', text: `Analyze this reference image and synthesize the master image generation prompt for: "${cleanPrompt}"` },
-              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
+              { type: 'text', text: `Identify character and synthesize image prompt for: "${cleanPrompt}"` },
+              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'low' } }
             ]
           }
         ],
-        response_format: { type: 'json_object' },
-        max_completion_tokens: 4000
+        response_format: { type: 'json_object' }
       });
     } catch (primaryVisionErr) {
       console.warn(`[Vision Image Engine Warning]: Primary model "${targetVisionModel}" failed (${primaryVisionErr.message}), falling back to secondary vision...`);
       visionRes = await client.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-5.6-luna',
         messages: [
           { role: 'system', content: visionSystemPrompt },
           {
             role: 'user',
             content: [
-              { type: 'text', text: `Analyze this reference image and synthesize the master image generation prompt for: "${cleanPrompt}"` },
-              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
+              { type: 'text', text: `Identify character and synthesize image prompt for: "${cleanPrompt}"` },
+              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'auto' } }
             ]
           }
         ],
-        response_format: { type: 'json_object' },
-        max_completion_tokens: 2000
+        response_format: { type: 'json_object' }
       });
     }
 
@@ -544,7 +544,6 @@ Provide ONLY a valid JSON object with the following schema:
     try {
       parsedVision = JSON.parse(rawContent);
     } catch (_) {
-      // Bracket slicing fallback
       const match = rawContent.match(/\{[\s\S]*\}/);
       if (match) parsedVision = JSON.parse(match[0]);
     }
@@ -552,16 +551,17 @@ Provide ONLY a valid JSON object with the following schema:
     const masterPrompt = parsedVision.masterPrompt || parsedVision.master_prompt || parsedVision.prompt || parsedVision.image_prompt;
     if (masterPrompt && typeof masterPrompt === 'string' && masterPrompt.length > 10) {
       synthesizedPrompt = masterPrompt.trim();
-      detectedStyleInfo = parsedVision.styleDnaSummary || parsedVision.style_dna_summary || detectedStyleInfo;
+      detectedStyleInfo = parsedVision.styleDnaSummary || parsedVision.style_dna_summary || (parsedVision.characterName ? `${parsedVision.characterName} (${parsedVision.franchise || 'Anime'})` : detectedStyleInfo);
       processTypeLabel = parsedVision.processType || parsedVision.process_type || processTypeLabel;
     }
+    console.log(`[Vision Image Engine]: ✅ Character: ${parsedVision.characterName || 'Unknown'} | Franchise: ${parsedVision.franchise || 'Unknown'}`);
     console.log(`[Vision Image Engine]: ✅ Synthesized Prompt via ${targetVisionModel} (${processTypeLabel}): "${synthesizedPrompt}"`);
   } catch (visionErr) {
     console.warn('[Vision Image Engine Warning]: Vision synthesis fallback, using direct prompt:', visionErr.message);
   }
 
-  // Step 2: High-Fidelity Image Generation with HD Quality
-  const result = await generateAiImage(synthesizedPrompt, orientation, 'hd');
+  // Step 2: High-Fidelity Image Generation with Fast Render
+  const result = await generateAiImage(synthesizedPrompt, orientation);
   const quotaInfo = recordImageGeneration(guildId, userId, isOwner);
   const payload = buildImg2ImgEmbed(cleanPrompt, userName, result, imageUrls[0], quotaInfo, {
     processType: processTypeLabel,

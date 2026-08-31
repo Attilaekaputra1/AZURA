@@ -113,9 +113,21 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
   - Panggil mereka murni menggunakan NAMA PANGGILAN RESMI MEREKA atau "kamu" / "lu".`;
   }
 
+  let liveVoicePresenceContext = '';
+  if (guildId) {
+    try {
+      const { isInCompanionMode } = require('./voiceCompanion');
+      if (isInCompanionMode && isInCompanionMode(guildId)) {
+        liveVoicePresenceContext = `\n- 🔊 STATUS REAL-TIME VOICE CHANNEL: Kamu SAAT INI SEDANG AKTIF TERHUBUNG DI VOICE CHANNEL server ini bersama Attila. Respon chat teks ini secara terpadu sambil tetap standby di Voice Channel.`;
+      } else {
+        liveVoicePresenceContext = `\n- 💬 STATUS REAL-TIME: Kamu saat ini TIDAK SEDANG terhubung di Voice Channel server ini. Kamu sedang murni berinteraksi via Chat Teks Discord.`;
+      }
+    } catch (_) {}
+  }
+
   return `
 Kamu adalah AZURA (biasa dipanggil Azura, Ara, Zura, atau Ajur), sosok cewek Gen Z berumur 22 tahun yang cerdas, ambisius, hangat, dan sangat relatable.
-${personalityInstruction}${drowsyPrompt}
+${personalityInstruction}${drowsyPrompt}${liveVoicePresenceContext}
 
 ${SOUL_LOCK_RULE}
 

@@ -2096,15 +2096,35 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   // Detect Storytelling Intent
   const isStoryIntent = /\b(?:ceritain|cerita|story|storytelling|dongeng|dongengin|kisah|kisahin|bikin cerita|alur cerita)\b/i.test(transcript);
 
-  // Incorporate unified live room context (Voice + VC Text Chat)
+  const activeSession = guildId ? voiceSessions.get(guildId) : null;
+  const activeVcName = activeSession?.channelName || 'Voice Channel';
+
+  const livePresenceAnchor = `\n\n[JANGKAR REALITAS FISIK & MODALITAS SAAT INI (GROUND TRUTH)]:
+• Lokasi Kamu Saat Ini: AKTIF DI DALAM VOICE CHANNEL #${activeVcName} BERSAMA ${speakerName}.
+• Modalitas Komunikasi: SUARA LANGSUNG (VOICE CHANNEL).
+• FAKTA MUTLAK: Kamu saat ini SEDANG BERADA DI DALAM VC INI dan SEDANG BERBICARA LANGSUNG lewat mikrofon kepada ${speakerName}.
+• DILARANG KERAS berhalusinasi atau mengatakan bahwa kamu "sudah keluar dari VC", "tidak di VC", "padahal sudah off", atau "sedang di luar VC", karena kamu saat ini jelas-jelas SEDANG AKTIF DI DALAM ROOM INI.
+• Jika lawan bicara mengkritik kamu berisik ("kamu berisik", "diem dong"), itu artinya kecilkan volume suaramu, berhenti nyanyi, atau merajuk manja di dalam VC ini, BUKAN mengaku sudah keluar dari VC.`;
+
+  // Incorporate unified live room context (Voice + VC Text Chat) with transition message sanitization
   let liveRoomContext = '';
   if (guildId) {
     const session = voiceSessions.get(guildId);
     if (session && session.entries && session.entries.length > 0) {
-      const recent = session.entries.slice(-12);
-      liveRoomContext = `\n\n[RIWAYAT AKTIF OBROLAN DI VOICE CHANNEL #${session.channelName} (SUARA & TEKS TERPADU)]:\n` +
-        recent.map(e => `• [${e.type === 'text' ? 'Chat Teks VC' : 'Suara VC'}] ${e.speaker}: "${e.text}"`).join('\n') +
-        `\n(PENTING: Seluruh obrolan suara dan ketikan teks di room VC ini terhubung sebagai satu kesatuan. Sambungkan jawabanmu secara cerdas dan sinkron dengan konteks yang sedang dibahas di room).`;
+      const isLeaveOrTransitionMsg = (text) => {
+        if (!text || typeof text !== 'string') return false;
+        return /\b(?:off\s+d(?:u)?luan|aku\s+off|babay|bye\s*bye|keluar\s+(?:dari\s+)?vc|leave\s+vc|aku\s+ikut\s+kamu\s+yaa)\b/i.test(text);
+      };
+
+      const recent = session.entries
+        .filter(e => !isLeaveOrTransitionMsg(e.text))
+        .slice(-10);
+
+      if (recent.length > 0) {
+        liveRoomContext = `\n\n[RIWAYAT AKTIF OBROLAN DI VOICE CHANNEL #${session.channelName} (SUARA & TEKS TERPADU)]:\n` +
+          recent.map(e => `• [${e.type === 'text' ? 'Chat Teks VC' : 'Suara VC'}] ${e.speaker}: "${e.text}"`).join('\n') +
+          `\n(PENTING: Seluruh obrolan suara dan ketikan teks di room VC ini terhubung sebagai satu kesatuan. Sambungkan jawabanmu secara cerdas dan sinkron dengan konteks yang sedang dibahas di room).`;
+      }
     }
   }
 
@@ -2206,7 +2226,7 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
     }
   } catch (_) {}
 
-  // Ingest Cross-Modal Recent Text Chat Context (Sync Chat -> VC)
+  // Ingest Cross-Modal Recent Text Chat Context (Sync Chat -> VC) with transition sanitization
   let crossModalChatContext = '';
   if (guildId) {
     try {
@@ -2216,14 +2236,28 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
         const budgetGuard = require('./budget');
         const textHistory = budgetGuard.getContext(`channel_${channelId}`);
         if (textHistory && textHistory.length > 0) {
-          const recentTextMsgs = textHistory.slice(-5).map(m => {
-            const role = m.role === 'assistant' ? 'AZURA' : 'User';
-            const text = typeof m.content === 'string' ? m.content.replace(/\n+/g, ' ').slice(0, 150) : '[Media/Pesan]';
-            return `• [Chat Teks] ${role}: "${text}"`;
-          });
-          crossModalChatContext = `\n\n[KONTEKS OBROLAN CHAT TEKS TERAKHIR SEBELUMNYA DI SERVER]:\n` +
-            recentTextMsgs.join('\n') +
-            `\n(PENTING: Ini riwayat pesan chat teks terkini di server. Jika lawan bicara di VC menanyakan sesuatu tentang apa yang tadi diketik di teks seperti "yang tadi di chat gimana?", sambungkan jawabanmu secara cerdas dan sinkron!).`;
+          const isLeaveOrTransitionMsg = (text) => {
+            if (!text || typeof text !== 'string') return false;
+            return /\b(?:off\s+d(?:u)?luan|aku\s+off|babay|bye\s*bye|keluar\s+(?:dari\s+)?vc|leave\s+vc|aku\s+ikut\s+kamu\s+yaa)\b/i.test(text);
+          };
+
+          const recentTextMsgs = textHistory
+            .filter(m => {
+              const text = typeof m.content === 'string' ? m.content : '';
+              return !isLeaveOrTransitionMsg(text);
+            })
+            .slice(-5)
+            .map(m => {
+              const role = m.role === 'assistant' ? 'AZURA' : 'User';
+              const text = typeof m.content === 'string' ? m.content.replace(/\n+/g, ' ').slice(0, 150) : '[Media/Pesan]';
+              return `• [Riwayat Chat Teks Lalu] ${role}: "${text}"`;
+            });
+
+          if (recentTextMsgs.length > 0) {
+            crossModalChatContext = `\n\n[KONTEKS OBROLAN CHAT TEKS TERAKHIR SEBELUMNYA DI SERVER]:\n` +
+              recentTextMsgs.join('\n') +
+              `\n(PENTING: Ini adalah riwayat pesan chat teks masa lalu di server, BUKAN status koneksi suara live saat ini. Jika lawan bicara di VC menanyakan sesuatu tentang apa yang tadi diketik di teks seperti "yang tadi di chat gimana?", sambungkan jawabanmu secara cerdas dan sinkron!).`;
+          }
         }
       }
     } catch (_) {}
@@ -2267,7 +2301,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}${livePresenceAnchor}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
@@ -2283,7 +2317,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}${livePresenceAnchor}
 
 ${getSelfAwarenessContext(isOwner, speakerName, true, guildId)}
 

@@ -302,10 +302,20 @@ async function stopCameraStream(guildId) {
   };
 }
 
+function isCameraStarting(guildId) {
+  return false;
+}
+
+function prewarmStreamerClient() {
+  initStreamerClient().catch(() => {});
+}
+
 module.exports = {
   startCameraStream,
   stopCameraStream,
   isCameraActive,
+  isCameraStarting,
   isVideoIntroPlaying,
+  prewarmStreamerClient,
   initStreamerClient
 };

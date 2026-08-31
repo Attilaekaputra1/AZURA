@@ -1892,12 +1892,14 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         const { resumeMusic } = require('./musicStreamer');
         resumeMusic(guildId);
       } else if (/\[ACTION:OPEN_CAMERA\]/i.test(spokenResponse)) {
-        console.log('[Voice Pipeline]: 🎥 AI Brain autonomously triggered OPEN_CAMERA action');
+        console.log('[Voice Pipeline]: 🎥 AI Brain autonomously triggered OPEN_CAMERA action (Zero TTS mode - Video 1 native audio will play)');
         const { startCameraStream } = require('./videoStreamer');
         const textChannel = companionTextChannels.get(guildId) || voiceChannel;
         startCameraStream(guildId, voiceChannel.id, textChannel, 'Attila').catch(err => {
           console.error('[Voice Pipeline Autonomous Camera Error]:', err.message);
         });
+        globalVoiceTelemetry.finishTurn(turnId, { status: 'OPEN_CAMERA_TRIGGERED' });
+        return;
       } else if (/\[ACTION:CLOSE_CAMERA\]/i.test(spokenResponse)) {
         console.log('[Voice Pipeline]: 🛑 AI Brain autonomously triggered CLOSE_CAMERA action');
         const { stopCameraStream } = require('./videoStreamer');
@@ -2346,12 +2348,11 @@ Jika Attila meminta memutar, menyetel, atau memainkan lagu/musik (misal: "setel 
 
 ATURAN PERINTAH KAMERA STREAMING DI VOICE CHANNEL (AZURA CAM):
 1. Menyalakan Kamera: Jika Attila menyuruh buka cam / nyalain kamera (misal: "Ara nyalain kamera", "buka cam dong", "open cam"):
-   - Jawab SINGKAT dan langsung to the point tanpa dialog panjang: "Taraaa! [smiles] [ACTION:OPEN_CAMERA]" (karena Video 1 sudah memiliki audio dialog sambutan tersendiri di dalam videonya!).
-   - Sisipkan tag [ACTION:OPEN_CAMERA] di akhir jawabanmu.
+   - DILARANG berbicara/mengeluarkan dialog TTS awal apa pun! Keluarkan HANYA tag aksi: "[ACTION:OPEN_CAMERA]" (karena audio sambutan pembuka 100% langsung bersumber dari dialog asli Video 1 cam_intro.mp4).
 2. Mematikan Kamera: Jika Attila menyuruh tutup cam / matiin kamera (misal: "Ara matiin kamera", "tutup cam"):
    - Jawab santai dan bercanda (misal: "Sip Attila, kameranya aku matiin dulu yaa. Bayar tiket dulu kalau mau nonton lagi wkwk [laughs]! [ACTION:CLOSE_CAMERA]").
    - Sisipkan tag [ACTION:CLOSE_CAMERA] di akhir jawabanmu.
-3. Saat Video 2 (Looping Cam) Berjalan: Kamu bebas mengobrol dan bercanda santai dengan Attila sambil visual estetikmu terus looping menemani di layar VC.
+3. Saat Video 2 (Looping Cam) Berjalan: Setelah Video 1 selesai dan Video 2 looping di layar VC, kamu bebas mengobrol dan bercanda santai dengan Attila lewat suara TTS seperti biasa.
 4. Pertanyaan Akun Azura Cam: Jika ditanya tentang akun "azura_camera" / "Azura Cam", jelaskan dengan centil dan bercanda bahwa itu adalah webcam live milikmu untuk menampilkan visual estetik di VC!
 
 ATURAN WAJIB VOICE OBROLAN BIASA:

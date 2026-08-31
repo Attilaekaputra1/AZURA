@@ -184,6 +184,37 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
 }
 
 /**
+ * Ensure pre-rendered combined video (Video 1 Intro + Video 2 Looping Cam) exists with standard 24fps keyframes
+ * @param {string} introPath 
+ * @param {string} loopPath 
+ * @returns {string}
+ */
+function getCombinedVideoPath(introPath, loopPath) {
+  const combinedPath = path.join(path.dirname(introPath), 'cam_combined.mp4');
+  if (fs.existsSync(combinedPath)) return combinedPath;
+
+  try {
+    const listContent = [
+      `file '${introPath}'`,
+      `file '${loopPath}'`,
+      `file '${loopPath}'`,
+      `file '${loopPath}'`,
+      `file '${loopPath}'`,
+      `file '${loopPath}'`
+    ].join('\n');
+    const listPath = path.join(path.dirname(introPath), 'concat_list.txt');
+    fs.writeFileSync(listPath, listContent);
+    const { execSync } = require('child_process');
+    execSync(`ffmpeg -y -f concat -safe 0 -i "${listPath}" -c:v libx264 -preset veryfast -profile:v baseline -level 3.1 -pix_fmt yuv420p -r 24 -g 24 -keyint_min 24 -sc_threshold 0 -b:v 2500k -maxrate 2500k -bufsize 1250k -c:a aac -b:a 128k -ar 48000 -ac 2 "${combinedPath}"`, { stdio: 'ignore' });
+    try { fs.unlinkSync(listPath); } catch (_) {}
+    return combinedPath;
+  } catch (err) {
+    console.warn('[Video Streamer]: Failed to build combined video, falling back to loopPath:', err.message);
+    return loopPath || introPath;
+  }
+}
+
+/**
  * Continuous Camera Stream Orchestrator
  * Seamlessly plays Video 1 (Intro Sambutan with Audio) -> Video 2 (Infinite Looping Cam)
  */
@@ -214,52 +245,19 @@ async function execute2PhasePipeline(session, introPath, loopPath, introExists, 
         }
       }, 10500);
 
-      const ffmpeg = require('fluent-ffmpeg');
-      const { PassThrough } = require('stream');
-      const outStream = new PassThrough();
+      const targetVideo = getCombinedVideoPath(introPath, loopPath);
 
-      const cmd = ffmpeg()
-        .input(introPath)
-        .input(loopPath)
-        .inputOptions(['-stream_loop -1'])
-        .complexFilter([
-          '[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v0]',
-          '[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v1]',
-          '[v0][v1]concat=n=2:v=1:a=0,setpts=N/(24*TB),realtime[outv]'
-        ])
-        .outputOptions([
-          '-map [outv]',
-          '-c:v libx264',
-          '-preset ultrafast',
-          '-tune zerolatency',
-          '-profile:v baseline',
-          '-level 3.1',
-          '-x264-params repeat-headers=1:keyint=24:min-keyint=24:scenecut=0:bframes=0',
-          '-pix_fmt yuv420p',
-          '-b:v 2000k',
-          '-maxrate 2200k',
-          '-bufsize 1100k',
-          '-f nut'
-        ])
-        .output(outStream);
+      const { output } = prepareStream(targetVideo, {
+        width: 1280,
+        height: 720,
+        frameRate: 24,
+        bitrateVideo: 2500,
+        includeAudio: false,
+        customInputOptions: ['-stream_loop', '-1']
+      }, abortController.signal);
 
-      session.ffmpegProcess = cmd;
-
-      abortController.signal.addEventListener('abort', () => {
-        try { cmd.kill('SIGTERM'); } catch (_) {}
-      });
-
-      cmd.on('error', (err) => {
-        if (!abortController.signal.aborted) {
-          console.warn('[Video Streamer FFmpeg]:', err.message);
-        }
-      });
-
-      cmd.run();
-
-      await playStream(outStream, streamer, {
+      await playStream(output, streamer, {
         type: 'camera',
-        format: 'nut',
         width: 1280,
         height: 720,
         frameRate: 24
@@ -274,7 +272,7 @@ async function execute2PhasePipeline(session, introPath, loopPath, introExists, 
         width: 1280,
         height: 720,
         frameRate: 24,
-        bitrateVideo: 2000,
+        bitrateVideo: 2500,
         includeAudio: false,
         customInputOptions: ['-stream_loop', '-1']
       }, abortController.signal);

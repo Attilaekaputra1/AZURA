@@ -160,14 +160,13 @@ const DIMENSIONS = {
 };
 
 /**
- * Generate an image using OpenAI GPT Image 2 API (with graceful fallback)
+ * Generate an image using OpenAI GPT Image 2 API (with graceful fallback & clean parameter guard)
  * @param {string} prompt 
  * @param {'portrait' | 'landscape' | 'square'} orientation 
  * @param {'standard' | 'hd'} quality 
- * @param {'vivid' | 'natural'} style 
  * @returns {Promise<{ success: boolean, imageUrl?: string, imageBuffer?: Buffer, revisedPrompt?: string, error?: string, orientationInfo?: typeof DIMENSIONS['square'], modelUsed?: string }>}
  */
-async function generateAiImage(prompt, orientation = 'square', quality = 'standard', style = 'vivid') {
+async function generateAiImage(prompt, orientation = 'square', quality = 'standard') {
   const openai = getOpenAIClient();
   const normalizedOrientation = (orientation || 'square').toLowerCase().trim();
   const orientationConfig = DIMENSIONS[normalizedOrientation] || DIMENSIONS.square;
@@ -179,48 +178,56 @@ async function generateAiImage(prompt, orientation = 'square', quality = 'standa
   let response;
   let modelUsed = targetModel;
 
+  // Primary Payload - clean without legacy 'style' parameter
+  const requestPayload = {
+    model: targetModel,
+    prompt: prompt,
+    n: 1,
+    size: orientationConfig.size
+  };
+
+  if (quality && quality !== 'standard') {
+    requestPayload.quality = quality;
+  }
+
   try {
-    // Primary attempt with gpt-image-2 (does not use legacy 'style' parameter)
-    const requestPayload = {
-      model: targetModel,
-      prompt: prompt,
-      n: 1,
-      size: orientationConfig.size,
-    };
-
-    if (quality && quality !== 'standard') {
-      requestPayload.quality = quality;
-    }
-
-    if (targetModel.includes('dall-e') && style) {
-      requestPayload.style = style;
-    }
-
     response = await openai.images.generate(requestPayload);
   } catch (err) {
-    console.warn(`[GPT Image 2 Warning]: Direct call with "${targetModel}" returned: ${err.message}. Trying fallback to DALL·E 3...`);
-    if (targetModel !== 'dall-e-3') {
-      try {
-        response = await openai.images.generate({
-          model: 'dall-e-3',
-          prompt: prompt,
-          n: 1,
-          size: orientationConfig.size,
-          quality: quality || 'standard',
-          style: style || 'vivid',
-        });
-        modelUsed = 'dall-e-3';
-      } catch (fallbackErr) {
+    console.warn(`[GPT Image 2 Warning]: First attempt with "${targetModel}" returned: ${err.message}. Retrying with clean payload...`);
+
+    // Retry 1: Minimalist payload (no quality / no extra flags)
+    try {
+      response = await openai.images.generate({
+        model: targetModel,
+        prompt: prompt,
+        n: 1,
+        size: orientationConfig.size
+      });
+    } catch (retryErr) {
+      console.warn(`[GPT Image 2 Warning]: Minimalist retry failed (${retryErr.message}). Trying fallback to DALL·E 3...`);
+
+      // Retry 2: Fallback to dall-e-3 with clean payload
+      if (targetModel !== 'dall-e-3') {
+        try {
+          response = await openai.images.generate({
+            model: 'dall-e-3',
+            prompt: prompt,
+            n: 1,
+            size: orientationConfig.size
+          });
+          modelUsed = 'dall-e-3';
+        } catch (fallbackErr) {
+          return {
+            success: false,
+            error: fallbackErr.message || retryErr.message || err.message
+          };
+        }
+      } else {
         return {
           success: false,
-          error: fallbackErr.message || err.message
+          error: retryErr.message || err.message
         };
       }
-    } else {
-      return {
-        success: false,
-        error: err.message
-      };
     }
   }
 
@@ -566,7 +573,7 @@ Provide ONLY a valid JSON object with the following schema:
   }
 
   // Step 2: High-Fidelity Image Generation with HD Quality
-  const result = await generateAiImage(synthesizedPrompt, orientation, 'hd', 'vivid');
+  const result = await generateAiImage(synthesizedPrompt, orientation, 'hd');
   const quotaInfo = recordImageGeneration(guildId, userId, isOwner);
   const payload = buildImg2ImgEmbed(cleanPrompt, userName, result, imageUrls[0], quotaInfo, {
     processType: processTypeLabel,

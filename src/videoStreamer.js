@@ -258,7 +258,7 @@ async function executeContinuousPipeline(session, introPath, loopPath, introExis
         }
       }, 10500);
 
-      // Single FFmpeg command concatenating intro (1x) + loop (infinite) with realtime filter locking 24fps
+      // Single FFmpeg command concatenating intro (1x) + loop (infinite) with realtime filter locking 24fps & repeat-headers for mobile
       ffmpegArgs = [
         '-i', introPath,
         '-stream_loop', '-1',
@@ -268,10 +268,13 @@ async function executeContinuousPipeline(session, introPath, loopPath, introExis
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
         '-tune', 'zerolatency',
+        '-profile:v', 'baseline',
+        '-level', '3.1',
+        '-x264-params', 'repeat-headers=1:keyint=24:min-keyint=24:scenecut=0:bframes=0',
         '-pix_fmt', 'yuv420p',
-        '-b:v', '3300k',
-        '-maxrate', '3500k',
-        '-bufsize', '1650k',
+        '-b:v', '2000k',
+        '-maxrate', '2200k',
+        '-bufsize', '1100k',
         '-g', '24',
         '-keyint_min', '24',
         '-bf', '0',
@@ -290,10 +293,13 @@ async function executeContinuousPipeline(session, introPath, loopPath, introExis
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
         '-tune', 'zerolatency',
+        '-profile:v', 'baseline',
+        '-level', '3.1',
+        '-x264-params', 'repeat-headers=1:keyint=24:min-keyint=24:scenecut=0:bframes=0',
         '-pix_fmt', 'yuv420p',
-        '-b:v', '3300k',
-        '-maxrate', '3500k',
-        '-bufsize', '1650k',
+        '-b:v', '2000k',
+        '-maxrate', '2200k',
+        '-bufsize', '1100k',
         '-g', '24',
         '-keyint_min', '24',
         '-bf', '0',
@@ -324,10 +330,13 @@ async function executeContinuousPipeline(session, introPath, loopPath, introExis
       }
     });
 
-    // Feed FFmpeg stdout pipe directly to playStream
+    // Feed FFmpeg stdout pipe directly to playStream with explicit 720p 24fps attributes
     await playStream(ffmpegProc.stdout, streamer, {
       type: 'camera',
-      format: 'nut'
+      format: 'nut',
+      width: 1280,
+      height: 720,
+      frameRate: 24
     }, abortController.signal);
 
   } catch (globalErr) {

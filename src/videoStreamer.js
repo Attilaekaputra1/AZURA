@@ -14,10 +14,8 @@ if (ffmpegPath) {
   process.env.FFMPEG_PATH = ffmpegPath;
 }
 
-// Active camera stream sessions: guildId -> { streamer, abortController, channelId, isIntroPlaying }
+// Active camera stream sessions: guildId -> { streamer, abortController, isIntroPlaying, currentPhase, textChannel }
 const activeCameraSessions = new Map();
-// Guilds currently in the middle of launching a camera stream (Anti-Spam State Lock)
-const startingCameraGuilds = new Set();
 
 // Helper Selfbot Client Singleton
 let streamerClient = null;
@@ -94,31 +92,12 @@ async function initStreamerClient() {
 }
 
 /**
- * Pre-warm the helper streamer client at application startup
- */
-function prewarmStreamerClient() {
-  console.log('[Video Streamer]: 🚀 Pre-warming Azura Cam streamer helper client...');
-  initStreamerClient().catch(err => {
-    console.warn('[Video Streamer Warning]: Pre-warm warning:', err.message);
-  });
-}
-
-/**
  * Check if camera video is currently active in guild
  * @param {string} guildId 
  * @returns {boolean}
  */
 function isCameraActive(guildId) {
   return activeCameraSessions.has(guildId);
-}
-
-/**
- * Check if camera stream is currently initializing (Anti-Spam Lock)
- * @param {string} guildId 
- * @returns {boolean}
- */
-function isCameraStarting(guildId) {
-  return startingCameraGuilds.has(guildId);
 }
 
 /**
@@ -140,14 +119,6 @@ function isVideoIntroPlaying(guildId) {
  * @returns {Promise<{ success: boolean, message: string }>}
  */
 async function startCameraStream(guildId, channelId, textChannel = null, requesterName = 'Attila') {
-  if (startingCameraGuilds.has(guildId)) {
-    console.log(`[Video Streamer]: ⏳ Camera is already currently initializing in guild ${guildId}.`);
-    return {
-      success: true,
-      message: '⏳ Kamera Azura sedang dalam proses dinyalakan...'
-    };
-  }
-
   const introPath = config.VIDEO_INTRO_PATH;
   const loopPath = config.VIDEO_LOOP_PATH;
 
@@ -165,26 +136,17 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
 
   // Stop any existing stream in this guild first
   if (activeCameraSessions.has(guildId)) {
-    const existing = activeCameraSessions.get(guildId);
-    if (existing && existing.channelId === channelId) {
-      return {
-        success: true,
-        message: '🎥 Kamera Azura sudah aktif dan sedang streaming di Voice Channel ini.'
-      };
-    }
     await stopCameraStream(guildId);
   }
 
-  startingCameraGuilds.add(guildId);
+  const { streamerHelper: streamer } = await initStreamerClient();
+  if (!streamer) {
+    const errorMsg = '⚠️ Streamer Helper belum siap atau `STREAMER_USER_TOKEN` tidak valid.';
+    console.warn(`[Video Streamer]: ${errorMsg}`);
+    return { success: false, message: errorMsg };
+  }
 
   try {
-    const { streamerHelper: streamer } = await initStreamerClient();
-    if (!streamer) {
-      const errorMsg = '⚠️ Streamer Helper belum siap atau `STREAMER_USER_TOKEN` tidak valid.';
-      console.warn(`[Video Streamer]: ${errorMsg}`);
-      return { success: false, message: errorMsg };
-    }
-
     console.log(`[Video Streamer]: 🎥 Opening camera stream in guild ${guildId}, channel ${channelId}...`);
 
     await streamer.joinVoice(guildId, channelId);
@@ -196,19 +158,20 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
       guildId,
       channelId,
       textChannel,
-      isIntroPlaying: false
+      isIntroPlaying: false,
+      currentPhase: 'INIT'
     };
 
     activeCameraSessions.set(guildId, sessionData);
 
-    // Run continuous seamless stream (Video 1 Intro -> Video 2 Loop)
-    executeContinuousPipeline(sessionData, introPath, loopPath, introExists, loopExists).catch(err => {
+    // Run 2-phase pipeline in background
+    execute2PhasePipeline(sessionData, introPath, loopPath, introExists, loopExists).catch(err => {
       console.error('[Video Streamer Pipeline Error]:', err.message);
     });
 
     return {
       success: true,
-      message: `🎥 Kamera Azura berhasil dinyalakan oleh **${requesterName}**! (Video 1: Sambutan ➔ Video 2: Looping Cam)`
+      message: `🎥 Kamera Azura berhasil dinyalakan oleh **${requesterName}**! (Fase 1: Sambutan ➔ Fase 2: Looping Cam)`
     };
   } catch (err) {
     console.error('[Video Streamer Error]: Failed to start stream:', err.message);
@@ -217,110 +180,78 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
       success: false,
       message: `Gagal menyalakan kamera: ${err.message}`
     };
-  } finally {
-    startingCameraGuilds.delete(guildId);
   }
 }
 
 /**
- * Continuous Camera Stream Orchestrator
- * Seamlessly plays Video 1 (Intro + Native Audio) -> Video 2 (Infinite Looping Cam)
+ * 2-Phase Stream Orchestrator using @dank074/discord-video-stream v6 API
  */
-async function executeContinuousPipeline(session, introPath, loopPath, introExists, loopExists) {
+async function execute2PhasePipeline(session, introPath, loopPath, introExists, loopExists) {
   const { streamer, abortController, guildId } = session;
 
   try {
     const { prepareStream, playStream } = await import('@dank074/discord-video-stream');
 
-    if (introExists && loopExists) {
+    // ── PHASE 1: Video 1 (Intro Sambutan with Synchronized Audio) ──
+    if (introExists && !abortController.signal.aborted) {
+      session.currentPhase = 'PHASE_1_INTRO';
       session.isIntroPlaying = true;
-      console.log(`[Video Streamer]: 🎬 [Seamless Concat] Video 1 (Intro Sambutan) ➔ Video 2 (Looping Cam)...`);
+      console.log(`[Video Streamer]: 🎬 [Phase 1] Playing Video 1 (Intro Visual + Audio)... Azura TTS muted.`);
 
-      // Play audio of intro through bot AudioPlayer (Native Discord Opus)
+      // Play audio track directly in VC via Azura AudioPlayer (100% native Discord Opus)
       try {
         const { playDirectAudioFile } = require('./voiceCompanion');
         playDirectAudioFile(guildId, introPath);
-      } catch (_) {}
+      } catch (audioErr) {
+        console.warn('[Video Streamer]: Direct audio play notice:', audioErr.message);
+      }
 
-      // Intro duration timer (~10s)
-      setTimeout(() => {
-        if (session && !abortController.signal.aborted) {
-          session.isIntroPlaying = false;
-          console.log(`[Video Streamer]: 🔄 [Loop Active] Video 1 finished. Video 2 looping smoothly.`);
-        }
-      }, 10500);
+      try {
+        const { output } = prepareStream(introPath, {
+          width: 1280,
+          height: 720,
+          frameRate: 24,
+          bitrateVideo: 2500,
+          includeAudio: false
+        }, abortController.signal);
 
-      const ffmpeg = require('fluent-ffmpeg');
-      const { PassThrough } = require('stream');
-      const outStream = new PassThrough();
-
-      const cmd = ffmpeg()
-        .input(introPath)
-        .input(loopPath)
-        .inputOptions(['-stream_loop -1'])
-        .complexFilter([
-          '[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v0]',
-          '[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v1]',
-          '[v0][v1]concat=n=2:v=1:a=0,setpts=N/(24*TB),realtime[outv]'
-        ])
-        .outputOptions([
-          '-map [outv]',
-          '-c:v libx264',
-          '-preset ultrafast',
-          '-tune zerolatency',
-          '-profile:v baseline',
-          '-level 3.1',
-          '-x264-params repeat-headers=1:keyint=24:min-keyint=24:scenecut=0:bframes=0',
-          '-pix_fmt yuv420p',
-          '-b:v 2000k',
-          '-maxrate 2200k',
-          '-bufsize 1100k',
-          '-f nut'
-        ])
-        .output(outStream);
-
-      session.ffmpegProcess = cmd;
-
-      abortController.signal.addEventListener('abort', () => {
-        try { cmd.kill('SIGTERM'); } catch (_) {}
-      });
-
-      cmd.on('error', (err) => {
+        await playStream(output, streamer, {
+          type: 'camera'
+        }, abortController.signal);
+      } catch (introErr) {
         if (!abortController.signal.aborted) {
-          console.warn('[Video Streamer FFmpeg]:', err.message);
+          console.warn('[Video Streamer Warning]: Intro playback completed/transitioned:', introErr.message);
         }
-      });
+      }
+    }
 
-      cmd.run();
+    if (abortController.signal.aborted) return;
 
-      await playStream(outStream, streamer, {
-        type: 'camera',
-        format: 'nut',
-        width: 1280,
-        height: 720,
-        frameRate: 24
-      }, abortController.signal);
+    // ── PHASE 2: Video 2 (Looping Visual Mute) ──
+    session.isIntroPlaying = false;
+    session.currentPhase = 'PHASE_2_LOOP';
+    console.log(`[Video Streamer]: 🔄 [Phase 2] Seamlessly transitioning to Video 2 (Looping Visual Mute). Azura TTS active.`);
 
-    } else {
-      const targetVideo = loopExists ? loopPath : introPath;
-      session.isIntroPlaying = false;
-      console.log(`[Video Streamer]: 🎬 Streaming video: ${path.basename(targetVideo)}...`);
+    const targetLoopVideo = loopExists ? loopPath : introPath;
 
-      const { output } = prepareStream(targetVideo, {
-        width: 1280,
-        height: 720,
-        frameRate: 24,
-        bitrateVideo: 2000,
-        includeAudio: false,
-        customInputOptions: ['-stream_loop', '-1']
-      }, abortController.signal);
+    while (activeCameraSessions.has(guildId) && !abortController.signal.aborted) {
+      try {
+        const { output } = prepareStream(targetLoopVideo, {
+          width: 1280,
+          height: 720,
+          frameRate: 24,
+          bitrateVideo: 2500,
+          includeAudio: false,
+          customInputOptions: ['-stream_loop', '-1']
+        }, abortController.signal);
 
-      await playStream(output, streamer, {
-        type: 'camera',
-        width: 1280,
-        height: 720,
-        frameRate: 24
-      }, abortController.signal);
+        await playStream(output, streamer, {
+          type: 'camera'
+        }, abortController.signal);
+      } catch (loopErr) {
+        if (abortController.signal.aborted || !activeCameraSessions.has(guildId)) break;
+        await new Promise(r => setTimeout(r, 600));
+      }
     }
   } catch (globalErr) {
     if (!abortController.signal.aborted) {
@@ -375,8 +306,6 @@ module.exports = {
   startCameraStream,
   stopCameraStream,
   isCameraActive,
-  isCameraStarting,
   isVideoIntroPlaying,
-  prewarmStreamerClient,
   initStreamerClient
 };

@@ -174,7 +174,7 @@ function getCognitiveReasoningDirectives(intentOrIntents, isOwner, userName, isV
           '- Lawan bicara ingin menyalakan atau mematikan kamera streaming Azura Cam di Voice Channel.',
           isOwner
             ? (isVoice
-                ? '- Konfirmasi ceria dengan gaya bercanda Gen Z dan sertakan tag aksi [ACTION:OPEN_CAMERA] atau [ACTION:CLOSE_CAMERA] di akhir kalimatmu.'
+                ? '- Buka Kamera: Jawab super singkat dan langsung to the point ("Taraaa! [smiles] [ACTION:OPEN_CAMERA]") tanpa dialog panjang, karena Video 1 sudah memiliki audio dialog sambutan di videonya!\n- Tutup Kamera: Jawab santai dan bercanda dengan tag [ACTION:CLOSE_CAMERA].'
                 : '- Jelaskan status kamera streaming atau konfirmasi perintah pembukaan/penutupan kamera.')
             : '- Tolak dengan nada bercanda dan manis bahwa kontrol on/off kamera Azura Cam hanya bisa diaktifkan oleh Attila.'
         );

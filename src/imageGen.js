@@ -515,6 +515,8 @@ Provide ONLY a valid JSON object with the following schema:
   "processType": "Style-Locked Clone" OR "Photoshop Surgical Inpainting" OR "Artistic Restyle",
   "styleDnaSummary": "Short 5-8 word summary of the identified art style and lighting (in Indonesian)",
   "masterPrompt": "Ultra-detailed, rich English DALL-E/GPT Image prompt incorporating the locked Style DNA and exact surgical modifications. Must be vivid, aesthetic, masterpiece quality, no garbled text."
+}`;
+
     const targetVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';
     let visionRes;
     try {

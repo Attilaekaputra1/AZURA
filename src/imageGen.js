@@ -515,23 +515,42 @@ Provide ONLY a valid JSON object with the following schema:
   "processType": "Style-Locked Clone" OR "Photoshop Surgical Inpainting" OR "Artistic Restyle",
   "styleDnaSummary": "Short 5-8 word summary of the identified art style and lighting (in Indonesian)",
   "masterPrompt": "Ultra-detailed, rich English DALL-E/GPT Image prompt incorporating the locked Style DNA and exact surgical modifications. Must be vivid, aesthetic, masterpiece quality, no garbled text."
-}`;
-
-    const visionRes = await client.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: visionSystemPrompt },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: `Analyze this reference image and synthesize the master image generation prompt for: "${cleanPrompt}"` },
-            { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
-          ]
-        }
-      ],
-      response_format: { type: 'json_object' },
-      max_completion_tokens: 500
-    });
+    const targetVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';
+    let visionRes;
+    try {
+      visionRes = await client.chat.completions.create({
+        model: targetVisionModel,
+        messages: [
+          { role: 'system', content: visionSystemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Analyze this reference image and synthesize the master image generation prompt for: "${cleanPrompt}"` },
+              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
+            ]
+          }
+        ],
+        response_format: { type: 'json_object' },
+        max_completion_tokens: 500
+      });
+    } catch (primaryVisionErr) {
+      console.warn(`[Vision Image Engine Warning]: Primary model "${targetVisionModel}" failed (${primaryVisionErr.message}), falling back to secondary vision...`);
+      visionRes = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: visionSystemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Analyze this reference image and synthesize the master image generation prompt for: "${cleanPrompt}"` },
+              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
+            ]
+          }
+        ],
+        response_format: { type: 'json_object' },
+        max_completion_tokens: 500
+      });
+    }
 
     const parsedVision = JSON.parse(visionRes.choices[0]?.message?.content || '{}');
     if (parsedVision.masterPrompt) {
@@ -539,7 +558,7 @@ Provide ONLY a valid JSON object with the following schema:
       detectedStyleInfo = parsedVision.styleDnaSummary || detectedStyleInfo;
       processTypeLabel = parsedVision.processType || processTypeLabel;
     }
-    console.log(`[Vision Image Engine]: ✅ Synthesized Prompt (${processTypeLabel}): "${synthesizedPrompt}"`);
+    console.log(`[Vision Image Engine]: ✅ Synthesized Prompt via ${targetVisionModel} (${processTypeLabel}): "${synthesizedPrompt}"`);
   } catch (visionErr) {
     console.warn('[Vision Image Engine Warning]: Vision synthesis fallback, using direct prompt:', visionErr.message);
   }
@@ -696,7 +715,7 @@ async function processImageIntelligence(prompt, userName = 'Pengguna', guildId =
       console.log(`[Multi-Step Visual Engine]: Step 2 - Synthesizing key points and crafting visual prompt...`);
       const client = getOpenAIClient();
       const synthRes = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: config.OPENAI_MODEL || 'gpt-5.6-luna',
         messages: [
           {
             role: 'system',

@@ -1193,6 +1193,10 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // Route to correct button handler based on customId prefix
+    if (interaction.customId.startsWith('loyalty_leave_')) {
+      const { handleLoyaltyLeaveButton } = require('./ownerLoyalty');
+      return handleLoyaltyLeaveButton(interaction);
+    }
     if (interaction.customId.startsWith('btn_orch_')) {
       const { handleBotOrchestratorButton } = require('./botOrchestrator');
       return handleBotOrchestratorButton(interaction);

@@ -156,8 +156,8 @@ async function processFinanceIntelligence(prompt) {
     return await getExchangeRate(amount, 'USD', 'IDR');
   }
 
-  // Crypto Price Trigger: "harga btc", "harga bitcoin", "harga eth", "harga solana", "berapa harga btc"
-  const cryptoMatch = lower.match(/(?:harga|price|cek)\s*(btc|bitcoin|eth|ethereum|sol|solana|bnb|binance|doge|xrp|ada|pepe|shib|sui)\b/i);
+  // Crypto Price Trigger: "harga btc", "harga 1 btc", "harga bitcoin", "harga eth", "harga solana", "berapa harga btc"
+  const cryptoMatch = lower.match(/(?:harga|price|cek|berapa\s+harga)\s*(?:\d+[\d,.]*\s*)?(btc|bitcoin|eth|ethereum|sol|solana|bnb|binance|doge|xrp|ada|pepe|shib|sui)\b/i);
   if (cryptoMatch) {
     const coin = cryptoMatch[1];
     console.log(`[Finance Engine]: Fetching Crypto Price for: ${coin}`);

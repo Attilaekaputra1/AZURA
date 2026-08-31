@@ -3260,13 +3260,14 @@ async function sayBedtimeFarewellInActiveVCs(client) {
  */
 async function speakGameCommentary(guildId, commentaryText, clientInstance = null) {
   if (!guildId || !commentaryText) return;
-  const session = activeVoiceSessions.get(guildId);
-  if (!session || !session.connection || !session.player) return;
+  const conn = activeConnections.get(guildId);
+  const player = audioPlayers.get(guildId);
+  if (!conn || !player) return;
 
   console.log(`[Voice Game Commentary] (${guildId}): 🎙️ "${commentaryText}"`);
   try {
     recordSessionEntry(guildId, 'AZURA', commentaryText);
-    const audioResource = await textToAudioResource(commentaryText, clientInstance || session.client, 2500, { forcedModel: 'eleven_v3' });
+    const audioResource = await textToAudioResource(commentaryText, clientInstance, 2500, { forcedModel: 'eleven_v3' });
     if (audioResource) {
       await playInVC(guildId, audioResource);
     }

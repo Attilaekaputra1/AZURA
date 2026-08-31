@@ -13,7 +13,7 @@ function getOpenAIClient() {
     }
     openaiClient = new OpenAI({
       apiKey: config.OPENAI_API_KEY,
-      timeout: 60000,
+      timeout: 120000,
       maxRetries: 2
     });
   }
@@ -60,110 +60,81 @@ function saveQuotaData(data) {
  * @returns {{ allowed: boolean, reason?: string, remainingToday?: number, usedToday?: number, isOwner?: boolean }}
  */
 function checkImageQuota(guildId, userId, isOwner = false) {
+  // Owner has unlimited access
   if (isOwner) {
-    return { allowed: true, remainingToday: 999, usedToday: 0, isOwner: true };
+    return { allowed: true, isOwner: true };
   }
 
   const now = Date.now();
-  const lastTime = imageCooldowns.get(userId) || 0;
-  const diff = now - lastTime;
-
-  // Enforce 5-second cooldown
-  if (diff < COOLDOWN_MS) {
-    const remainingSec = ((COOLDOWN_MS - diff) / 1000).toFixed(1);
+  const lastCall = imageCooldowns.get(userId) || 0;
+  if (now - lastCall < COOLDOWN_MS) {
+    const waitSec = Math.ceil((COOLDOWN_MS - (now - lastCall)) / 1000);
     return {
       allowed: false,
-      reason: `⏳ **Cooldown Aktif!** Harap tunggu **${remainingSec} detik** lagi sebelum generate gambar berikutnya.`
+      reason: `⏳ Mohon tunggu **${waitSec} detik** lagi sebelum membuat gambar baru yaa! ✨`
     };
   }
 
-  const scopeKey = guildId || `dm_${userId}`;
-  const today = getTodayKey();
-  const allData = loadQuotaData();
+  const quota = loadQuotaData();
+  const todayKey = getTodayKey();
+  const serverQuotaKey = `${todayKey}:${guildId || 'dm'}`;
 
-  if (!allData[today]) {
-    allData[today] = {};
-  }
-
-  const used = allData[today][scopeKey] || 0;
-
-  if (used >= DAILY_LIMIT_PER_SERVER) {
+  const currentCount = quota[serverQuotaKey] || 0;
+  if (currentCount >= DAILY_LIMIT_PER_SERVER) {
     return {
       allowed: false,
-      reason: `🛑 **Kuota Harian Server Habis!**\nJatah kuota **${DAILY_LIMIT_PER_SERVER} gambar per hari** untuk server ini sudah terpakai semua (*sistem siapa cepat dia dapat*).\n\n⏰ Kuota akan otomatis direset kembali besok pada pukul **00:00 WIB**!`
+      reason: `🛑 **Batas Kuota Gambar Harian Tercapai!**\nServer ini sudah menggunakan **${DAILY_LIMIT_PER_SERVER}/${DAILY_LIMIT_PER_SERVER}** kuota gambar untuk hari ini. Kuota akan direset otomatis setiap pukul 00:00 WIB.`
     };
   }
 
   return {
     allowed: true,
-    usedToday: used,
-    remainingToday: DAILY_LIMIT_PER_SERVER - used,
+    remainingToday: DAILY_LIMIT_PER_SERVER - currentCount,
+    usedToday: currentCount,
     isOwner: false
   };
 }
 
 /**
- * Record a successful image generation
+ * Record an image generation against the daily quota
  * @param {string} guildId 
  * @param {string} userId 
  * @param {boolean} isOwner 
- * @returns {{ usedToday: number, remainingToday: number }}
  */
 function recordImageGeneration(guildId, userId, isOwner = false) {
   imageCooldowns.set(userId, Date.now());
 
   if (isOwner) {
-    return { usedToday: 0, remainingToday: 999, isOwner: true };
+    return { isOwner: true };
   }
 
-  const scopeKey = guildId || `dm_${userId}`;
-  const today = getTodayKey();
-  const allData = loadQuotaData();
+  const quota = loadQuotaData();
+  const todayKey = getTodayKey();
+  const serverQuotaKey = `${todayKey}:${guildId || 'dm'}`;
 
-  if (!allData[today]) {
-    allData[today] = {};
-  }
-
-  const newUsed = (allData[today][scopeKey] || 0) + 1;
-  allData[today][scopeKey] = newUsed;
-  saveQuotaData(allData);
-
-  try {
-    const { recordDailyMetric } = require('./digest');
-    recordDailyMetric('imagesGenerated', 1);
-  } catch (_) {}
+  const newCount = (quota[serverQuotaKey] || 0) + 1;
+  quota[serverQuotaKey] = newCount;
+  saveQuotaData(quota);
 
   return {
-    usedToday: newUsed,
-    remainingToday: Math.max(0, DAILY_LIMIT_PER_SERVER - newUsed),
-    isOwner: false
+    isOwner: false,
+    usedToday: newCount,
+    remainingToday: Math.max(0, DAILY_LIMIT_PER_SERVER - newCount)
   };
 }
 
-// Dimensions mapping for Portrait, Landscape, and Square
+// Aspect Ratio Dimensions Map
 const DIMENSIONS = {
-  portrait: {
-    size: '1024x1792',
-    label: 'Portrait (9:16 Vertikal)',
-    resolution: '1024 x 1792 px'
-  },
-  landscape: {
-    size: '1792x1024',
-    label: 'Landscape (16:9 Horizontal)',
-    resolution: '1792 x 1024 px'
-  },
-  square: {
-    size: '1024x1024',
-    label: 'Square (1:1 Kotak)',
-    resolution: '1024 x 1024 px'
-  }
+  square: { size: '1024x1024', label: 'Square (1:1 Kotak)', resolution: '1024 x 1024 px' },
+  portrait: { size: '1024x1792', label: 'Portrait (9:16 Vertikal)', resolution: '1024 x 1792 px' },
+  landscape: { size: '1792x1024', label: 'Landscape (16:9 Horizontal)', resolution: '1792 x 1024 px' }
 };
 
 /**
  * Generate an image using OpenAI GPT Image 2 API (with graceful fallback & clean parameter guard)
  * @param {string} prompt 
  * @param {'portrait' | 'landscape' | 'square'} orientation 
- * @param {'standard' | 'hd'} quality 
+ * @param {'standard' | 'hd' | 'high' | 'auto'} quality 
  * @returns {Promise<{ success: boolean, imageUrl?: string, imageBuffer?: Buffer, revisedPrompt?: string, error?: string, orientationInfo?: typeof DIMENSIONS['square'], modelUsed?: string }>}
  */
 async function generateAiImage(prompt, orientation = 'square', quality = 'standard') {
@@ -173,7 +144,13 @@ async function generateAiImage(prompt, orientation = 'square', quality = 'standa
 
   const targetModel = config.IMAGE_MODEL || 'gpt-image-2';
 
-  console.log(`[GPT Image 2 Engine]: Generating image using model "${targetModel}" (${orientationConfig.label}) for prompt: "${prompt}"`);
+  // Sanitize and trim prompt if extremely long to avoid gateway timeouts
+  let sanitizedPrompt = prompt.trim();
+  if (sanitizedPrompt.length > 1200) {
+    sanitizedPrompt = sanitizedPrompt.substring(0, 1200).trim();
+  }
+
+  console.log(`[GPT Image 2 Engine]: Generating image using model "${targetModel}" (${orientationConfig.label}) for prompt: "${sanitizedPrompt.substring(0, 100)}..."`);
 
   let response;
   let modelUsed = targetModel;
@@ -181,7 +158,7 @@ async function generateAiImage(prompt, orientation = 'square', quality = 'standa
   // Primary Payload - clean without legacy 'style' parameter
   const requestPayload = {
     model: targetModel,
-    prompt: prompt,
+    prompt: sanitizedPrompt,
     n: 1,
     size: orientationConfig.size
   };
@@ -198,41 +175,22 @@ async function generateAiImage(prompt, orientation = 'square', quality = 'standa
   try {
     response = await openai.images.generate(requestPayload);
   } catch (err) {
-    console.warn(`[GPT Image 2 Warning]: First attempt with "${targetModel}" returned: ${err.message}. Retrying with clean payload...`);
+    console.warn(`[GPT Image 2 Warning]: First attempt with "${targetModel}" returned: ${err.message}. Retrying with minimalist payload...`);
 
-    // Retry 1: Minimalist payload (no quality / no extra flags)
+    // Retry: Minimalist payload (no quality flag)
     try {
       response = await openai.images.generate({
         model: targetModel,
-        prompt: prompt,
+        prompt: sanitizedPrompt,
         n: 1,
         size: orientationConfig.size
       });
     } catch (retryErr) {
-      console.warn(`[GPT Image 2 Warning]: Minimalist retry failed (${retryErr.message}). Trying fallback to DALL·E 3...`);
-
-      // Retry 2: Fallback to dall-e-3 with clean payload
-      if (targetModel !== 'dall-e-3') {
-        try {
-          response = await openai.images.generate({
-            model: 'dall-e-3',
-            prompt: prompt,
-            n: 1,
-            size: orientationConfig.size
-          });
-          modelUsed = 'dall-e-3';
-        } catch (fallbackErr) {
-          return {
-            success: false,
-            error: fallbackErr.message || retryErr.message || err.message
-          };
-        }
-      } else {
-        return {
-          success: false,
-          error: retryErr.message || err.message
-        };
-      }
+      console.error(`[GPT Image 2 Error]: Retry failed:`, retryErr.message);
+      return {
+        success: false,
+        error: retryErr.message || err.message
+      };
     }
   }
 
@@ -546,7 +504,7 @@ Provide ONLY a valid JSON object with the following schema:
 {
   "processType": "Style-Locked Clone" OR "Photoshop Surgical Inpainting" OR "Pose & Scene Transformation",
   "styleDnaSummary": "Short 5-8 word summary of the identified character, art style, and lighting (in Indonesian)",
-  "masterPrompt": "Ultra-detailed, rich English DALL-E/GPT Image prompt incorporating the locked Character Identity, Art Style, and the requested action/setting. Must be vivid, aesthetic, masterpiece quality, no garbled text."
+  "masterPrompt": "Concise, highly descriptive 80-120 word English prompt (around 500-800 characters) capturing the exact character identifiers (hair, dress, accessories), anime cel-shaded art style, and the requested action/setting. Must be vivid, aesthetic, masterpiece quality, no garbled text, strictly under 900 characters."
 }`;
 
     const targetVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';

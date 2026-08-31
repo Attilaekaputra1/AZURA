@@ -10,6 +10,10 @@ const MEMBER_VC_QUOTA_FILE = path.join(DATA_DIR, 'member_vc_quota.enc');
 
 const MAX_MEMBER_DAILY_VC = 3;
 
+// Dashboard-verified total credits (source: ElevenLabs dashboard screenshot)
+// API key may lack 'user_read' permission, so this serves as the known baseline
+const DASHBOARD_TOTAL_CREDITS = 90000;
+
 // Auto-sync interval: every 30 minutes
 const SYNC_INTERVAL_MS = 30 * 60 * 1000;
 let _lastSyncTimestamp = 0;
@@ -47,8 +51,8 @@ function loadQuotaData() {
   const freshData = {
     monthKey: currentMonth,
     usedCredits: 0,
-    totalCredits: 0,
-    remainingCredits: 0,
+    totalCredits: DASHBOARD_TOTAL_CREDITS,
+    remainingCredits: DASHBOARD_TOTAL_CREDITS,
     tier: 'unknown',
     nextResetDate: '-',
     warning80Sent: false,
@@ -169,6 +173,27 @@ function fetchLiveElevenLabsQuota() {
       let rawData = '';
       res.on('data', chunk => rawData += chunk);
       res.on('end', () => {
+        // Handle auth errors gracefully (API key missing 'user_read' permission)
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          console.warn(`[VoiceQuota]: ⚠️ ElevenLabs API returned ${res.statusCode} (API key lacks 'user_read' permission). Using local tracking with dashboard baseline (${DASHBOARD_TOTAL_CREDITS.toLocaleString('id-ID')} credits).`);
+          const local = loadQuotaData();
+          if (local.totalCredits === 0) {
+            local.totalCredits = DASHBOARD_TOTAL_CREDITS;
+            local.remainingCredits = Math.max(0, DASHBOARD_TOTAL_CREDITS - local.usedCredits);
+            saveQuotaData(local);
+          }
+          _lastSyncTimestamp = Date.now();
+          return resolve({
+            character_count: local.usedCredits,
+            character_limit: local.totalCredits,
+            remaining: local.remainingCredits,
+            percent: local.totalCredits > 0 ? ((local.usedCredits / local.totalCredits) * 100).toFixed(1) : '0.0',
+            status: 'api_permission_denied',
+            tier: local.tier || 'starter',
+            next_reset: local.nextResetDate || '-'
+          });
+        }
+
         try {
           const json = JSON.parse(rawData);
 

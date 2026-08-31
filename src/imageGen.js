@@ -186,8 +186,13 @@ async function generateAiImage(prompt, orientation = 'square', quality = 'standa
     size: orientationConfig.size
   };
 
-  if (quality && quality !== 'standard') {
-    requestPayload.quality = quality;
+  if (quality) {
+    if (targetModel.includes('dall-e')) {
+      requestPayload.quality = (quality === 'high' || quality === 'hd') ? 'hd' : 'standard';
+    } else {
+      // gpt-image-2 accepts 'low', 'medium', 'high', 'auto'
+      requestPayload.quality = (quality === 'hd' || quality === 'high') ? 'high' : 'auto';
+    }
   }
 
   try {
@@ -560,12 +565,12 @@ Provide ONLY a valid JSON object with the following schema:
           }
         ],
         response_format: { type: 'json_object' },
-        max_completion_tokens: 500
+        max_completion_tokens: 4000
       });
     } catch (primaryVisionErr) {
       console.warn(`[Vision Image Engine Warning]: Primary model "${targetVisionModel}" failed (${primaryVisionErr.message}), falling back to secondary vision...`);
       visionRes = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: visionSystemPrompt },
           {
@@ -577,15 +582,25 @@ Provide ONLY a valid JSON object with the following schema:
           }
         ],
         response_format: { type: 'json_object' },
-        max_completion_tokens: 500
+        max_completion_tokens: 2000
       });
     }
 
-    const parsedVision = JSON.parse(visionRes.choices[0]?.message?.content || '{}');
-    if (parsedVision.masterPrompt) {
-      synthesizedPrompt = parsedVision.masterPrompt;
-      detectedStyleInfo = parsedVision.styleDnaSummary || detectedStyleInfo;
-      processTypeLabel = parsedVision.processType || processTypeLabel;
+    const rawContent = visionRes.choices[0]?.message?.content || '{}';
+    let parsedVision = {};
+    try {
+      parsedVision = JSON.parse(rawContent);
+    } catch (_) {
+      // Bracket slicing fallback
+      const match = rawContent.match(/\{[\s\S]*\}/);
+      if (match) parsedVision = JSON.parse(match[0]);
+    }
+
+    const masterPrompt = parsedVision.masterPrompt || parsedVision.master_prompt || parsedVision.prompt || parsedVision.image_prompt;
+    if (masterPrompt && typeof masterPrompt === 'string' && masterPrompt.length > 10) {
+      synthesizedPrompt = masterPrompt.trim();
+      detectedStyleInfo = parsedVision.styleDnaSummary || parsedVision.style_dna_summary || detectedStyleInfo;
+      processTypeLabel = parsedVision.processType || parsedVision.process_type || processTypeLabel;
     }
     console.log(`[Vision Image Engine]: ✅ Synthesized Prompt via ${targetVisionModel} (${processTypeLabel}): "${synthesizedPrompt}"`);
   } catch (visionErr) {

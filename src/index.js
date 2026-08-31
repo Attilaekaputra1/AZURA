@@ -91,6 +91,12 @@ client.once(Events.ClientReady, async () => {
   const { initSleepScheduler } = require('./sleepMode');
   initSleepScheduler(client);
 
+  // Pre-warm Azura Cam (Video Streamer Helper Account) for instant camera readiness
+  try {
+    const { prewarmStreamerClient } = require('./videoStreamer');
+    prewarmStreamerClient();
+  } catch (_) {}
+
   // Auto-connect to VC if Attila is already in a voice channel on startup
   setTimeout(async () => {
     try {

@@ -3288,7 +3288,7 @@ async function speakGameCommentary(guildId, commentaryText, clientInstance = nul
 }
 
 /**
- * Play an audio file (e.g. video intro audio) directly into VC AudioPlayer.
+ * Play an audio file (e.g. video intro audio) directly into VC AudioPlayer with proper unmuting & state tracking.
  * @param {string} guildId 
  * @param {string} filePath 
  */
@@ -3298,9 +3298,32 @@ function playDirectAudioFile(guildId, filePath) {
     const conn = activeConnections.get(guildId);
     if (!player || !conn || !fs.existsSync(filePath)) return null;
 
-    const { createAudioResource } = require('@discordjs/voice');
+    isBotSpeaking.add(guildId);
+    // Unmute on Discord gateway so audio from Video 1 intro is broadcast clearly to the channel
+    try { conn.rejoin({ selfMute: false, selfDeaf: false }); } catch (_) {}
+
+    const { createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
     const resource = createAudioResource(filePath);
     player.play(resource);
+
+    const onIdle = () => {
+      isBotSpeaking.delete(guildId);
+      player.removeListener(AudioPlayerStatus.Idle, onIdle);
+      player.removeListener('error', onIdle);
+      // Auto-mute after intro audio finishes
+      try {
+        const { guildMusicSessions } = require('./musicStreamer');
+        if (!guildMusicSessions?.has(guildId)) {
+          conn.rejoin({ selfMute: true, selfDeaf: false });
+        }
+      } catch (_) {
+        try { conn.rejoin({ selfMute: true, selfDeaf: false }); } catch (_) {}
+      }
+    };
+
+    player.once(AudioPlayerStatus.Idle, onIdle);
+    player.once('error', onIdle);
+
     return resource;
   } catch (err) {
     console.warn('[Voice Companion]: Error playing direct audio file:', err.message);

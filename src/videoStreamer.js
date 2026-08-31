@@ -15,8 +15,10 @@ if (ffmpegPath) {
   process.env.FFMPEG_PATH = ffmpegPath;
 }
 
-// Active camera stream sessions: guildId -> { streamer, abortController, ffmpegProcess, isIntroPlaying }
+// Active camera stream sessions: guildId -> { streamer, abortController, ffmpegProcess, isIntroPlaying, channelId }
 const activeCameraSessions = new Map();
+// Guilds currently in the middle of launching a camera stream (Anti-Spam State Lock)
+const startingCameraGuilds = new Set();
 
 // Helper Selfbot Client Singleton
 let streamerClient = null;
@@ -93,12 +95,31 @@ async function initStreamerClient() {
 }
 
 /**
+ * Pre-warm the helper streamer client at application startup
+ */
+function prewarmStreamerClient() {
+  console.log('[Video Streamer]: 🚀 Pre-warming Azura Cam streamer helper client...');
+  initStreamerClient().catch(err => {
+    console.warn('[Video Streamer Warning]: Pre-warm warning:', err.message);
+  });
+}
+
+/**
  * Check if camera video is currently active in guild
  * @param {string} guildId 
  * @returns {boolean}
  */
 function isCameraActive(guildId) {
   return activeCameraSessions.has(guildId);
+}
+
+/**
+ * Check if camera stream is currently initializing (Anti-Spam Lock)
+ * @param {string} guildId 
+ * @returns {boolean}
+ */
+function isCameraStarting(guildId) {
+  return startingCameraGuilds.has(guildId);
 }
 
 /**
@@ -122,6 +143,29 @@ function isVideoIntroPlaying(guildId) {
  * @returns {Promise<{ success: boolean, message: string }>}
  */
 async function startCameraStream(guildId, channelId, textChannel = null, requesterName = 'Attila') {
+  // 1. Anti-Spam Guard: If stream is already currently starting, ignore duplicate calls
+  if (startingCameraGuilds.has(guildId)) {
+    console.log(`[Video Streamer]: ⏳ Camera is already currently initializing in guild ${guildId}. Debouncing duplicate command.`);
+    return {
+      success: true,
+      message: '⏳ Kamera Azura sedang dalam proses dinyalakan...'
+    };
+  }
+
+  // 2. State Check: If already actively streaming in the same channel, don't restart/cancel
+  if (activeCameraSessions.has(guildId)) {
+    const existingSession = activeCameraSessions.get(guildId);
+    if (existingSession.channelId === channelId) {
+      console.log(`[Video Streamer]: 🎥 Camera is already actively streaming in channel ${channelId}.`);
+      return {
+        success: true,
+        message: '🎥 Kamera Azura sudah aktif dan sedang streaming di Voice Channel ini.'
+      };
+    }
+    // Channel changed: Stop previous session first before switching
+    await stopCameraStream(guildId);
+  }
+
   const introPath = config.VIDEO_INTRO_PATH;
   const loopPath = config.VIDEO_LOOP_PATH;
 
@@ -137,19 +181,16 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
     return { success: false, message: errorMsg };
   }
 
-  // Stop any existing stream in this guild first
-  if (activeCameraSessions.has(guildId)) {
-    await stopCameraStream(guildId);
-  }
-
-  const { streamerHelper: streamer } = await initStreamerClient();
-  if (!streamer) {
-    const errorMsg = '⚠️ Streamer Helper belum siap atau `STREAMER_USER_TOKEN` tidak valid.';
-    console.warn(`[Video Streamer]: ${errorMsg}`);
-    return { success: false, message: errorMsg };
-  }
+  startingCameraGuilds.add(guildId);
 
   try {
+    const { streamerHelper: streamer } = await initStreamerClient();
+    if (!streamer) {
+      const errorMsg = '⚠️ Streamer Helper belum siap atau `STREAMER_USER_TOKEN` tidak valid.';
+      console.warn(`[Video Streamer]: ${errorMsg}`);
+      return { success: false, message: errorMsg };
+    }
+
     console.log(`[Video Streamer]: 🎥 Opening camera stream in guild ${guildId}, channel ${channelId}...`);
 
     await streamer.joinVoice(guildId, channelId);
@@ -181,6 +222,8 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
       success: false,
       message: `Gagal menyalakan kamera: ${err.message}`
     };
+  } finally {
+    startingCameraGuilds.delete(guildId);
   }
 }
 
@@ -352,6 +395,8 @@ module.exports = {
   startCameraStream,
   stopCameraStream,
   isCameraActive,
+  isCameraStarting,
   isVideoIntroPlaying,
-  initStreamerClient
+  initStreamerClient,
+  prewarmStreamerClient
 };

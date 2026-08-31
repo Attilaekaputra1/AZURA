@@ -234,7 +234,7 @@ const SACRED_PATTERNS = [
   /\b(?:pin\s*atm|cvv|cvc|nomor\s*rekening|kartu\s*kredit|credit\s*card|bank\s*account)\b/i,
   /\b(?:nik|nomor\s*ktp|kartu\s*keluarga|passport|sim\s*card|dokumen\s*rahasia)\b/i,
   /\b(?:seed\s*phrase|recovery\s*phrase|mnemonic|wallet\s*key)\b/i,
-  /\b(?:sk-[a-zA-Z0-9]{20,}|tvly-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,})\b/i
+  /\b(?:sk-[a-zA-Z0-9_-]{20,}|tvly-[a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9_-]{20,})\b/i
 ];
 
 /**

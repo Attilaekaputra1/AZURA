@@ -443,29 +443,55 @@ function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quot
 async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', guildId = null, userId = null, isOwner = false) {
   if (!imageUrls || imageUrls.length === 0) return { isImageRequest: false };
 
-  const cleanPrompt = prompt.trim();
+  // Sanitize prompt from any system-injected tags
+  let cleanPrompt = (prompt || '')
+    .replace(/\[PENGGUNA MENGUNGGAH GAMBAR[^\]]*\][\s\S]*?(?:berikan tanggapan yang sangat akurat dan mendalam!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGIRIM STIKER[^\]]*\][\s\S]*?(?:tanggapi ekspresi\/reaksinya!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGUNGGAH FILE GIF[^\]]*\][\s\S]*?(?:animasinya secara detail!|\n|$)/gi, '')
+    .replace(/\[Pengguna mengunggah video:[^\]]*\]/gi, '')
+    .replace(/\[Transkrip Suara\]:\s*"[^"]*"/gi, '')
+    .replace(/\[Isi Lampiran Dokumen[^\]]*\]:\s*```[\s\S]*?```/gi, '')
+    .replace(/\[Catatan Konteks Spesial:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[Catatan Emosional Aktif:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[KONTEKS[^\]]*\][\s\S]*?(?:\n|$)/gi, '')
+    .trim();
+
+  // Strip leading bot name mention
+  cleanPrompt = cleanPrompt.replace(/^(?:azura|ara|zura|ajur|ajura)[,\s:]+/i, '').trim();
+
+  if (!cleanPrompt || cleanPrompt.length < 2) {
+    cleanPrompt = 'Recreate this image in high resolution masterpiece quality';
+  }
+
   const lower = cleanPrompt.toLowerCase();
 
-  // Keywords that indicate image-to-image modification/transformation/style clone intent
+  // Broad intent detection for Image-to-Image / Visual Modification / Pose / Styling
   const img2imgKeywords = [
     'ubah', 'ganti', 'edit', 'modifikasi', 'transformasi', 'jadikan', 'jadikanlah',
-    'bikin jadi', 'buat jadi', 'restyle', 'remix', 'variasi', 'anime',
-    'kartun', 'background', 'tambahin', 'tambahkan', 'versi', 'style',
-    'gaya', 'convert', 'transform', 'make this', 'turn this', 'change',
-    'modify', 'gambar ini', 'foto ini', '3d', 'lukisan', 'cyberpunk',
-    'realistis', 'pixel art', 'vektor', 'vector', 'sama persis', 'style sama',
-    'gaya sama', 'style-nya sama', 'mirip', 'photoshop', 'inpaint', 'bajunya',
-    'latarnya', 'warnanya', 'mukanya', 'karakternya', 'rambutnya', 'topinya'
+    'bikin', 'buat', 'restyle', 'remix', 'variasi', 'anime', 'kartun', 'background',
+    'tambahin', 'tambahkan', 'versi', 'style', 'gaya', 'convert', 'transform',
+    'make this', 'turn this', 'change', 'modify', 'gambar', 'foto', '3d',
+    'lukisan', 'cyberpunk', 'realistis', 'pixel art', 'vektor', 'vector',
+    'sama persis', 'style sama', 'gaya sama', 'stylenya sama', 'mirip',
+    'photoshop', 'inpaint', 'bajunya', 'latarnya', 'warnanya', 'mukanya',
+    'karakternya', 'rambutnya', 'topinya', 'duduk', 'berdiri', 'pose',
+    'senyum', 'nangis', 'tidur', 'lari', 'teras', 'kamar', 'pantai', 'outdoor'
   ];
 
+  // Pure conversational inquiries about the image should be handled by text LLM
+  const isPureImageQuestion = /^(?:ini\s+(?:gambar|foto|siapa|apa)|jelaskan|apa\s+isi|siapakah|baca\s+teks|ada\s+apa)/i.test(lower);
+  if (isPureImageQuestion) {
+    return { isImageRequest: false };
+  }
+
   const isImg2ImgIntent = img2imgKeywords.some(kw => lower.includes(kw)) ||
-    (lower.includes('gambar') && (lower.includes('bikin') || lower.includes('buat') || lower.includes('generate')));
+    (cleanPrompt.length >= 3 && !isPureImageQuestion);
 
   if (!isImg2ImgIntent) {
     return { isImageRequest: false };
   }
 
-  console.log(`[Vision Image Engine]: 🔍 Processing Forensic Style & Photoshop Edit for: "${cleanPrompt}" with reference.`);
+  console.log(`[Vision Image Engine]: 🔍 Processing Forensic Style & Transformation for: "${cleanPrompt}" with reference image.`);
 
   // Check Quota and Cooldown
   const quotaCheck = checkImageQuota(guildId, userId, isOwner);
@@ -484,10 +510,6 @@ async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', gui
     orientation = 'landscape';
   }
 
-  // Detect Style Lock vs Photoshop Inpainting vs Restyle
-  const isStyleLockMode = /\b(?:sama\s+persis|style\s+sama|gaya\s+sama|stylenya\s+sama|pertahankan\s+style|style\s+clone|replicate\s+style)\b/i.test(lower);
-  const isPhotoshopEditMode = /\b(?:ganti|ubah|edit|tambahin|tambahkan|hapus|hilangkan|warnanya|bajunya|latarnya|background|rambut|mata|pakaian)\b/i.test(lower);
-
   const client = getOpenAIClient();
 
   // Step 1: Deep Forensic Vision Analysis & Master Prompt Synthesis
@@ -496,32 +518,30 @@ async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', gui
   let processTypeLabel = 'Transformasi Visual AI';
 
   try {
-    const visionSystemPrompt = `You are an elite Vision AI and Master Prompt Engineer specialized in Style DNA Deconstruction, 1:1 Aesthetic Cloning, and Photoshop-Style Inpainting / Image Editing for state-of-the-art Image Generation engines (GPT Image 2 / DALL-E 3).
+    const visionSystemPrompt = `You are an elite Vision AI and Master Prompt Engineer specialized in Character DNA Deconstruction, 1:1 Aesthetic Cloning, and Surgical Inpainting / Pose / Scene Transformation for state-of-the-art Image Generation engines (GPT Image 2 / DALL-E 3).
 
 USER GOAL / INSTRUCTION: "${cleanPrompt}"
 
-YOUR TASK:
-Analyze the reference image in forensic detail and construct a comprehensive, flawless English generation prompt based on the user's intent:
+CRITICAL RULES FOR HIGH-FIDELITY RECREATION:
+1. [STRICT ART MEDIUM & STYLE PRESERVATION]:
+   - If the reference image is an Anime / 3D CGI / Game Character (e.g. Genshin Impact, Honkai, VTuber, Japanese Anime style), the generated master prompt MUST preserve that exact Anime / 3D Cel-shaded CGI style!
+   - NEVER turn an Anime / Stylized character into a realistic human photograph unless the user explicitly requested "jadikan manusia asli / realistic human photo".
+   - If the reference is a realistic photograph, keep it as a realistic photograph.
 
-1. [STYLE DNA EXTRACTION & LOCKING]:
-   - Art Medium: (e.g. 90s Vintage Cel Anime, Makoto Shinkai Cinematic, Hyperrealistic 8k 35mm Photography, Unreal Engine 5 Octane 3D Render, Cyberpunk Digital Painting, Watercolor Impasto, Flat Vector Graphic).
-   - Color Grading & Palette: (e.g. Warm amber golden hour, Neon cyan/magenta duotone, Pastel muted tones, High-contrast film grain).
-   - Lighting & Shading: (e.g. Volumetric rim lighting, soft subsurface scattering, ambient occlusion, dramatic chiaroscuro).
-   - Textures & Lineart: (e.g. Clean dynamic outlines, soft airbrush gradients, rough canvas texture).
+2. [CHARACTER IDENTITY & OUTFIT CONTINUITY]:
+   - Meticulously deconstruct the character's facial features, eye color, hair color, hair style, headpiece / headdress, signature outfit, dress, and iconic accessories.
+   - Keep all character visual identifiers 100% consistent with the reference image.
 
-2. [PHOTOSHOP-STYLE SURGICAL INPAINTING / EDIT INTENT]:
-   - If the user wants to EDIT or CHANGE specific elements (e.g. "ganti bajunya jadi merah", "tambah kacamata", "ubah background jadi malam"):
-     * PRESERVE: Keep all unmodified facial anatomy, character traits, hair style, artistic medium, and camera framing strictly identical to the reference.
-     * MODIFY: Surgically describe the newly requested clothes, objects, colors, or background so they seamlessly integrate with the reference's original lighting and art style.
-   - If the user wants to CREATE A NEW SUBJECT with the "SAMA PERSIS STYLENYA" (Exact Style Match):
-     * Lock the exact art medium, brushwork, lighting model, color palette, and rendering technique from the reference, while rendering the new requested subject/scene.
+3. [APPLY THE REQUESTED ACTION / POSE / SETTING]:
+   - Read the user instruction: "${cleanPrompt}".
+   - Accurately place the character in the requested pose (e.g., sitting, standing, walking) and setting (e.g., "duduk di teras" -> sitting gracefully on a traditional wooden porch / outdoor terrace with natural warm daylight, lush green garden in the background, matching the art style).
 
 OUTPUT FORMAT:
 Provide ONLY a valid JSON object with the following schema:
 {
-  "processType": "Style-Locked Clone" OR "Photoshop Surgical Inpainting" OR "Artistic Restyle",
-  "styleDnaSummary": "Short 5-8 word summary of the identified art style and lighting (in Indonesian)",
-  "masterPrompt": "Ultra-detailed, rich English DALL-E/GPT Image prompt incorporating the locked Style DNA and exact surgical modifications. Must be vivid, aesthetic, masterpiece quality, no garbled text."
+  "processType": "Style-Locked Clone" OR "Photoshop Surgical Inpainting" OR "Pose & Scene Transformation",
+  "styleDnaSummary": "Short 5-8 word summary of the identified character, art style, and lighting (in Indonesian)",
+  "masterPrompt": "Ultra-detailed, rich English DALL-E/GPT Image prompt incorporating the locked Character Identity, Art Style, and the requested action/setting. Must be vivid, aesthetic, masterpiece quality, no garbled text."
 }`;
 
     const targetVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';

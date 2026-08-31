@@ -289,12 +289,23 @@ function extractActualUserPrompt(prompt) {
     clean = clean.replace(/\[(?:KONTEKS JANGKAR BALASAN|Konteks Membalas Pesan)[\s\S]*?\]/gi, '').trim();
   }
 
-  // 2. Strip other metadata injections
+  // 2. Strip Visual Media system injection prompts
+  clean = clean
+    .replace(/\[PENGGUNA MENGUNGGAH GAMBAR[^\]]*\][\s\S]*?(?:berikan tanggapan yang sangat akurat dan mendalam!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGIRIM STIKER[^\]]*\][\s\S]*?(?:tanggapi ekspresi\/reaksinya!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGUNGGAH FILE GIF[^\]]*\][\s\S]*?(?:animasinya secara detail!|\n|$)/gi, '')
+    .replace(/\[Pengguna mengunggah video:[^\]]*\]/gi, '')
+    .replace(/\[Transkrip Suara\]:\s*"[^"]*"/gi, '')
+    .replace(/\[Isi Lampiran Dokumen[^\]]*\]:\s*```[\s\S]*?```/gi, '');
+
+  // 3. Strip other metadata injections
   clean = clean
     .replace(/\[Catatan Konteks Spesial:[\s\S]*?\]:\s*\n?/gi, '')
     .replace(/\[Catatan Emosional Aktif:[\s\S]*?\]:\s*\n?/gi, '')
     .replace(/\[KONTEKS PANGGILAN NAMA:[\s\S]*?\]:\s*\n?/gi, '')
     .replace(/\[KONTEKS MENTION ANGGOTA:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[KONTEKS LIVE TERPADU:[\s\S]*?\]/gi, '')
+    .replace(/\[KONTEKS CHANNEL TERKAIT:[\s\S]*?\]/gi, '')
     .trim();
 
   return clean || prompt;

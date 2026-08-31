@@ -433,6 +433,11 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
     const imageGenResponse = await processImageIntelligence(actualUserPrompt, userName, guildId, userId, isOwner, imageUrls);
     if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
 
+    // ── DOCUMENT GENERATION ENGINE (PDF & WORD DOCX) ──
+    const { processDocumentGeneration } = require('./documentGenerator');
+    const docGenResponse = await processDocumentGeneration(actualUserPrompt, userName);
+    if (docGenResponse && docGenResponse.isDocumentRequest) return docGenResponse.payload;
+
     // ── NATURAL MINI-GAMES TRIGGER (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard) ──
     const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
     const naturalGame = parseNaturalGameRequest(actualUserPrompt);

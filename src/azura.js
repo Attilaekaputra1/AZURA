@@ -843,5 +843,7 @@ module.exports = {
   getSystemPrompt,
   sanitizeAiOutput,
   needsSearch,
-  resolveContextualSearchQuery
+  resolveContextualSearchQuery,
+  extractActualUserPrompt,
+  isPureCourtesy
 };

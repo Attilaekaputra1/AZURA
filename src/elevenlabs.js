@@ -54,24 +54,24 @@ function getModelVoiceSettings(modelId, text = '', customSettings = null) {
   switch (modelId) {
     case ELEVENLABS_MODELS.FLASH:
       return {
-        stability: 0.40,          // Harmonized with v3 (0.38) for cheerful pitch variance & lively youth intonation
-        similarity_boost: 0.82,   // High similarity matches Kak Ceria's acoustic timbre identically with v3
-        style: 0.28,              // Adds animated warmth, natural cadence, and cheerful flow to v2.5
+        stability: 0.54,          // High stability for soothing, non-fatiguing long-form storytelling & dongeng
+        similarity_boost: 0.85,   // Warm, crystal clear, immersive storytelling narration timbre
+        style: 0.16,              // Gentle storytelling cadence without abrupt pitch peaks
         use_speaker_boost: true
       };
     case ELEVENLABS_MODELS.MULTILINGUAL_V2:
       return {
-        stability: 0.55,
+        stability: 0.60,
         similarity_boost: 0.80,
-        style: 0.25,
+        style: 0.20,
         use_speaker_boost: true
       };
     case ELEVENLABS_MODELS.V3:
     default:
       return {
-        stability: 0.38,
-        similarity_boost: 0.82,
-        style: 0.35,
+        stability: 0.38,          // Maximum emotional dynamics: laughter, giggles, gasps, whispers, crying
+        similarity_boost: 0.82,   // Pure Kak Ceria cheerful Gen Z girl persona
+        style: 0.35,              // Rich expressive tone
         use_speaker_boost: true
       };
   }

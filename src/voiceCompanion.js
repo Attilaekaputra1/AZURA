@@ -186,33 +186,21 @@ function detectVoiceModel(userTranscript = '', aiSpokenText = '', isStory = fals
   const cleanInput = (userTranscript || '').toLowerCase();
   const cleanOutput = (aiSpokenText || '').toLowerCase();
 
-  // 1. Explicit Drama / Acting / Roleplay or Crying sentiment -> eleven_v3
-  const isDramaticRoleplay = /\b(?:acting|roleplay|drama|nangis\s+sesenggukan|hiks|jerit|teriak|adegan|skenario|prank)\b/i.test(cleanInput);
-  const hasDramaticCryingTags = /\[(?:cries|sobbing|screams|wailing|hyperventilating|breaking down)\]/i.test(aiSpokenText);
-
-  if (isDramaticRoleplay || hasDramaticCryingTags) {
-    return {
-      modelId: 'eleven_v3',
-      name: 'ElevenLabs v3 (Flagship Model - Deep Dramatic Emotion & Acting)',
-      reason: 'dramatic_acting_intent'
-    };
-  }
-
-  // 2. Long-Form Storytelling / Deep Conceptual Explanations up to 5 min -> eleven_multilingual_v2
-  const isLongNarrative = isStory || cleanOutput.length > 1400 || /\b(?:ceritakan|dongeng|kisah|alur|novel|cerita\s+panjang|kronologi|sejarah)\b/i.test(cleanInput);
+  // 1. Long-Form Storytelling / Deep Conceptual Explanations / Dongeng -> eleven_flash_v2_5 (Tuned for Soothing, Engaging & Pleasant Narration)
+  const isLongNarrative = isStory || cleanOutput.length > 1200 || /\b(?:ceritakan|dongeng|kisah|alur|novel|cerita\s+panjang|ceritain|kisahkan|sejarah|kronologi|mendalam)\b/i.test(cleanInput);
   if (isLongNarrative) {
     return {
-      modelId: 'eleven_multilingual_v2',
-      name: 'ElevenLabs Multilingual v2 (The Classic Long-Form - 5-Min Vocal Stability)',
+      modelId: 'eleven_flash_v2_5',
+      name: 'ElevenLabs Flash v2.5 (Storyteller Engine - Soothing, Stable & Pleasant Narration)',
       reason: isStory ? 'storytelling_intent' : 'long_form_content'
     };
   }
 
-  // 3. Default (95%+ of turns): Casual everyday conversation, quick Q&A, bot commands -> eleven_flash_v2_5 (ULTRA FAST ~300ms)
+  // 2. DEFAULT (Majority of Daily Conversation, Sapaan, Q&A, VC Banter, Humor, Laughter, Giggles) -> eleven_v3
   return {
-    modelId: 'eleven_flash_v2_5',
-    name: 'ElevenLabs Flash v2.5 (The Speedster - Ultra-low Latency & Max Quota Saver)',
-    reason: 'casual_speedster_quota_saver'
+    modelId: 'eleven_v3',
+    name: 'ElevenLabs v3 (Flagship Model - Full Expressive Soul, Giggles, Laughter & Emotion)',
+    reason: 'default_expressive_v3'
   };
 }
 

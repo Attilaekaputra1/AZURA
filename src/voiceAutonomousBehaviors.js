@@ -42,15 +42,15 @@ const inactivityTimers = new Map();       // guildId -> Timeout (2-minute Azura 
 function isOwnerInterruptionPhrase(transcript) {
   if (!transcript || typeof transcript !== 'string') return false;
   const lower = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+  if (lower.length < 2) return false;
 
-  const patterns = [
-    /\b(?:ara|azura|zura|ajur)\s*(?:bentar|wait|stop|tunggu|sebentar|tahan)\b/i,
-    /\b(?:bentar|wait|tunggu|stop|sebentar|tahan|pause|cukup)\s*(?:dulu\s+)?(?:deh\s+)?(?:ra|ara|azura|zura|ajur)?\b/i,
-    /\boke\s+(?:stop|bentar|wait|tunggu)(?:\s+(?:ara|azura|ra))?\b/i,
-    /\b(?:stop|diam|pause|berhenti|cukup|hold\s+on)\s*(?:dulu\s+)?(?:ra|ara|azura)?\b/i
+  const stopPatterns = [
+    /\b(?:ara|azura|zura|ajur|asura)\b/i,
+    /\b(?:bentar|wait|tunggu|stop|sebentar|tahan|pause|cukup|diam|berhenti|bukan|jangan|eh|halo|oi|woi|dengar|denger)\b/i,
+    /\boke\s+(?:stop|bentar|wait|tunggu)\b/i
   ];
 
-  return patterns.some(pattern => pattern.test(lower));
+  return stopPatterns.some(pattern => pattern.test(lower)) || lower.split(/\s+/).length >= 2;
 }
 
 /**

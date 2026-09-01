@@ -905,13 +905,13 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
 
           try {
             const pcmBuffer = Buffer.concat(pcmChunks);
-            if (pcmBuffer.length < 48000 * 2 * 2 * 0.25) return; // < 250ms -> ignore short cough/clicks
+            if (pcmBuffer.length < 48000 * 2 * 2 * 0.15) return; // < 150ms -> ignore short cough/clicks
 
             const { calculateRmsAndPeak, pcmToWav, transcribeVoice } = require('./voiceAudioPipeline');
             const { isOwnerInterruptionPhrase } = require('./voiceAutonomousBehaviors');
 
             const { rms, peak } = calculateRmsAndPeak(pcmBuffer);
-            if (rms < 250 || peak < 700) return; // Acoustic Gate: ignore quiet breathing/echo
+            if (rms < 80 || peak < 250) return; // Sensitive acoustic gate
 
             const wavBuffer = pcmToWav(pcmBuffer, 48000, 2, 16);
             const transcript = await transcribeVoice(wavBuffer);
@@ -930,6 +930,16 @@ function startVoiceListener(connection, guildId, client, voiceChannel) {
               isBotSpeaking.delete(guildId);
               setActiveMode(guildId);
               resetIdleTimer(guildId, client, voiceChannel);
+
+              // Immediately process Attila's speech as a fresh voice turn if not just pure stop
+              const cleanT = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+              const isPureStop = /^(?:stop|diam|cukup|pause|berhenti|bentar|tunggu)$/i.test(cleanT);
+              if (!isPureStop) {
+                console.log(`[Smart Barge-In]: ⚡ Processing interrupted speech directly -> "${transcript}"`);
+                processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChannel).catch(err => {
+                  console.error('[Voice Pipeline Interruption Turn Fatal]:', err.message);
+                });
+              }
             }
           } catch (bargeErr) {
             console.warn('[Smart Barge-In Warning]:', bargeErr.message);

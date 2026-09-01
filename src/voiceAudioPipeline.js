@@ -53,12 +53,7 @@ const WHISPER_HALLUCINATIONS = new Set([
   'suara musik',
   'suara nafas',
   'he-he',
-  'ha-ha',
-  'halo',
-  'hai',
-  'kamu',
-  'aku',
-  'itu'
+  'ha-ha'
 ]);
 
 const WHISPER_HALLUCINATION_PATTERNS = [

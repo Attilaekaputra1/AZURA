@@ -1452,6 +1452,43 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
+      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream - Highest Priority Before Music) ──
+      const openCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:buka|nyalain|nyalakan|aktifkan|start|open|show|pasang|hidupkan|stel|setel|puter|putar|mainkan)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya|kamera\s+kamu|video\s+kamu)\b/i;
+      if (openCamPattern.test(transcript) || openCamPattern.test(cleanTranscript) || openCamPattern.test(normalizedVoiceTranscript) || openCamPattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: 🎥 Open Camera command detected.');
+        const targetChannelId = voiceChannel?.id || activeConnections.get(guildId)?.joinConfig?.channelId;
+        const { startCameraStream, isVideoIntroPlaying } = require('./videoStreamer');
+        const res = await startCameraStream(guildId, targetChannelId, textChannel, speakerName || 'Attila');
+        if (textChannel && res.message) {
+          textChannel.send(res.message).catch(() => {});
+        }
+
+        // If intro video is not playing (e.g. intro skipped or not found), give spoken confirmation
+        if (!isVideoIntroPlaying(guildId) && res.success) {
+          const spoken = 'Siap Attila sayang, kamera video aku sudah menyala yaa!';
+          recordSessionEntry(guildId, 'AZURA', spoken);
+          const audioResource = await textToAudioResource(spoken, client);
+          if (audioResource) await playInVC(guildId, audioResource);
+        }
+        return;
+      }
+
+      const closeCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:tutup|matikan|matiin|nonaktifkan|stop|close|hide|padamkan)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya|kamera\s+kamu|video\s+kamu)\b/i;
+      if (closeCamPattern.test(transcript) || closeCamPattern.test(cleanTranscript) || closeCamPattern.test(normalizedVoiceTranscript) || closeCamPattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: 🛑 Close Camera command detected.');
+        const { stopCameraStream } = require('./videoStreamer');
+        const res = await stopCameraStream(guildId);
+        if (textChannel && res.message) {
+          textChannel.send(res.message).catch(() => {});
+        }
+
+        const spoken = 'Siap Attila, kameranya udah aku tutup yaa!';
+        recordSessionEntry(guildId, 'AZURA', spoken);
+        const audioResource = await textToAudioResource(spoken, client);
+        if (audioResource) await playInVC(guildId, audioResource);
+        return;
+      }
+
       // Setel / Putar / Ganti Lagu
       const musicPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:setel|settel|setelin|settelin|stel|stelin|nyetel|nyetelkan|putar|puter|puterin|putarin|putarkeun|mainkan|maenkan|nainkan|maenin|naikin|play|nyalain|pasang|bunyikan|ganti|ubah)\s+(?:ke\s+|dengan\s+)?(?:lagu|musik|lagunya|musiknya)?\s*(?:ke\s+|dengan\s+)?(.+)/i;
       const musicMatch = normalizedVoiceTranscript.match(musicPattern) || normalizedCleanTranscript.match(musicPattern);
@@ -1472,42 +1509,6 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
           }
           return;
         }
-      }
-
-      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream) ──
-      const openCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:buka|nyalain|nyalakan|aktifkan|start|open|show|pasang)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i;
-      if (openCamPattern.test(transcript) || openCamPattern.test(cleanTranscript) || openCamPattern.test(normalizedVoiceTranscript) || openCamPattern.test(normalizedCleanTranscript)) {
-        console.log('[Voice Pipeline]: 🎥 Open Camera command detected.');
-        const { startCameraStream, isVideoIntroPlaying } = require('./videoStreamer');
-        const res = await startCameraStream(guildId, voiceChannel.id, textChannel, speakerName || 'Attila');
-        if (textChannel && res.message) {
-          textChannel.send(res.message).catch(() => {});
-        }
-
-        // If intro video is not playing (e.g. intro skipped or not found), give spoken confirmation
-        if (!isVideoIntroPlaying(guildId) && res.success) {
-          const spoken = 'Siap Attila sayang, kamera video aku sudah menyala yaa!';
-          recordSessionEntry(guildId, 'AZURA', spoken);
-          const audioResource = await textToAudioResource(spoken, client);
-          if (audioResource) await playInVC(guildId, audioResource);
-        }
-        return;
-      }
-
-      const closeCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:tutup|matikan|matiin|nonaktifkan|stop|close|hide)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i;
-      if (closeCamPattern.test(transcript) || closeCamPattern.test(cleanTranscript) || closeCamPattern.test(normalizedVoiceTranscript) || closeCamPattern.test(normalizedCleanTranscript)) {
-        console.log('[Voice Pipeline]: 🛑 Close Camera command detected.');
-        const { stopCameraStream } = require('./videoStreamer');
-        const res = await stopCameraStream(guildId);
-        if (textChannel && res.message) {
-          textChannel.send(res.message).catch(() => {});
-        }
-
-        const spoken = 'Siap Attila, kameranya udah aku tutup yaa!';
-        recordSessionEntry(guildId, 'AZURA', spoken);
-        const audioResource = await textToAudioResource(spoken, client);
-        if (audioResource) await playInVC(guildId, audioResource);
-        return;
       }
     }
 

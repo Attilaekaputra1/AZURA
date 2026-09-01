@@ -186,23 +186,20 @@ function detectVoiceModel(userTranscript = '', aiSpokenText = '', isStory = fals
   const cleanInput = (userTranscript || '').toLowerCase();
   const cleanOutput = (aiSpokenText || '').toLowerCase();
 
-  // 1. Check for Emotion Audio Tags or Drama in AI Response -> eleven_v3
-  const hasAudioEmotionTags = /\[(?:laughs|giggles|chuckles|snickers|wheezing|cries|sobbing|sniffs|tearing up|screams|shouts|yells|sings|singing|humming|melody|whispers|softly|sighs|groans|gasp|panicking|pouts|yawns|sleepy|drowsy|grunts|excited|cheering|amazed|awe)\]/i.test(aiSpokenText);
-  
-  // 2. Check for High Emotion, Jokes, Humor, Cricket Sounds, Prank, Drama in User Input or AI Response
-  const hasHighEmotionIntent = /\b(?:kaget|dor|teriak|jerit|nangis|sedih|hiks|ketawa|ngakak|lucu|lucu\s+banget|canda|candaan|jokes|joke|lelucon|humor|lawak|lawakan|ngelawak|tebak\s*tebakan|tebakan|gombal|gombalan|krik|jangkrik|prank|hantu|kecoa|marah|kesal|panik|nyanyi|singing|lagu|sayang|bisik|ngambek|gemas|awikwok|wkwk|haha|hehe|hihi|gokil)\b/i.test(cleanInput) || /\b(?:krik\s*krik|jangkrik|tebak-tebakan|lelucon|jokes)\b/i.test(cleanOutput);
-  const hasExpressiveExclamations = /[!]{2,}/.test(userTranscript) || /\b(?:hah|woi|astaga|ya\s*allah|omg|anjir|bjir|gila|waduh|buset)\b/i.test(cleanInput);
+  // 1. Explicit Drama / Acting / Roleplay or Crying sentiment -> eleven_v3
+  const isDramaticRoleplay = /\b(?:acting|roleplay|drama|nangis\s+sesenggukan|hiks|jerit|teriak|adegan|skenario|prank)\b/i.test(cleanInput);
+  const hasDramaticCryingTags = /\[(?:cries|sobbing|screams|wailing|hyperventilating|breaking down)\]/i.test(aiSpokenText);
 
-  if (hasAudioEmotionTags || hasHighEmotionIntent || hasExpressiveExclamations) {
+  if (isDramaticRoleplay || hasDramaticCryingTags) {
     return {
       modelId: 'eleven_v3',
-      name: 'ElevenLabs v3 (Flagship Model - Full Expressive Emotion, Laughter & Audio Tags)',
-      reason: hasAudioEmotionTags ? 'audio_tags_detected' : 'high_emotional_or_jokes_sentiment'
+      name: 'ElevenLabs v3 (Flagship Model - Deep Dramatic Emotion & Acting)',
+      reason: 'dramatic_acting_intent'
     };
   }
 
-  // 3. Check for Long-Form Storytelling / Deep Conceptual Explanations up to 5 min -> eleven_multilingual_v2
-  const isLongNarrative = isStory || cleanOutput.length > 1400 || /\b(?:ceritakan|dongeng|kisah|alur|novel|cerita\s+panjang|jelaskan\s+(?:panjang|lengkap|detail|mendalam)|kronologi|sejarah)\b/i.test(cleanInput);
+  // 2. Long-Form Storytelling / Deep Conceptual Explanations up to 5 min -> eleven_multilingual_v2
+  const isLongNarrative = isStory || cleanOutput.length > 1400 || /\b(?:ceritakan|dongeng|kisah|alur|novel|cerita\s+panjang|kronologi|sejarah)\b/i.test(cleanInput);
   if (isLongNarrative) {
     return {
       modelId: 'eleven_multilingual_v2',
@@ -211,7 +208,7 @@ function detectVoiceModel(userTranscript = '', aiSpokenText = '', isStory = fals
     };
   }
 
-  // 4. Default: Casual everyday conversation, quick Q&A, bot commands -> eleven_flash_v2_5
+  // 3. Default (95%+ of turns): Casual everyday conversation, quick Q&A, bot commands -> eleven_flash_v2_5 (ULTRA FAST ~300ms)
   return {
     modelId: 'eleven_flash_v2_5',
     name: 'ElevenLabs Flash v2.5 (The Speedster - Ultra-low Latency & Max Quota Saver)',
@@ -257,9 +254,13 @@ async function textToAudioResource(text, client = null, maxChars = MAX_NORMAL_CH
   // 1. Primary: ElevenLabs Real-Time Low-Latency Audio Streaming (Kak Ceria - Dynamic Model)
   if (config.ELEVENLABS_API_KEY) {
     try {
-      console.log(`[Voice TTS Engine]: ⚡ Real-Time Streaming via ${detectedModel.name} (Kak Ceria - ${voiceId}) [Reason: ${detectedModel.reason}] | Output: ${clean.length} chars...`);
+      // If NOT eleven_v3, completely strip all brackets/audio tags so v2.5 doesn't read "[giggles]" out loud!
+      const isV3 = detectedModel.modelId === 'eleven_v3';
+      const ttsPayloadText = isV3 ? clean : clean.replace(/\[.*?\]/g, '').replace(/\s+/g, ' ').trim();
+
+      console.log(`[Voice TTS Engine]: ⚡ Real-Time Streaming via ${detectedModel.name} (Kak Ceria - ${voiceId}) [Reason: ${detectedModel.reason}] | Output: ${ttsPayloadText.length} chars...`);
       const { streamElevenLabsTTS } = require('./elevenlabs');
-      const audioStream = await streamElevenLabsTTS(clean, voiceId, detectedModel.modelId, client);
+      const audioStream = await streamElevenLabsTTS(ttsPayloadText, voiceId, detectedModel.modelId, client);
       const resource = createAudioResource(audioStream, {
         inputType: StreamType.Arbitrary,
         inlineVolume: true

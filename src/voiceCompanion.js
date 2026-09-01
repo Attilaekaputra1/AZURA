@@ -398,13 +398,17 @@ function playInVC(guildId, resource) {
   return new Promise((resolve) => {
     const player = audioPlayers.get(guildId);
     const conn = activeConnections.get(guildId);
-    if (!player || !conn || !resource) return resolve();
+    if (!player || !conn || !resource) {
+      isBotSpeaking.delete(guildId);
+      return resolve();
+    }
 
     // If Video 1 (Intro Sambutan) is actively playing with its own audio, suppress Azura TTS
     try {
       const { isVideoIntroPlaying } = require('./videoStreamer');
       if (isVideoIntroPlaying(guildId)) {
         console.log(`[Voice Player]: ⏸️ Video 1 (Intro) is currently playing in guild ${guildId}. Suppressing Azura TTS speech to prevent audio clash.`);
+        isBotSpeaking.delete(guildId);
         return resolve();
       }
     } catch (_) {}
@@ -1200,11 +1204,11 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
   const rms = Math.sqrt(sumSquares / samples.length);
 
-  // Strict Energy Gate: silently discard quiet background noise, breathing, or fan noise (NEVER send silence to Whisper)
-  const minRms = isOwner ? 200 : 340;
-  const minPeak = isOwner ? 700 : 1000;
+  // Adaptive Energy Gate: filters background hum while keeping high sensitivity for speech
+  const minRms = isOwner ? 90 : 250;
+  const minPeak = isOwner ? 300 : 700;
   if (rms < minRms || peak < minPeak) {
-    // Pure silence, mic gating, or faint background hum -> skip Whisper API entirely to prevent hallucinations
+    // Pure silence or below acoustic threshold -> skip Whisper API
     return;
   }
 

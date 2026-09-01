@@ -152,7 +152,7 @@ function getOpenAI() {
  * with seamless automatic fallback to OpenAI Whisper-1 (Fallback).
  */
 async function transcribeVoice(wavBuffer) {
-  const prompt = 'Azura, Ara, Zura, Attila, Putra, halo, apa kabar';
+  const prompt = 'Azura, Ara, Zura, Attila, Putra, Att, halo, apa kabar, tolong, dong, setel, lagu, putar, nyanyi, buka, tutup, kamera, kamu dengar aku, tes';
 
   // ── PASS 1: Turbo Fast-Track via Groq LPU (whisper-large-v3) ──
   const groq = getGroq();

@@ -54,23 +54,23 @@ function getModelVoiceSettings(modelId, text = '', customSettings = null) {
   switch (modelId) {
     case ELEVENLABS_MODELS.FLASH:
       return {
-        stability: 0.50,
-        similarity_boost: 0.75,
-        style: 0.0,
+        stability: 0.40,          // Harmonized with v3 (0.38) for cheerful pitch variance & lively youth intonation
+        similarity_boost: 0.82,   // High similarity matches Kak Ceria's acoustic timbre identically with v3
+        style: 0.28,              // Adds animated warmth, natural cadence, and cheerful flow to v2.5
         use_speaker_boost: true
       };
     case ELEVENLABS_MODELS.MULTILINGUAL_V2:
       return {
-        stability: 0.65,
+        stability: 0.55,
         similarity_boost: 0.80,
-        style: 0.15,
+        style: 0.25,
         use_speaker_boost: true
       };
     case ELEVENLABS_MODELS.V3:
     default:
       return {
         stability: 0.38,
-        similarity_boost: 0.80,
+        similarity_boost: 0.82,
         style: 0.35,
         use_speaker_boost: true
       };

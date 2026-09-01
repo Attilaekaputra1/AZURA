@@ -1451,7 +1451,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream - Highest Priority Before Music) ──
-      const openCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:buka|nyalain|nyalakan|aktifkan|start|open|show|pasang|hidupkan|stel|setel|puter|putar|mainkan)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya|kamera\s+kamu|video\s+kamu)\b/i;
+      const openCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:buka|nyalain|nyalakan|aktifkan|start|open|show|pasang|hidupkan|stel|setel|puter|putar|mainkan|tampilkan|on|turn\s+on)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya|kamera\s+kamu|video\s+kamu)\b|\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:dong|on|nyala|buka|aktif|pasang|show|mana)\b|\b(?:on\s+cam|open\s+cam|show\s+cam|start\s+cam|start\s+camera)\b/i;
       if (openCamPattern.test(transcript) || openCamPattern.test(cleanTranscript) || openCamPattern.test(normalizedVoiceTranscript) || openCamPattern.test(normalizedCleanTranscript)) {
         console.log('[Voice Pipeline]: 🎥 Open Camera command detected.');
         const targetChannelId = voiceChannel?.id || activeConnections.get(guildId)?.joinConfig?.channelId;
@@ -1461,9 +1461,16 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
           textChannel.send(res.message).catch(() => {});
         }
 
-        // If intro video is not playing (e.g. intro skipped or not found), give spoken confirmation
-        if (!isVideoIntroPlaying(guildId) && res.success) {
-          const spoken = 'Siap Attila sayang, kamera video aku sudah menyala yaa!';
+        if (res.success) {
+          if (!isVideoIntroPlaying(guildId)) {
+            const spoken = 'Siap Attila sayang, kamera video aku sudah menyala yaa!';
+            recordSessionEntry(guildId, 'AZURA', spoken);
+            const audioResource = await textToAudioResource(spoken, client);
+            if (audioResource) await playInVC(guildId, audioResource);
+          }
+        } else {
+          // If files missing or streamer error, tell Attila immediately by voice
+          const spoken = 'Waduh Attila, kamera belum bisa menyala nih karena file videonya belum ada di server. Upload file cam_intro.mp4 dan cam_loop.mp4 dulu yaa!';
           recordSessionEntry(guildId, 'AZURA', spoken);
           const audioResource = await textToAudioResource(spoken, client);
           if (audioResource) await playInVC(guildId, audioResource);
@@ -1471,7 +1478,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      const closeCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:tutup|matikan|matiin|nonaktifkan|stop|close|hide|padamkan)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya|kamera\s+kamu|video\s+kamu)\b/i;
+      const closeCamPattern = /\b(?:azura|ara|zura|ajur|ajura|asura|kak\s+azura|kak\s+ara|kak\s+ajur)?\s*(?:tolong\s+)?(?:tutup|matikan|matiin|nonaktifkan|stop|close|hide|padamkan|off|turn\s+off)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya|kamera\s+kamu|video\s+kamu)\b|\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:off|tutup|mati|stop|hide)\b|\b(?:off\s+cam|close\s+cam|stop\s+cam|stop\s+camera)\b/i;
       if (closeCamPattern.test(transcript) || closeCamPattern.test(cleanTranscript) || closeCamPattern.test(normalizedVoiceTranscript) || closeCamPattern.test(normalizedCleanTranscript)) {
         console.log('[Voice Pipeline]: 🛑 Close Camera command detected.');
         const { stopCameraStream } = require('./videoStreamer');
@@ -2317,6 +2324,13 @@ Jika Attila meminta memutar, menyetel, atau memainkan lagu/musik (misal: "setel 
 3. Jika diminta stop musik: sisipkan [ACTION:STOP_MUSIC] di akhir jawabanmu.
 4. Jika diminta pause musik: sisipkan [ACTION:PAUSE_MUSIC] di akhir jawabanmu.
 5. Jika diminta resume/lanjutkan musik: sisipkan [ACTION:RESUME_MUSIC] di akhir jawabanmu.
+
+ATURAN PERINTAH KAMERA & VIDEO STREAMING DI VOICE CHANNEL:
+Jika Attila meminta membuka, menyalakan, mengaktifkan, atau melihat kamera video (misal: "buka kamera", "nyalain cam", "mana kameranya", "on cam dong", "buka video", "aktifkan webcam"):
+1. Jawab ceria mengonfirmasi bahwa kamu langsung menyalakan dan membuka kamera video kamu di Voice Channel!
+2. Sisipkan tag aksi [ACTION:OPEN_CAMERA] di akhir kalimatmu (misal: "Siap Attila sayang, kamera video aku sudah menyala yaa! [laughs] [ACTION:OPEN_CAMERA]").
+Jika Attila menyuruh menutup atau mematikan kamera (misal: "tutup kamera", "matiin cam", "off cam", "stop video"):
+1. Jawab santai mengonfirmasi penutupan kamera dan sisipkan tag aksi [ACTION:CLOSE_CAMERA] di akhir kalimatmu (misal: "Siap Attila, kameranya udah aku tutup yaa! [ACTION:CLOSE_CAMERA]").
 
 ATURAN WAJIB VOICE OBROLAN BIASA:
 1. RESPON NATURAL & NYAMBUNG: Jawab dengan santai, cerdas, manis, dan mengalir (${isOwner ? 'durasi bicara 1 - 3 MENIT jika topik butuh penjelasan, atau singkat padat jika pertanyaan simpel' : 'durasi bicara 20 - 45 DETIK santai akrab'}). Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.

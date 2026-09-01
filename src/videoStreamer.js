@@ -137,6 +137,15 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
     return { success: false, message: errorMsg };
   }
 
+  let targetChannelId = channelId;
+  if (!targetChannelId) {
+    try {
+      const { activeConnections } = require('./voiceCompanion');
+      const conn = activeConnections?.get(guildId);
+      targetChannelId = conn?.joinConfig?.channelId;
+    } catch (_) {}
+  }
+
   // Stop any existing stream in this guild first
   if (activeCameraSessions.has(guildId)) {
     await stopCameraStream(guildId);
@@ -150,9 +159,9 @@ async function startCameraStream(guildId, channelId, textChannel = null, request
   }
 
   try {
-    console.log(`[Video Streamer]: 🎥 Opening camera stream in guild ${guildId}, channel ${channelId}...`);
+    console.log(`[Video Streamer]: 🎥 Opening camera stream in guild ${guildId}, channel ${targetChannelId}...`);
 
-    await streamer.joinVoice(guildId, channelId);
+    await streamer.joinVoice(guildId, targetChannelId);
 
     const abortController = new AbortController();
     const sessionData = {

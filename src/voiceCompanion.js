@@ -2689,7 +2689,8 @@ async function playGreeting(guildId, voiceChannel) {
 
   console.log(`[Voice Companion]: Contextual Greeting (${otherCount} others in VC): "${selectedGreeting}"`);
 
-  const resource = await textToAudioResource(selectedGreeting);
+  // Force eleven_v3 for entrance greeting — maximum vocal expressiveness, giggles, gasps, and laughter!
+  const resource = await textToAudioResource(selectedGreeting, null, MAX_NORMAL_CHARS, { userTranscript: '', isStory: false, forcedModel: 'eleven_v3' });
   if (resource) {
     await playInVC(guildId, resource);
   }

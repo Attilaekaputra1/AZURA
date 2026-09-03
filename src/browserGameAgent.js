@@ -1,10 +1,10 @@
 /**
  * AZURA Autonomous Headless Browser Game Player - Co-Op Interactive Edition
  * Plays 2048 collaboratively with Attila & members.
- * - Receives moves via Web Text/Voice commands and Discord Chat.
+ * - Real-Time accurate score evaluation directly from browser DOM.
  * - Streams live 60fps video directly to http://203.175.10.163:7860/live.
- * - Lively persona voice & thinking dialogue for every move.
- * - Clean final scorecard only at game end.
+ * - Automatic Game-Over detection & verified scorecard reporting.
+ * - Speaks live in Discord Voice Channel (Kak Ceria / Gadis Neural).
  */
 
 const { AttachmentBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -16,7 +16,7 @@ const config = require('./config');
 const activeGameSessions = new Map();
 
 /**
- * Built-in Modern HTML5 2048 Game Engine
+ * Built-in Modern HTML5 2048 Game Engine with GameOver Detection
  */
 const HTML_2048_PAGE = `<!DOCTYPE html>
 <html>
@@ -174,6 +174,25 @@ function moveDown() {
   return changed;
 }
 
+function checkGameOver() {
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      if (board[r][c] === 0) return false;
+    }
+  }
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 3; c++) {
+      if (board[r][c] === board[r][c + 1]) return false;
+    }
+  }
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 3; r++) {
+      if (board[r][c] === board[r + 1][c]) return false;
+    }
+  }
+  return true;
+}
+
 window.executeMove = function(direction, thoughtText) {
   let changed = false;
   if (direction === 'left') changed = moveLeft();
@@ -186,15 +205,21 @@ window.executeMove = function(direction, thoughtText) {
     addRandomTile();
     render();
   }
-  if (thoughtText) {
+
+  const isOver = checkGameOver();
+  if (isOver) {
+    document.getElementById('thought').textContent = "Papan terkunci (Game Over)! Permainan selesai.";
+  } else if (thoughtText) {
     document.getElementById('thought').textContent = thoughtText;
   }
+
   return {
     changed,
     score,
     moves,
     highestTile: parseInt(document.getElementById('highest-tile').textContent, 10),
-    board
+    board,
+    gameOver: isOver
   };
 };
 
@@ -203,7 +228,8 @@ window.getGameState = function() {
     score,
     moves,
     highestTile: parseInt(document.getElementById('highest-tile').textContent, 10),
-    board
+    board,
+    gameOver: checkGameOver()
   };
 };
 
@@ -312,11 +338,32 @@ function getBest2048Move(board) {
 }
 
 /**
+ * Unified finder for active session across Guild and Web lookups
+ * @param {string} [guildId='global'] 
+ */
+function findActiveGameSession(guildId = 'global') {
+  if (guildId && activeGameSessions.has(guildId)) {
+    const s = activeGameSessions.get(guildId);
+    if (s && s.page && !s.page.isClosed()) return s;
+  }
+  for (const session of activeGameSessions.values()) {
+    if (session && session.page && !session.page.isClosed()) {
+      return session;
+    }
+  }
+  return null;
+}
+
+/**
  * Get or create active session
  */
 async function getOrCreateGameSession(guildId = 'global', message = null) {
-  let session = activeGameSessions.get(guildId);
-  if (session && !session.page.isClosed()) {
+  let session = findActiveGameSession(guildId);
+  if (session) {
+    if (message?.channel) session.channel = message.channel;
+    if (message?.member?.displayName || message?.author?.username) {
+      session.userName = message.member?.displayName || message.author.displayName || message.author.username;
+    }
     return session;
   }
 
@@ -364,8 +411,9 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
     highestTile: 2,
     moves: 0,
     channel: message?.channel || null,
-    userName: message?.member?.displayName || message?.author?.username || 'Attila',
-    statusMsg: null
+    userName: message?.member?.displayName || message?.author?.displayName || message?.author?.username || 'Attila',
+    statusMsg: null,
+    client: message?.client || null
   };
 
   activeGameSessions.set(guildId, session);
@@ -373,7 +421,7 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
 }
 
 /**
- * Execute an interactive move ordered by the user (via Web Voice/Text or Discord)
+ * Execute an interactive move ordered by the user
  * @param {string} rawCommand 
  * @param {string} [userName='Attila'] 
  * @param {string} [guildId='global'] 
@@ -410,7 +458,7 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
     const resp = `Sip ${userName}! Papan 2048-nya sudah aku reset bersih yaa. Yuk mulai susun dari awal lagi! 🌸`;
     try {
       const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (guildId && guildId !== 'global') speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      if (session.guildId && session.guildId !== 'global') speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
       else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
     } catch (_) {}
     return { success: true, response: resp, state: newState };
@@ -424,7 +472,7 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
     const resp = `Hmm setelah aku analisis papannya, langkah paling aman dan optimal sekarang adalah geser ke **${indonesianDirs[bestMove]}**! Mau aku eksekusikan sekarang? 😉`;
     try {
       const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (guildId && guildId !== 'global') speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      if (session.guildId && session.guildId !== 'global') speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
       else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
     } catch (_) {}
     return { success: true, response: resp, state: currentState };
@@ -447,14 +495,24 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
       session.highestTile = res.highestTile;
       session.moves = res.moves;
       await session.page.waitForTimeout(200);
+      if (res.gameOver) break;
     }
     const finalState = await session.page.evaluate(() => window.getGameState());
+    session.score = finalState.score;
+    session.highestTile = finalState.highestTile;
+    session.moves = finalState.moves;
+
     const resp = `Selesai ${userName}! Aku sudah eksekusi ${stepsDone} langkah otonom. Skor kita sekarang **${finalState.score.toLocaleString()}** dengan tile tertinggi **${finalState.highestTile}**! Sekarang giliranmu, mau geser kemana lagi? 💅✨`;
     try {
       const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (guildId && guildId !== 'global') speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      if (session.guildId && session.guildId !== 'global') speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
       else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
     } catch (_) {}
+
+    if (finalState.gameOver) {
+      setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1500);
+    }
+
     return { success: true, response: resp, state: finalState };
   }
 
@@ -487,12 +545,17 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
     // 🎙️ Voice Output directly to Discord Voice Channel (Kak Ceria / Edge-TTS)
     try {
       const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (guildId && guildId !== 'global') {
-        speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      if (session.guildId && session.guildId !== 'global') {
+        speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
       } else {
         speakInAllActiveVCs(resp, session.client || null).catch(() => {});
       }
     } catch (_) {}
+
+    // Check if Game Over
+    if (res.gameOver) {
+      setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1500);
+    }
 
     return { success: true, response: resp, state: res };
   }
@@ -500,8 +563,8 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
   const fallbackResp = `Aku kurang paham arahnya nih ${userName}. Kamu bisa bilang: *"geser kiri"*, *"ke atas"*, *"kanan"*, *"bawah"*, atau *"auto"*!`;
   try {
     const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-    if (guildId && guildId !== 'global') {
-      speakTextInVC(guildId, fallbackResp, session.client || null, userName).catch(() => {});
+    if (session.guildId && session.guildId !== 'global') {
+      speakTextInVC(session.guildId, fallbackResp, session.client || null, userName).catch(() => {});
     } else {
       speakInAllActiveVCs(fallbackResp, session.client || null).catch(() => {});
     }
@@ -527,6 +590,7 @@ async function launchAutonomousBrowserGame(message) {
   const session = await getOrCreateGameSession(guildId, message);
   session.userName = userName;
   session.channel = message.channel;
+  session.client = message.client;
 
   const startEmbed = new EmbedBuilder()
     .setColor(0x00AE89) // Emerald
@@ -564,18 +628,27 @@ async function launchAutonomousBrowserGame(message) {
 }
 
 /**
- * Stop active session and post final scorecard to Discord
- * @param {string} guildId 
+ * Stop active session and post 100% accurate, live-verified scorecard to Discord
+ * @param {string} [guildId='global'] 
  */
-async function stopAutonomousBrowserGame(guildId) {
-  const session = activeGameSessions.get(guildId);
+async function stopAutonomousBrowserGame(guildId = 'global') {
+  const session = findActiveGameSession(guildId);
   if (!session) return false;
 
   try {
     session.isRunning = false;
     let attachment = null;
 
-    if (!session.page.isClosed()) {
+    if (session.page && !session.page.isClosed()) {
+      // 🌟 LIVE EVALUATION: Ambil langsung skor paling aktual dari memori browser JavaScript
+      const liveState = await session.page.evaluate(() => window.getGameState()).catch(() => null);
+      if (liveState) {
+        session.score = liveState.score || 0;
+        session.highestTile = liveState.highestTile || 2;
+        session.moves = liveState.moves || 0;
+      }
+
+      await session.page.waitForTimeout(150);
       const screenshotBuffer = await session.page.screenshot({ type: 'png' }).catch(() => null);
       if (screenshotBuffer) {
         attachment = new AttachmentBuilder(screenshotBuffer, { name: 'azura_2048_final.png' });
@@ -583,17 +656,20 @@ async function stopAutonomousBrowserGame(guildId) {
 
       const resultEmbed = new EmbedBuilder()
         .setColor(session.highestTile >= 512 ? 0xF1C40F : 0x38BDF8)
-        .setTitle('🏆 HASIL AKHIR PERTANDINGAN 2048 CO-OP')
+        .setTitle('🏆 HASIL AKHIR PERTANDINGAN 2048 CO-OP (REAL-TIME)')
         .setDescription(
           `Permainan kita selesai! Terima kasih sudah mabar bareng aku yaa **${session.userName}**! 🌸✨\n\n` +
-          `Skor akhir yang berhasil kita kumpulkan adalah **${session.score.toLocaleString()}** dengan tile tertinggi **Tile ${session.highestTile}** dalam **${session.moves}** langkah!`
+          `📊 **Rekapitulasi Skor Aktual:**\n` +
+          `• 🏆 **Skor Akhir:** \`${session.score.toLocaleString()} Pts\`\n` +
+          `• 🌟 **Tile Tertinggi:** \`Tile ${session.highestTile}\`\n` +
+          `• 🕹️ **Total Langkah:** \`${session.moves} Langkah\``
         )
         .addFields(
           { name: '🏆 Skor Akhir', value: `\`${session.score.toLocaleString()} Pts\``, inline: true },
           { name: '🌟 Tile Tertinggi', value: `\`Tile ${session.highestTile}\``, inline: true },
           { name: '🕹️ Total Langkah', value: `\`${session.moves} Langkah\``, inline: true }
         )
-        .setFooter({ text: 'AZURA Co-Op Web Gaming • Selesai' })
+        .setFooter({ text: 'AZURA Co-Op Web Gaming • Skor Realtime' })
         .setTimestamp();
 
       if (attachment) {
@@ -615,10 +691,22 @@ async function stopAutonomousBrowserGame(guildId) {
         }).catch(() => {});
       }
 
+      // Voice commentary in Discord VC
+      const farewellVoice = `Selesai ${session.userName}! Skor akhir kita mencapai ${session.score.toLocaleString()} poin dengan tile tertinggi ${session.highestTile} dalam ${session.moves} langkah! Seru banget mabar bareng kamu! 🌸✨`;
+      try {
+        const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
+        if (session.guildId && session.guildId !== 'global') {
+          speakTextInVC(session.guildId, farewellVoice, session.client || null, session.userName).catch(() => {});
+        } else {
+          speakInAllActiveVCs(farewellVoice, session.client || null).catch(() => {});
+        }
+      } catch (_) {}
+
       if (session.cdp) await session.cdp.detach().catch(() => {});
       await session.context.close().catch(() => {});
     }
 
+    activeGameSessions.delete(session.guildId);
     activeGameSessions.delete(guildId);
     return true;
   } catch (err) {
@@ -656,18 +744,18 @@ async function handleBrowserGameCommands(message) {
   if (/\b(?:stop|berhenti|hentikan|selesai)\s+(?:main\s+)?(?:game|permainan|2048)\b/i.test(cleanText)) {
     const stopped = await stopAutonomousBrowserGame(guildId);
     if (stopped) {
-      await message.reply('🛑 Permainan game 2048 sudah diakhiri dan skor akhir sudah dilaporkan ya!');
+      await message.reply('🛑 Permainan game 2048 sudah diakhiri dan skor akhir aktual sudah dilaporkan ya!');
     } else {
       await message.reply('Tidak ada sesi game browser yang sedang berjalan.');
     }
     return true;
   }
 
-  // 3. Move commands from Discord: "ara geser kiri", "ara ke atas", "ara geser kanan", "ara ke bawah", "ara auto play"
+  // 3. Move commands from Discord
   const isMoveCommand = /\b(?:geser|ke|arah|move)\s+(?:kiri|kanan|atas|bawah|left|right|up|down)\b/i.test(cleanText) ||
                         /\b(?:auto|auto\s+play|saran|hint|reset\s+board)\b/i.test(cleanText);
 
-  if (isMoveCommand && activeGameSessions.has(guildId)) {
+  if (isMoveCommand) {
     const res = await executeInteractiveMove(cleanText, userName, guildId);
     await message.reply(res.response);
     return true;

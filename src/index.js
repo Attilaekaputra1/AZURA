@@ -746,6 +746,7 @@ let finalPrompt = rawPrompt;
       const isOpenCamText =
         /\b(?:buka|bukain|nyalain|nyalakan|aktifkan|aktifin|hidupkan|hidupin|start|open|show|pasang|tampilkan|turn\s*on)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(cleanUserText) ||
         /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:on|buka|bukain|aktif|aktifin|nyala|nyalain|hidup|hidupin|pasang|show|dong|mana)\b/i.test(cleanUserText) ||
+        /\b(?:kamera|cam|camera|video)\s*(?:kamu\s+)?(?:mana|dimana)\b/i.test(cleanUserText) ||
         /\b(?:on\s*cam|open\s*cam|show\s*cam|start\s*cam|start\s*camera|buka\s*cam)\b/i.test(cleanUserText);
 
       if (isCloseCamText) {

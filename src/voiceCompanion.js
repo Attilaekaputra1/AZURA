@@ -1454,6 +1454,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       const isOpenCam =
         /\b(?:buka|bukain|nyalain|nyalakan|aktifkan|aktifin|hidupkan|hidupin|start|open|show|pasang|tampilkan|turn\s*on)\s+(?:dong\s+)?(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(normalizedVoiceTranscript) ||
         /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:dong\s+)?(?:buka|bukain|nyalain|nyala|aktif|aktifkan|aktifin|hidup|hidupin|hidupkan|on|show|pasang|mana)\b/i.test(normalizedVoiceTranscript) ||
+        /\b(?:kamera|cam|camera|video)\s*(?:kamu\s+)?(?:mana|dimana)\b/i.test(normalizedVoiceTranscript) ||
         /\b(?:on\s*cam|open\s*cam|show\s*cam|start\s*cam|start\s*camera|buka\s*cam)\b/i.test(normalizedVoiceTranscript) ||
         /(?:bisa|coba|tolong|minta|pengen|mau)?\s*(?:kamu\s+)?(?:buka|nyalain|aktifin|hidupin|open)\b.*?\b(?:kamera|cam|camera|video|webcam)\b/i.test(normalizedVoiceTranscript) ||
         /\b(?:buka|nyalain|aktifin|hidupin)\b.*?\b(?:kamera|cam|camera|webcam)\b/i.test(normalizedVoiceTranscript);

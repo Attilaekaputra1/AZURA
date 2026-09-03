@@ -408,6 +408,11 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
     session.moves = newState.moves;
     session.highestTile = newState.highestTile;
     const resp = `Sip ${userName}! Papan 2048-nya sudah aku reset bersih yaa. Yuk mulai susun dari awal lagi! 🌸`;
+    try {
+      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
+      if (guildId && guildId !== 'global') speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
+    } catch (_) {}
     return { success: true, response: resp, state: newState };
   }
 
@@ -417,6 +422,11 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
     const bestMove = getBest2048Move(currentState.board);
     const indonesianDirs = { up: 'ATAS', down: 'BAWAH', left: 'KIRI', right: 'KANAN' };
     const resp = `Hmm setelah aku analisis papannya, langkah paling aman dan optimal sekarang adalah geser ke **${indonesianDirs[bestMove]}**! Mau aku eksekusikan sekarang? 😉`;
+    try {
+      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
+      if (guildId && guildId !== 'global') speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
+    } catch (_) {}
     return { success: true, response: resp, state: currentState };
   }
 
@@ -440,6 +450,11 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
     }
     const finalState = await session.page.evaluate(() => window.getGameState());
     const resp = `Selesai ${userName}! Aku sudah eksekusi ${stepsDone} langkah otonom. Skor kita sekarang **${finalState.score.toLocaleString()}** dengan tile tertinggi **${finalState.highestTile}**! Sekarang giliranmu, mau geser kemana lagi? 💅✨`;
+    try {
+      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
+      if (guildId && guildId !== 'global') speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
+    } catch (_) {}
     return { success: true, response: resp, state: finalState };
   }
 
@@ -469,12 +484,32 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
       resp = `Hmm ${userName}, geser ke **${indonesianDirs[direction]}** gak ada bidak yang bisa digabung atau bergerak nih. Coba arah yang lain yaa!`;
     }
 
+    // 🎙️ Voice Output directly to Discord Voice Channel (Kak Ceria / Edge-TTS)
+    try {
+      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
+      if (guildId && guildId !== 'global') {
+        speakTextInVC(guildId, resp, session.client || null, userName).catch(() => {});
+      } else {
+        speakInAllActiveVCs(resp, session.client || null).catch(() => {});
+      }
+    } catch (_) {}
+
     return { success: true, response: resp, state: res };
   }
 
+  const fallbackResp = `Aku kurang paham arahnya nih ${userName}. Kamu bisa bilang: *"geser kiri"*, *"ke atas"*, *"kanan"*, *"bawah"*, atau *"auto"*!`;
+  try {
+    const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
+    if (guildId && guildId !== 'global') {
+      speakTextInVC(guildId, fallbackResp, session.client || null, userName).catch(() => {});
+    } else {
+      speakInAllActiveVCs(fallbackResp, session.client || null).catch(() => {});
+    }
+  } catch (_) {}
+
   return {
     success: false,
-    response: `Aku kurang paham arahnya nih ${userName}. Kamu bisa bilang: *"geser kiri"*, *"ke atas"*, *"kanan"*, *"bawah"*, atau *"auto"*!`,
+    response: fallbackResp,
     state: null
   };
 }

@@ -2012,6 +2012,23 @@ async function speakTextInVC(guildId, text, client, speakerName = 'User', maxCha
   }
 }
 
+/**
+ * Speak text in all active Discord Voice Channels (for live game commentary & web co-op)
+ * @param {string} text 
+ * @param {import('discord.js').Client} [client] 
+ */
+async function speakInAllActiveVCs(text, client = null) {
+  if (!text || activeConnections.size === 0) return false;
+  let spoke = false;
+  for (const guildId of activeConnections.keys()) {
+    try {
+      const res = await speakTextInVC(guildId, text, client);
+      if (res) spoke = true;
+    } catch (_) {}
+  }
+  return spoke;
+}
+
 // ============================================================
 // Summon-Based Conversation State Helpers
 // ============================================================
@@ -3300,6 +3317,7 @@ module.exports = {
   generateVoiceAIResponse,
   recordSessionEntry,
   speakTextInVC,
+  speakInAllActiveVCs,
   speakGameCommentary,
   detectVoiceModel,
   textToAudioResource,

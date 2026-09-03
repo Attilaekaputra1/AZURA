@@ -392,14 +392,14 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
   let isReset = false;
   let isHint = false;
 
-  // Direction parser
-  if (/\b(?:kiri|left|geser\s+kiri|ke\s+kiri|arah\s+kiri)\b/i.test(cleanCmd)) direction = 'left';
-  else if (/\b(?:kanan|right|geser\s+kanan|ke\s+kanan|arah\s+kanan)\b/i.test(cleanCmd)) direction = 'right';
-  else if (/\b(?:atas|up|geser\s+atas|ke\s+atas|arah\s+atas|naik)\b/i.test(cleanCmd)) direction = 'up';
-  else if (/\b(?:bawah|down|geser\s+bawah|ke\s+bawah|arah\s+bawah|turun)\b/i.test(cleanCmd)) direction = 'down';
-  else if (/\b(?:auto|bantu|otonom|mainkan|mainin|jalan\s+sendiri)\b/i.test(cleanCmd)) isAuto = true;
-  else if (/\b(?:reset|ulang|restart|baru)\b/i.test(cleanCmd)) isReset = true;
-  else if (/\b(?:saran|hint|bagusnya|kemana|rekomendasi)\b/i.test(cleanCmd)) isHint = true;
+  // Natural Indonesian Voice & Text Command Parser
+  if (/\b(?:kiri|left|geser\s*(?:ke\s*)?kiri|arah\s*kiri|ke\s*kiri|tolong\s*kiri|coba\s*kiri)\b/i.test(cleanCmd)) direction = 'left';
+  else if (/\b(?:kanan|right|geser\s*(?:ke\s*)?kanan|arah\s*kanan|ke\s*kanan|tolong\s*kanan|coba\s*kanan)\b/i.test(cleanCmd)) direction = 'right';
+  else if (/\b(?:atas|up|geser\s*(?:ke\s*)?atas|arah\s*atas|ke\s*atas|naik|tolong\s*atas|coba\s*atas)\b/i.test(cleanCmd)) direction = 'up';
+  else if (/\b(?:bawah|down|geser\s*(?:ke\s*)?bawah|arah\s*bawah|ke\s*bawah|turun|tolong\s*bawah|coba\s*bawah)\b/i.test(cleanCmd)) direction = 'down';
+  else if (/\b(?:auto|bantu|otonom|mainkan|mainin|jalan\s*sendiri|bot|selesaikan|bantu\s*main)\b/i.test(cleanCmd)) isAuto = true;
+  else if (/\b(?:reset|ulang|restart|baru|mulai\s*lagi|hapus\s*papan)\b/i.test(cleanCmd)) isReset = true;
+  else if (/\b(?:saran|hint|bagusnya|kemana|rekomendasi|bingung|gimana|menurutmu)\b/i.test(cleanCmd)) isHint = true;
 
   // 1. Reset Board
   if (isReset) {

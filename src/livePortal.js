@@ -749,7 +749,6 @@ function getPortalHtml() {
         .then(data => {
           if (data.success && data.result.response) {
             azuraTextEl.innerText = data.result.response;
-            playVoiceResponse(data.result.response);
           }
         });
       }
@@ -814,20 +813,6 @@ function getPortalHtml() {
       micBtn.classList.remove('recording');
       micIcon.innerText = '🎙️';
       micLabel.innerText = 'Bicara ke Azura';
-    }
-
-    function playVoiceResponse(text) {
-      if ('speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-          const cleanSpeech = text.replace(/[*#_~\`\\[\\]]/g, '');
-          const utter = new SpeechSynthesisUtterance(cleanSpeech);
-          utter.lang = 'id-ID';
-          utter.pitch = 1.25;
-          utter.rate = 1.05;
-          window.speechSynthesis.speak(utter);
-        } catch (_) {}
-      }
     }
 
     function toggleFullscreen() {

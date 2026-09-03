@@ -74,8 +74,8 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
         messages: [
           {
             role: 'system',
-            content: `Kamu adalah arsitek eksekusi web browsing otonom berintelektual tinggi.
-Tugasmu menganalisis instruksi user dan menyusun RANTAI AKSI OTONOM (Action Chain) berurutan (MAKSIMAL 8 LANGKAH) yang akan dieksekusi secara nyata di browser headless.
+            content: `Kamu adalah arsitek eksekusi web browsing otonom berintelektual tinggi yang selalu merespon dalam format JSON.
+Tugasmu menganalisis instruksi user dan menyusun RANTAI AKSI OTONOM (Action Chain) berurutan (MAKSIMAL 8 LANGKAH) dalam bentuk format JSON yang akan dieksekusi secara nyata di browser headless.
 
 Pilihan aksi yang didukung:
 1. "navigate": { "action": "navigate", "url": "https://...", "description": "..." }

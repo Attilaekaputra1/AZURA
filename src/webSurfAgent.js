@@ -271,23 +271,25 @@ Tugasmu:
       ? aiReport.replace(/<[^>]+>/g, '').trim()
       : `Misi selesai! Aku sudah berhasil membuka dan masuk ke website "${finalTitle}".`;
 
-    // Speak in VC (if connected)
-    await speakInVC(guildId, cleanReport.slice(0, 180), client, userName);
+    // 1. Speak in VC first (Exact phrase requested by user)
+    const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';
+    await speakInVC(guildId, completionVoiceText, client, 'Attila');
 
-    // Send Discord embed with screenshot
+    // 2. Send detailed findings to Discord with 1 single active direct blue link
     if (textChannel) {
       const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
+      const validUrl = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
+      
       const embed = new EmbedBuilder()
         .setColor(0x00F2FE)
-        .setTitle(`🌐 Misi Browsing Selesai: "${finalTitle.slice(0, 60)}"`)
-        .setURL(finalUrl.startsWith('http') ? finalUrl : 'https://www.bing.com')
+        .setTitle(`🌐 Misi Browsing Selesai: ${finalTitle.slice(0, 60)}`)
         .setDescription(
           `🎯 **Misi:** *${missionPrompt}*\n\n` +
-          `📝 **Laporan Singkat:**\n${cleanReport}\n\n` +
-          `🔗 **URL Website:** \`${finalUrl.slice(0, 100)}\`\n\n` +
-          `*🔒 Karena misi spesifik sudah selesai, sesi browser otomatis ditutup untuk menghemat resource.*`
+          `📝 **Detail Temuan:**\n${cleanReport}\n\n` +
+          `🔗 **Website:** [${validUrl}](${validUrl})\n\n` +
+          `*🔒 Sesi browser otomatis ditutup untuk menghemat resource.*`
         )
-        .setFooter({ text: `AZURA Autonomous Web Mission • ${userName}` })
+        .setFooter({ text: 'AZURA Autonomous Web Mission' })
         .setTimestamp();
 
       if (attachment) {

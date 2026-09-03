@@ -380,15 +380,21 @@ async function handleIncomingMessage(message, isEdit = false) {
   const inVCMode = !isDM && message.guild && isInCompanionMode(message.guild.id);
   const calledByName = /\b(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(message.content);
 
-  const isVoiceCommand = isOwner && (
+  const isOwnerDirectCommand = isOwner && (
     /\b(?:azura|ara|zura|ajur|ajura|asura)\s+(?:kamu\s+)?(?:keluar|leave|cabut|dc|disconnect|off)\s+(?:dari\s+)?(?:vc|voice|channel|sini|room)\b/i.test(message.content) ||
     /\b(?:keluar|leave|cabut|dc|disconnect)\s+(?:dari\s+)?(?:vc|voice|channel)\s+(?:ya\s+)?(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(message.content) ||
     /\b(?:azura|ara|zura|ajur|ajura|asura)\s+(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\b/i.test(message.content) ||
-    /\b(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\s+(?:ya\s+)?(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(message.content)
+    /\b(?:join\s+vc|masuk\s+vc|join\s+voice|masuk\s+voice)\s+(?:ya\s+)?(?:azura|ara|zura|ajur|ajura|asura)\b/i.test(message.content) ||
+    // Camera commands (with or without Ara)
+    /\b(?:buka|nyalakan|nyalain|aktifkan|hidupkan|tutup|matikan|matiin|nonaktifkan)\s+(?:kamera|cam|camera|video|webcam)\b/i.test(message.content) ||
+    /\b(?:on\s*cam|open\s*cam|off\s*cam|close\s*cam)\b/i.test(message.content) ||
+    // Music commands (with or without Ara)
+    /\b(?:setel|putar|puter|mainkan|play|nyalakan|ganti|ubah|matikan|matiin|stop|jeda|pause|lanjutkan|lanjutin)\s+(?:lagu|musik|musiknya|lagunya)\b/i.test(message.content) ||
+    /^(?:stop|jeda|pause|lanjutkan|lanjutin)\s+(?:lagu|musik)/i.test(message.content)
   );
 
   // If user used 3rd-person phrasing (e.g. "Si Azura", "Si Ara"), it is NEVER a direct call, even if replying or mentioning!
-  const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || endsWithName || vocativeName || isVoiceCommand);
+  const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || endsWithName || vocativeName || isOwnerDirectCommand);
   const isPassiveMention = isThirdPersonReference || (!isDirectCall && calledByName);
 
   if (isDirectCall && !isDM) {
@@ -853,9 +859,10 @@ let finalPrompt = rawPrompt;
 
       const musicMatch = cleanUserText.match(strictTextPlayMusicPattern);
 
-      if (musicMatch && musicMatch[1]) {
-        let songTitle = musicMatch[1]
-          .replace(/\b(?:dong|ya|yuk|gih|azura|ara|zura|ajur|ajura|asura|plis|please|bot|di\s+vc|di\s+voice)\b/gi, '')
+      if (musicMatch && (musicMatch[1] || musicMatch[2])) {
+        const rawTitle = musicMatch[1] || musicMatch[2] || '';
+        let songTitle = rawTitle
+          .replace(/\b(?:dong|ya|yaa?|yuk|gih|azura|ara|zura|ajur|ajura|asura|plis|please|bot|di\s+vc|di\s+voice)\b/gi, '')
           .replace(/[.,!?;:'"()\[\]]+/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();

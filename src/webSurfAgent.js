@@ -61,7 +61,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
     // 🧠 Ultra-Intelligent AI Mission Planner (Direct LLM Reasoning)
     let plan = {
       searchQuery: cleanPrompt,
-      targetType: 'general',
+      category: 'general',
       preferredDomain: null,
       inspectionGoal: cleanPrompt
     };
@@ -75,11 +75,11 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
         messages: [
           {
             role: 'system',
-            content: `Kamu adalah asisten otonom web browsing berintelektual tinggi. Tugasmu menganalisis instruksi user dan menghasilkan JSON rencana aksi browsing:
+            content: `Kamu adalah asisten otonom web browsing berintelektual tinggi. Tugasmu menganalisis instruksi user dan menghasilkan rencana aksi browsing:
 {
-  "searchQuery": "kata kunci Google paling akurat, efektif, dan alami untuk diketik di search box (contoh untuk 'ara browsing berita tentang lagu akon right now deh' -> 'Akon Right Now lagu', untuk 'browsing situs learnext terus masuk ke website resminya' -> 'learnext')",
-  "targetType": "news" | "website" | "general",
-  "preferredDomain": "nama domain jika user spesifik menyebut website tertentu (contoh: 'learnext.ai'), atau null jika mencari berita/informasi/artikel umum",
+  "searchQuery": "kata kunci pencarian Google paling akurat, efektif, dan alami untuk diketik di search box (contoh untuk 'browsing lagu montagem coma' -> 'lagu montagem coma', untuk 'ara browsing berita tentang lagu akon right now deh' -> 'Akon Right Now lagu', untuk 'browsing situs learnext terus masuk ke website resminya' -> 'learnext')",
+  "category": "music" | "news" | "company" | "commercial" | "knowledge" | "general",
+  "preferredDomain": "nama domain jika user spesifik menyebut website tertentu (contoh: 'learnext.ai'), atau null jika mencari berita/informasi/artikel/lagu umum",
   "inspectionGoal": "apa inti informasi yang harus dicari dan dirangkum untuk user"
 }`
           },
@@ -89,7 +89,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
 
       const parsedPlan = JSON.parse(aiPlannerRes.choices[0].message.content);
       if (parsedPlan.searchQuery) plan.searchQuery = parsedPlan.searchQuery;
-      if (parsedPlan.targetType) plan.targetType = parsedPlan.targetType;
+      if (parsedPlan.category) plan.category = parsedPlan.category;
       if (parsedPlan.preferredDomain !== undefined) plan.preferredDomain = parsedPlan.preferredDomain;
       if (parsedPlan.inspectionGoal) plan.inspectionGoal = parsedPlan.inspectionGoal;
     } catch (e) {
@@ -144,22 +144,40 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
 
       // Scroll Search Results so viewers see them
       await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
-      await page.waitForTimeout(1200);
+      // Human-like Resolution of Destination Website / Article (Strictly organic results!)
+      console.log(`[Autonomous Mission]: 🖱️ Resolving organic target destination for query: "${plan.searchQuery}" (Category: ${plan.category || 'general'})`);
 
-      // Human-like Resolution of Destination Website / Article
-      console.log(`[Autonomous Mission]: 🖱️ Resolving target destination for query: "${plan.searchQuery}"`);
+      const destination = await page.evaluate(({ preferredDomain, category }) => {
+        // Target organic result containers strictly
+        const organicContainers = Array.from(document.querySelectorAll('#web ol > li, .algo, #rso div.g, #search div.g, #rso, #search, #web'));
+        const candidateAnchors = [];
 
-      const destination = await page.evaluate(({ preferredDomain, targetType }) => {
-        const allA = Array.from(document.querySelectorAll('#rso a[href], #search a[href], #web a[href], .compText a[href], h3 a, h4 a, a[href]'));
-        
-        for (const a of allA) {
+        for (const container of organicContainers) {
+          const links = Array.from(container.querySelectorAll('h3 a, h4 a, .compTitle a, a[href]'));
+          candidateAnchors.push(...links);
+        }
+
+        if (candidateAnchors.length === 0) {
+          candidateAnchors.push(...Array.from(document.querySelectorAll('a[href]')));
+        }
+
+        // Blacklist system navigation, header portals, and search engines
+        const blacklisted = [
+          'about/products', 'accounts.google', 'support.google', 'google.com/search',
+          'google.co.id/search', 'google.com/intl', 'maps.google', 'policies.google',
+          'search.yahoo.com', 'yahoo.com/preferences', 'help.yahoo.com', 'finance.yahoo.com',
+          'news.yahoo.com', 'sports.yahoo.com', 'mail.yahoo.com', 'autos.yahoo.com',
+          'entertainment.yahoo.com', 'lifestyle.yahoo.com', 'consent.yahoo', 'legal.yahoo'
+        ];
+
+        for (const a of candidateAnchors) {
           const href = a.href || '';
           const txt = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
           
-          if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('search.yahoo.com') || href.includes('yahoo.com/preferences') || href.includes('help.yahoo.com')) {
-            continue;
-          }
+          if (!href.startsWith('http')) continue;
+          if (blacklisted.some(b => href.includes(b))) continue;
 
+          // Case A: Specific domain requested
           if (preferredDomain) {
             const domClean = preferredDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
             if (href.toLowerCase().includes(domClean) || txt.includes(domClean)) {
@@ -170,11 +188,11 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
             }
           }
 
-          // Case B: Organic results on Google (including goto redirect links) or external links
+          // Case B: Organic results (Google goto redirects or real external domains)
           const isGoogleGoto = href.includes('google.com/goto?url=') || href.includes('/url?');
-          const isExternal = href.startsWith('http') && !href.includes('google.com/search') && !href.includes('google.co.id/search') && !href.includes('google.com/intl');
+          const isRealOrganic = !href.includes('google.') && !href.includes('yahoo.') && !href.includes('bing.');
 
-          if ((isGoogleGoto || isExternal) && txt.length > 5) {
+          if ((isGoogleGoto || isRealOrganic) && txt.length > 3) {
             let realUrl = href;
             if (href.includes('/url?q=')) {
               const match = href.match(/url\?q=([^&]+)/);
@@ -185,7 +203,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
         }
 
         return null;
-      }, { preferredDomain: plan.preferredDomain, targetType: plan.targetType });
+      }, { preferredDomain: plan.preferredDomain, category: plan.category });
 
       if (destination && destination.url && destination.url.startsWith('http')) {
         console.log(`[Autonomous Mission]: 🚀 Entering target destination: ${destination.url}`);
@@ -218,7 +236,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       const textSnippets = Array.from(document.querySelectorAll('p, span, div, h1, h2, h3, h4'))
         .map(e => e.innerText.trim())
         .filter(t => t.length > 25 && !t.includes('function(') && !t.includes('{'))
-        .slice(0, 12);
+        .slice(0, 15);
 
       return {
         clients,
@@ -242,24 +260,28 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
     const structuredEvidence = `
 Website Terkunjungi: "${finalTitle}" (${finalUrl})
 Kutipan Artikel & Konten Penting dari Halaman:
-${siteInspection.textSnippets.slice(0, 8).join('\n---\n')}
+${siteInspection.textSnippets.slice(0, 10).join('\n---\n')}
 
 Ringkasan Halaman:
-${(summary.bodyText || '').slice(0, 1000)}
+${(summary.bodyText || '').slice(0, 1200)}
 ${isClientSearch && siteInspection.clients.length > 0 ? `\nDaftar Klien/Mitra: ${siteInspection.clients.join(', ')}` : ''}
 `;
 
-    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom ke halaman web: "${finalTitle}" (${finalUrl}).
+    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom ke website/halaman web: "${finalTitle}" (${finalUrl}).
 Tujuan instruksi user: "${plan.inspectionGoal || cleanPrompt}".
+Kategori topik: ${plan.category || 'general'}.
 
-Berikut fakta dan konten riil yang berhasil kamu baca langsung dari halaman website:
+Berikut fakta dan data riil yang kamu temukan langsung dari halaman website:
 ---
 ${structuredEvidence}
 ---
 Tugasmu:
-1. Berikan jawaban yang cerdas, akurat, dan to the point sesuai tujuan user di atas.
-2. Jelaskan fakta penting yang ditemukan (misal jika tentang lagu/berita Akon, ceritakan tentang lagunya, rilis, lirik, atau faktanya; jika tentang perusahaan, ceritakan tentang layanan atau mitranya).
-3. Buat dalam format poin-poin yang rapi dan ramah khas Azura!`;
+1. Berikan penjelasan yang SANGAT CERDAS, luwes, dan mendalam sesuai fakta yang ditemukan di atas (jangan kaku!).
+   - Jika tentang LAGU/MUSIK: Jelaskan nama lagu, artis/kreator (misal ANDROMEDA), genre (misal Brazilian Phonk/Funk), jumlah views/popularitas, dan platform tempat lagu dirilis (misal YouTube / Spotify).
+   - Jika tentang BERITA: Rangkum kronologi peristiwa, tanggal, tokoh terkait, dan inti beritanya.
+   - Jika tentang WEBSITE/PERUSAHAAN: Jelaskan apa profilnya, layanannya, serta mitra/klien jika ditanyakan.
+   - Jika tentang TIKET/PRODUK: Jelaskan rekomendasi dan harganya.
+2. Buat dalam format bullet point yang rapi, informatif, dan dengan gaya bahasa Azura yang ramah dan ceria!`;
 
     const aiReport = await askAzura(
       config.OWNER_DISCORD_ID || 'mission_user',

@@ -683,6 +683,11 @@ function getPortalHtml(mode = 'browse') {
   <main>
     <!-- VIDEO STREAM -->
     <div class="stream-wrapper" id="stream-box">
+      <div id="standby-notice" style="position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #94a3b8; z-index: 5; pointer-events: none;">
+        <div style="font-size: 34px;">${isBrowse ? '🌐' : '🎮'}</div>
+        <div style="font-size: 15px; font-weight: 700; color: var(--accent);">${isBrowse ? 'Layar Headless Browser Siap' : 'Arena Game 2048 Siap'}</div>
+        <div style="font-size: 12px; color: #64748b;">Live Stream 60 FPS • Berikan perintah untuk mulai</div>
+      </div>
       <img id="stream-canvas" src="" alt="Live Stream Screen">
       <div class="overlay-controls">
         <button class="ctrl-btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
@@ -750,6 +755,8 @@ function getPortalHtml(mode = 'browse') {
           const msg = JSON.parse(event.data);
           if (msg.type === 'frame' && msg.data) {
             streamImg.src = 'data:image/jpeg;base64,' + msg.data;
+            const notice = document.getElementById('standby-notice');
+            if (notice) notice.style.display = 'none';
           }
           if (msg.type === 'azura_reply' && msg.text) {
             azuraTextEl.innerText = msg.text;

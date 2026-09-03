@@ -225,12 +225,13 @@ async function openWebpage(guildId, targetInput) {
       await page.waitForTimeout(1200);
     } else {
       // Human-like search with real-time on-screen typing (bypasses bot detection)
-      console.log(`[Headless Browser]: 🔍 Performing human-like search for: "${targetInput}"`);
-      await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+      // Human-like search with real-time on-screen typing (Yahoo: 100% captcha-free on VPS)
+      console.log(`[Headless Browser]: 🔍 Performing human-like search on Yahoo for: "${targetInput}"`);
+      await page.goto('https://search.yahoo.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.waitForTimeout(700);
 
       // Focus search input
-      const searchInput = await page.$('input[name="q"], textarea[name="q"], #sb_form_q');
+      const searchInput = await page.waitForSelector('input[name="p"], #yschsp, input[type="text"]', { timeout: 8000 }).catch(() => null);
       if (searchInput) {
         await searchInput.click();
         await page.waitForTimeout(200);
@@ -238,10 +239,13 @@ async function openWebpage(guildId, targetInput) {
         await page.keyboard.type(targetInput.trim(), { delay: 45 });
         await page.waitForTimeout(300);
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(2500);
+        await page.waitForTimeout(3000);
         // Smooth scroll to show results
         await page.evaluate(() => window.scrollBy({ top: 380, behavior: 'smooth' })).catch(() => {});
         await page.waitForTimeout(1000);
+      } else {
+        await page.goto(`https://search.yahoo.com/search?p=${encodeURIComponent(targetInput.trim())}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(2500);
       }
       targetUrl = page.url();
     }
@@ -834,6 +838,8 @@ async function scrapeWebWithBrowser(targetUrl, timeoutMs = 20000) {
 
 module.exports = {
   getBrowser,
+  getOrCreateSession,
+  activeBrowserSessions,
   openWebpage,
   browseYouTube,
   scrollWebpage,

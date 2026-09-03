@@ -15,7 +15,7 @@
  */
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
-const { getBrowser, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, activeBrowserSessions } = require('./headlessBrowser');
+const { getBrowser, getOrCreateSession, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, activeBrowserSessions } = require('./headlessBrowser');
 const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
 const config = require('./config');
 
@@ -36,7 +36,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
   const announceText = `Siap ${userName}! Aku jalankan misi di browser: "${missionPrompt}". Pantau layarnya di live stream ya!`;
   await speakInVC(guildId, announceText, client, userName);
 
-  const session = await require('./headlessBrowser').getOrCreateSession(guildId);
+  const session = await getOrCreateSession(guildId);
   const { page } = session;
 
   try {
@@ -45,25 +45,25 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       .replace(/\b(?:ara|azura|tolong|coba|dong|ya|yuk|plis)\b/gi, '')
       .trim();
 
-    // AI Action Decomposition
-    const { askAzura } = require('./azura');
-    const plannerPrompt = `Kamu adalah Azura, AI Autonomous Browser Agent. User "${userName}" memberi instruksi:
-"${cleanPrompt}"
+    updateStreamMeta({
+      title: '🌐 AZURA: ' + cleanPrompt.slice(0, 30),
+      url: 'https://www.bing.com',
+      activeGuild: guildId,
+      mode: 'browse'
+    });
 
-Rencanakan aksi browser:
-1. Kata kunci pencarian awal terbaik? (misal untuk "browsing situs learnext terus masuk ke website resminya" -> "learnext official website")
-2. Kata kunci link yang harus diklik untuk masuk ke situs resminya? (misal -> "learnext")
-
-Jawab HANYA format JSON valid berikut tanpa penjelasan lain:
-{
-  "searchQuery": "kata kunci pencarian",
-  "clickKeyword": "kata kunci link tujuan"
-}`;
+    // Smart heuristic baseline: extracts the core target (e.g. "learnext")
+    const targetBrand = cleanPrompt
+      .replace(/\b(?:browsing|buka|situs|web|website|resminya|resmi|terus|lalu|kemudian|masuk\s+ke|dan|tolong|cari|carikan)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
     let plan = {
-      searchQuery: cleanPrompt.replace(/\b(?:browsing|situs|web|masuk\s+ke|website|resminya)\b/gi, '').trim() || cleanPrompt,
-      clickKeyword: cleanPrompt.split(' ')[0] || ''
+      searchQuery: targetBrand ? `${targetBrand} official website` : cleanPrompt,
+      clickKeyword: targetBrand.split(' ')[0] || cleanPrompt.split(' ')[0] || ''
     };
+
+    // AI Action Decomposition refinement
 
     try {
       const rawPlan = await askAzura(
@@ -85,52 +85,56 @@ Jawab HANYA format JSON valid berikut tanpa penjelasan lain:
       }
     } catch (_) {}
 
-    // 1. Open Search Engine
-    console.log(`[Autonomous Mission]: 🔍 Navigating to Bing with query: "${plan.searchQuery}"`);
-    await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    // 1. Open Search Engine (Yahoo: zero-captcha, reliable on datacenter IPs)
+    console.log(`[Autonomous Mission]: 🔍 Navigating to Yahoo search with query: "${plan.searchQuery}"`);
+    await page.goto('https://search.yahoo.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForTimeout(800);
 
     // 2. Visible On-Screen Typing (Human-like)
-    const searchInput = await page.$('input[name="q"], textarea[name="q"], #sb_form_q');
+    const searchInput = await page.waitForSelector('input[name="p"], #yschsp, input[type="text"]', { timeout: 8000 }).catch(() => null);
     if (searchInput) {
       await searchInput.click();
       await page.waitForTimeout(200);
       await page.keyboard.type(plan.searchQuery, { delay: 45 });
       await page.waitForTimeout(300);
       await page.keyboard.press('Enter');
+      await page.waitForTimeout(3000);
+    } else {
+      await page.goto(`https://search.yahoo.com/search?p=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.waitForTimeout(2500);
     }
 
     // 3. Scroll Search Results
     await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1200);
 
     // 4. Click Destination Official Website Link
     const kw = (plan.clickKeyword || plan.searchQuery.split(' ')[0] || '').toLowerCase();
     console.log(`[Autonomous Mission]: 🖱️ Locating official website link matching: "${kw}"`);
 
-    const clickResult = await page.evaluate((targetKw) => {
-      const links = Array.from(document.querySelectorAll('#b_results .b_algo h2 a, h2 a, a[href*="http"]'));
-      for (const a of links) {
+    const linkTarget = await page.evaluate((targetKw) => {
+      const all = Array.from(document.querySelectorAll('a'));
+      for (const a of all) {
         const href = (a.href || '').toLowerCase();
         const txt = (a.innerText || '').toLowerCase();
-        if (href.includes('bing.com') || href.includes('microsoft.com') || href.includes('google.com')) continue;
+        if (href.includes('yahoo.com') || href.includes('search.yahoo') || href.includes('javascript') || !href.startsWith('http')) continue;
         if (!targetKw || txt.includes(targetKw) || href.includes(targetKw)) {
-          a.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          a.click();
-          return { success: true, text: a.innerText, href: a.href };
+          return { text: a.innerText.trim() || href, href: a.href };
         }
       }
-      if (links.length > 0) {
-        links[0].click();
-        return { success: true, text: links[0].innerText, href: links[0].href };
+      for (const a of all) {
+        const href = (a.href || '').toLowerCase();
+        if (!href.includes('yahoo.com') && href.startsWith('http')) {
+          return { text: a.innerText.trim() || href, href: a.href };
+        }
       }
-      return { success: false };
+      return null;
     }, kw);
 
-    if (clickResult && clickResult.success) {
-      console.log(`[Autonomous Mission]: ✅ Entered website: "${clickResult.text}" (${clickResult.href})`);
-      await page.waitForTimeout(3500);
+    if (linkTarget && linkTarget.href) {
+      console.log(`[Autonomous Mission]: ✅ Entering official website: "${linkTarget.text}" (${linkTarget.href})`);
+      await page.goto(linkTarget.href, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+      await page.waitForTimeout(3000);
       // Smooth scroll the official website so viewers see the actual page content
       await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'smooth' })).catch(() => {});
       await page.waitForTimeout(1500);

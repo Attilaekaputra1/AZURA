@@ -1533,8 +1533,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // 2. Goal-Oriented Autonomous Mission: "ara tolong browsing ...", "ara browsing situs X terus masuk ke Y"
-      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?browsing\s+(.+)/i;
+      // 2. Goal-Oriented Autonomous Mission: "ara tolong browsing ...", "ara carikan di web ...", "ara buka situs X"
+      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+situs|buka\s+web)\s+(.+)/i;
       const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger);
       if (browsingMatch && browsingMatch[1]) {
         const query = browsingMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();

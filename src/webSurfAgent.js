@@ -275,13 +275,14 @@ Berikut fakta dan data riil yang kamu temukan langsung dari halaman website:
 ---
 ${structuredEvidence}
 ---
-Tugasmu:
-1. Berikan penjelasan yang SANGAT CERDAS, luwes, dan mendalam sesuai fakta yang ditemukan di atas (jangan kaku!).
-   - Jika tentang LAGU/MUSIK: Jelaskan nama lagu, artis/kreator (misal ANDROMEDA), genre (misal Brazilian Phonk/Funk), jumlah views/popularitas, dan platform tempat lagu dirilis (misal YouTube / Spotify).
-   - Jika tentang BERITA: Rangkum kronologi peristiwa, tanggal, tokoh terkait, dan inti beritanya.
-   - Jika tentang WEBSITE/PERUSAHAAN: Jelaskan apa profilnya, layanannya, serta mitra/klien jika ditanyakan.
-   - Jika tentang TIKET/PRODUK: Jelaskan rekomendasi dan harganya.
-2. Buat dalam format bullet point yang rapi, informatif, dan dengan gaya bahasa Azura yang ramah dan ceria!`;
+Aturan Khusus (PENTING):
+- Jika halaman di atas KOSONG, terblokir, tidak relevan, atau TIDAK ADA data yang bisa menjawab pertanyaan user sama sekali, awali jawabanmu dengan kata: "[NOT_FOUND]".
+- Jika kamu BERHASIL menemukan informasi relevan, jelaskan secara SANGAT CERDAS, luwes, dan mendalam (jangan kaku!):
+  * Jika tentang LAGU/MUSIK: Jelaskan nama lagu, artis/kreator (misal ANDROMEDA), genre (misal Brazilian Phonk/Funk), jumlah views/popularitas, dan platform tempat lagu dirilis (misal YouTube / Spotify).
+  * Jika tentang BERITA: Rangkum kronologi peristiwa, tanggal, tokoh terkait, dan inti beritanya.
+  * Jika tentang WEBSITE/PERUSAHAAN: Jelaskan apa profilnya, layanannya, serta mitra/klien jika ditanyakan.
+  * Jika tentang TIKET/PRODUK: Jelaskan rekomendasi dan harganya.
+Format: Poin-poin rapi dan ramah khas Azura.`;
 
     const aiReport = await askAzura(
       config.OWNER_DISCORD_ID || 'mission_user',
@@ -294,56 +295,70 @@ Tugasmu:
       true
     );
 
-    const cleanReport = typeof aiReport === 'string'
-      ? aiReport.replace(/<[^>]+>/g, '').trim()
-      : `Misi selesai! Aku sudah berhasil membuka dan masuk ke website "${finalTitle}".`;
+    const rawReport = typeof aiReport === 'string' ? aiReport : '';
+    const isNotFound = rawReport.includes('[NOT_FOUND]') || 
+                       /belum berhasil menemukan|tidak ada data yang berhasil|halaman kosong|tidak menemukan informasi apa-apa/i.test(rawReport);
 
-    // 1. Speak in VC first (Exact phrase requested by user)
-    const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';
-    await speakInVC(guildId, completionVoiceText, client, 'Attila');
+    if (isNotFound) {
+      console.log(`[Autonomous Mission]: ⚠️ No relevant information found on web for: "${plan.searchQuery}"`);
+      // 1. Apologize briefly in VC
+      const apologyVoiceText = 'Maaf Attila, aku belum berhasil nemuin informasi yang kamu minta di web.';
+      await speakInVC(guildId, apologyVoiceText, client, 'Attila');
 
-    // 2. Send detailed findings to Discord with a short, clean, direct active blue link
-    if (textChannel) {
-      const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
-      const validUrl = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
-      
-      // Clean and shorten URL for direct, beautiful display
-      let cleanDirectUrl = validUrl;
-      let shortLabel = 'Buka Halaman';
+      // 2. Short apology in Discord text chat (no detailed embed!)
+      if (textChannel) {
+        await textChannel.send('⚠️ **Maaf Attila**, aku belum berhasil menemukan informasi yang sesuai dengan pencarianmu di web kali ini. Coba berikan kata kunci yang lebih spesifik ya!').catch(() => {});
+      }
+    } else {
+      const cleanReport = rawReport.replace(/\[NOT_FOUND\]/g, '').replace(/<[^>]+>/g, '').trim();
 
-      try {
-        const parsed = new URL(validUrl);
-        shortLabel = parsed.hostname.replace(/^www\./, '');
+      // 1. Speak in VC first (Exact phrase requested by user)
+      const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';
+      await speakInVC(guildId, completionVoiceText, client, 'Attila');
 
-        if (parsed.hostname.includes('google.') && parsed.pathname.includes('/search')) {
-          const q = parsed.searchParams.get('q') || plan.searchQuery;
-          cleanDirectUrl = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
-          shortLabel = `google.com/search?q=${q.slice(0, 25)}`;
-        } else if (parsed.pathname && parsed.pathname !== '/') {
-          const pathSnippet = parsed.pathname.length > 25 ? parsed.pathname.slice(0, 25) + '...' : parsed.pathname;
-          shortLabel += pathSnippet;
+      // 2. Send detailed findings to Discord with a short, clean, direct active blue link
+      if (textChannel) {
+        const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
+        const validUrl = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
+        
+        // Clean and shorten URL for direct, beautiful display
+        let cleanDirectUrl = validUrl;
+        let shortLabel = 'Buka Halaman';
+
+        try {
+          const parsed = new URL(validUrl);
+          shortLabel = parsed.hostname.replace(/^www\./, '');
+
+          if (parsed.hostname.includes('google.') && parsed.pathname.includes('/search')) {
+            const q = parsed.searchParams.get('q') || plan.searchQuery;
+            cleanDirectUrl = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+            shortLabel = `google.com/search?q=${q.slice(0, 25)}`;
+          } else if (parsed.pathname && parsed.pathname !== '/') {
+            const pathSnippet = parsed.pathname.length > 25 ? parsed.pathname.slice(0, 25) + '...' : parsed.pathname;
+            shortLabel += pathSnippet;
+          }
+        } catch (_) {
+          shortLabel = finalTitle.slice(0, 30);
         }
-      } catch (_) {
-        shortLabel = finalTitle.slice(0, 30);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x00F2FE)
+          .setTitle(`🌐 Misi Browsing Selesai: ${finalTitle.slice(0, 60)}`)
+          .setDescription(
+            `🎯 **Misi:** *${missionPrompt}*\n\n` +
+            `📝 **Detail Temuan:**\n${cleanReport}\n\n` +
+            `🔗 **Website:** [👉 ${shortLabel}](${cleanDirectUrl})\n\n` +
+            `*🔒 Sesi browser otomatis ditutup untuk menghemat resource.*`
+          )
+          .setFooter({ text: 'AZURA Autonomous Web Mission' })
+          .setTimestamp();
+
+        if (attachment) {
+          embed.setImage('attachment://mission_destination.png');
+        }
+
+        await textChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
       }
-
-      const embed = new EmbedBuilder()
-        .setColor(0x00F2FE)
-        .setTitle(`🌐 Misi Browsing Selesai: ${finalTitle.slice(0, 60)}`)
-        .setDescription(
-          `🎯 **Misi:** *${missionPrompt}*\n\n` +
-          `📝 **Detail Temuan:**\n${cleanReport}\n\n` +
-          `🔗 **Website:** [👉 ${shortLabel}](${cleanDirectUrl})\n\n` +
-          `*🔒 Sesi browser otomatis ditutup untuk menghemat resource.*`
-        )
-        .setFooter({ text: 'AZURA Autonomous Web Mission' })
-        .setTimestamp();
-
-      if (attachment) {
-        embed.setImage('attachment://mission_destination.png');
-      }
-
-      await textChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
     }
 
     // 7. AUTO-CLOSE SESSION after completing specific mission

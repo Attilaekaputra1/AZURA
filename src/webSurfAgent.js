@@ -156,7 +156,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
           const href = a.href || '';
           const txt = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
           
-          if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('google.com/search') || href.includes('search.yahoo.com') || href.includes('yahoo.com/preferences') || href.includes('help.yahoo.com')) {
+          if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('search.yahoo.com') || href.includes('yahoo.com/preferences') || href.includes('help.yahoo.com')) {
             continue;
           }
 
@@ -170,10 +170,16 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
             }
           }
 
-          if (href.startsWith('http') && !href.includes('google.') && !href.includes('yahoo.') && txt.length > 5) {
+          // Case B: Organic results on Google (including goto redirect links) or external links
+          const isGoogleGoto = href.includes('google.com/goto?url=') || href.includes('/url?');
+          const isExternal = href.startsWith('http') && !href.includes('google.com/search') && !href.includes('google.co.id/search') && !href.includes('google.com/intl');
+
+          if ((isGoogleGoto || isExternal) && txt.length > 5) {
             let realUrl = href;
-            const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i);
-            if (urlMatch) realUrl = urlMatch[0];
+            if (href.includes('/url?q=')) {
+              const match = href.match(/url\?q=([^&]+)/);
+              if (match) realUrl = decodeURIComponent(match[1]);
+            }
             return { title: a.innerText.trim(), url: realUrl };
           }
         }
@@ -274,18 +280,38 @@ Tugasmu:
     const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';
     await speakInVC(guildId, completionVoiceText, client, 'Attila');
 
-    // 2. Send detailed findings to Discord with 1 single active direct blue link
+    // 2. Send detailed findings to Discord with a short, clean, direct active blue link
     if (textChannel) {
       const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
       const validUrl = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
       
+      // Clean and shorten URL for direct, beautiful display
+      let cleanDirectUrl = validUrl;
+      let shortLabel = 'Buka Halaman';
+
+      try {
+        const parsed = new URL(validUrl);
+        shortLabel = parsed.hostname.replace(/^www\./, '');
+
+        if (parsed.hostname.includes('google.') && parsed.pathname.includes('/search')) {
+          const q = parsed.searchParams.get('q') || plan.searchQuery;
+          cleanDirectUrl = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+          shortLabel = `google.com/search?q=${q.slice(0, 25)}`;
+        } else if (parsed.pathname && parsed.pathname !== '/') {
+          const pathSnippet = parsed.pathname.length > 25 ? parsed.pathname.slice(0, 25) + '...' : parsed.pathname;
+          shortLabel += pathSnippet;
+        }
+      } catch (_) {
+        shortLabel = finalTitle.slice(0, 30);
+      }
+
       const embed = new EmbedBuilder()
         .setColor(0x00F2FE)
         .setTitle(`🌐 Misi Browsing Selesai: ${finalTitle.slice(0, 60)}`)
         .setDescription(
           `🎯 **Misi:** *${missionPrompt}*\n\n` +
           `📝 **Detail Temuan:**\n${cleanReport}\n\n` +
-          `🔗 **Website:** [${validUrl}](${validUrl})\n\n` +
+          `🔗 **Website:** [👉 ${shortLabel}](${cleanDirectUrl})\n\n` +
           `*🔒 Sesi browser otomatis ditutup untuk menghemat resource.*`
         )
         .setFooter({ text: 'AZURA Autonomous Web Mission' })

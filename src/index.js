@@ -773,26 +773,38 @@ let finalPrompt = rawPrompt;
         return message.reply(res.message);
       }
 
-      const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(cleanUserText) || /^(?:stop\s+musik|stop\s+lagu)$/i.test(cleanUserText);
+      // Direct Music Commands from text chat (Attila Only - Strict Full Sentence Sentences Requiring "lagu" / "musik")
+      const isStopMusic =
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:matikan|matiin|hentikan|berhentikan|stop)\s+(?:musik|lagu|musiknya|lagunya)(?:\s+(?:dong|yaa?|sekarang|dulu))*$/i.test(cleanUserText) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:matikan|matiin|hentikan|berhentikan|stop)\s+(?:musik|lagu|musiknya|lagunya)(?:\s+(?:dong|yaa?|sekarang|azura|ara|ra))*$/i.test(cleanUserText);
+
       if (isStopMusic) {
         const res = stopMusic(guildId);
         return message.reply(res.message);
       }
 
-      const isPauseMusic = /\b(?:pause|jeda)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i.test(cleanUserText) || /^(?:pause|jeda)$/i.test(cleanUserText);
+      const isPauseMusic =
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:jeda|pause|hentikan\s+sebentar|tahan)\s+(?:musik|lagu|musiknya|lagunya)(?:\s+(?:dong|yaa?|sekarang|dulu|sebentar|bentar))*$/i.test(cleanUserText) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:jeda|pause)\s+(?:musik|lagu|musiknya|lagunya)(?:\s+(?:dong|yaa?|sekarang|dulu|sebentar|bentar|azura|ara|ra))*$/i.test(cleanUserText);
+
       if (isPauseMusic) {
         const res = pauseMusic(guildId);
         return message.reply(res.message);
       }
 
-      const isResumeMusic = /\b(?:resume|unpause|puter\s+lagi|play\s+lagi|mainkan\s+lagi|lanjutkan\s+lagu)\s*(?:in)?\s*(?:musik|lagu|musiknya|lagunya|sound)?\b/i.test(cleanUserText) || /^(?:resume|unpause)$/i.test(cleanUserText);
+      const isResumeMusic =
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:lanjutkan|lanjutin|putar\s+lagi|puter\s+lagi|play\s+lagi|setel\s+lagi|unpause)\s+(?:musik|lagu|musiknya|lagunya)(?:\s+(?:dong|yaa?|sekarang|dulu))*$/i.test(cleanUserText) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:lanjutkan|lanjutin|putar\s+lagi|puter\s+lagi|play\s+lagi)\s+(?:musik|lagu|musiknya|lagunya)(?:\s+(?:dong|yaa?|sekarang|azura|ara|ra))*$/i.test(cleanUserText);
+
       if (isResumeMusic) {
         const res = await resumeMusic(guildId);
         return message.reply(res.message);
       }
 
-      const musicMatch = cleanUserText.match(/^(?:azura|ara|zura|ajur|ajura|asura)?\s*(?:tolong\s+)?(?:ganti|ubah|switch|setel|settel|setelin|settelin|stel|stelin|puter|puterin|putar|putarin|mainkan|play|nyalain|pasang)\s+(?:ke\s+|dengan\s+)?(?:lagu|musik|lagunya|musiknya)?\s*(.+)/i) ||
-        cleanUserText.match(/\b(?:setel|settel|setelin|settelin|stel|stelin|puter|puterin|putar|putarin|mainkan|play|nyalain|pasang|ganti|ubah)\s+(?:lagu|musik|lagunya|musiknya)\s+(?:ke\s+|dengan\s+)?(.+)/i);
+      const strictTextPlayMusicPattern =
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:setelkan|setelin|setel|putarkan|puterin|putar|puter|mainkan|nyalakan|play|ganti\s+ke|ubah\s+ke)\s+(?:lagu|musik)\s+(?:yang\s+judulnya\s+|berjudul\s+|dari\s+)?(.+)|^(?:tolong\s+|coba\s+|bisa\s+)?(?:setelkan|setelin|setel|putarkan|puterin|putar|puter|mainkan|play)\s+(?:lagu|musik)\s+(?:yang\s+judulnya\s+|berjudul\s+|dari\s+)?(.+)/i;
+
+      const musicMatch = cleanUserText.match(strictTextPlayMusicPattern);
 
       if (musicMatch && musicMatch[1]) {
         let songTitle = musicMatch[1]

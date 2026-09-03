@@ -2,6 +2,11 @@
  * AZURA Live WebRTC & WebSocket Companion Stream Portal
  * Serves an ultra-fast, zero-latency 60fps web streamer UI on port 7860
  * Powered by Chrome DevTools Protocol (CDP) Screencast.
+ * Now features:
+ * - Real-Time Interactive Co-Op Gaming Command Center
+ * - Speech-to-Text Voice Mic Input (Web Speech API)
+ * - Text Command Chat & D-Pad Direction Buttons
+ * - Live Azura Spoken Persona Response Bubble
  */
 
 const http = require('http');
@@ -31,6 +36,13 @@ function initLivePortal() {
   server = http.createServer((req, res) => {
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      return res.end();
+    }
 
     if (req.url === '/health' || req.url === '/') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -40,6 +52,24 @@ function initLivePortal() {
     if (req.url.startsWith('/live')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(getPortalHtml());
+    }
+
+    // ── REST API: INTERACTIVE GAME COMMANDS ──
+    if (req.url === '/api/game/command' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      return req.on('end', async () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const { executeInteractiveMove } = require('./browserGameAgent');
+          const result = await executeInteractiveMove(payload.command, payload.userName || 'Attila');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, result }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
     }
 
     // ── MASTER DASHBOARD (TO-DO, ADVICE & BUG REPORTS) ──
@@ -172,6 +202,31 @@ function initLivePortal() {
       ws.send(JSON.stringify({ type: 'frame', data: latestFrame }));
     }
 
+    // Handle interactive game commands over WebSocket
+    ws.on('message', async (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'game_command') {
+          const { executeInteractiveMove } = require('./browserGameAgent');
+          const result = await executeInteractiveMove(msg.command, msg.userName || 'Attila');
+          
+          // Broadcast Azura's reaction to all connected viewers
+          const respPayload = JSON.stringify({
+            type: 'azura_reply',
+            text: result.response,
+            userName: msg.userName || 'Attila'
+          });
+          for (const client of connectedClients) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(respPayload);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Live Portal WS Error]:', err.message);
+      }
+    });
+
     ws.on('close', () => {
       connectedClients.delete(ws);
       console.log(`[Live Portal]: 👤 Viewer disconnected. Remaining viewers: ${connectedClients.size}`);
@@ -241,7 +296,7 @@ function hasActiveViewers() {
 }
 
 /**
- * Sleek Modern Cyber-Companion HTML5 Viewer UI
+ * Sleek Modern Cyber-Companion HTML5 Viewer UI with Interactive Co-Op Controls
  */
 function getPortalHtml() {
   return `<!DOCTYPE html>
@@ -249,7 +304,7 @@ function getPortalHtml() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AZURA Live Screen Companion</title>
+  <title>AZURA Live Screen & Interactive Co-Op Gaming</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -288,7 +343,7 @@ function getPortalHtml() {
       background: var(--card-bg);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border-color);
-      padding: 14px 24px;
+      padding: 12px 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -305,8 +360,8 @@ function getPortalHtml() {
 
     .logo-badge {
       background: linear-gradient(135deg, var(--accent), var(--neon-cyan));
-      width: 36px;
-      height: 36px;
+      width: 38px;
+      height: 38px;
       border-radius: 10px;
       display: flex;
       align-items: center;
@@ -354,38 +409,11 @@ function getPortalHtml() {
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 24px;
-      max-width: 1400px;
+      padding: 18px 24px;
+      max-width: 1200px;
       margin: 0 auto;
       width: 100%;
-    }
-
-    .url-bar-container {
-      width: 100%;
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      padding: 10px 18px;
-      margin-bottom: 18px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .url-icon {
-      color: var(--neon-cyan);
-      font-size: 16px;
-    }
-
-    .url-text {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 13px;
-      color: var(--text-muted);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      flex: 1;
+      gap: 16px;
     }
 
     .stream-wrapper {
@@ -400,6 +428,7 @@ function getPortalHtml() {
       display: flex;
       align-items: center;
       justify-content: center;
+      max-height: 520px;
     }
 
     #stream-canvas {
@@ -411,17 +440,11 @@ function getPortalHtml() {
 
     .overlay-controls {
       position: absolute;
-      bottom: 16px;
-      right: 16px;
+      top: 14px;
+      right: 14px;
       display: flex;
       gap: 10px;
       z-index: 10;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-    }
-
-    .stream-wrapper:hover .overlay-controls {
-      opacity: 1;
     }
 
     .ctrl-btn {
@@ -429,9 +452,9 @@ function getPortalHtml() {
       backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 255, 255, 0.2);
       color: #fff;
-      padding: 8px 14px;
+      padding: 6px 12px;
       border-radius: 8px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       display: flex;
@@ -443,24 +466,169 @@ function getPortalHtml() {
     .ctrl-btn:hover {
       background: var(--accent);
       border-color: var(--accent);
+    }
+
+    /* ── AZURA LIVE DIALOGUE BUBBLE ── */
+    .azura-speech-card {
+      width: 100%;
+      background: linear-gradient(135deg, rgba(88, 101, 242, 0.15), rgba(0, 242, 254, 0.1));
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 14px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+
+    .azura-avatar-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #a855f7, #38bdf8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 16px rgba(168, 85, 247, 0.5);
+      flex-shrink: 0;
+    }
+
+    .azura-speech-content {
+      flex: 1;
+    }
+
+    .azura-name-tag {
+      font-size: 12px;
+      font-weight: 700;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 2px;
+    }
+
+    .azura-speech-text {
+      font-size: 15px;
+      color: #f8fafc;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    /* ── CO-OP CONTROL CONSOLE ── */
+    .control-console {
+      width: 100%;
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .input-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      width: 100%;
+    }
+
+    .cmd-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .cmd-input:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
+    }
+
+    .mic-btn {
+      background: linear-gradient(135deg, #ef4444, #f97316);
+      border: none;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    }
+
+    .mic-btn.recording {
+      background: linear-gradient(135deg, #dc2626, #991b1b);
+      animation: pulse 1s infinite;
+    }
+
+    .mic-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+    }
+
+    .send-btn {
+      background: linear-gradient(135deg, var(--accent), var(--neon-cyan));
+      border: none;
+      color: #fff;
+      padding: 12px 22px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .send-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 18px var(--accent-glow);
+    }
+
+    .quick-dpad-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dpad-btn {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #f1f5f9;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+
+    .dpad-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: #38bdf8;
+      color: #38bdf8;
       transform: translateY(-2px);
     }
 
-    .stats-footer {
-      display: flex;
-      justify-content: space-between;
-      width: 100%;
-      margin-top: 16px;
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-
-    .badge-tag {
-      background: rgba(255, 255, 255, 0.06);
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
+    .dpad-btn.special {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(56, 189, 248, 0.2));
+      border-color: rgba(168, 85, 247, 0.5);
+      color: #c084fc;
     }
   </style>
 </head>
@@ -469,23 +637,18 @@ function getPortalHtml() {
     <div class="brand">
       <div class="logo-badge">AZ</div>
       <div>
-        <div class="brand-title">AZURA Screen Companion</div>
-        <div style="font-size: 12px; color: var(--text-muted);" id="page-title">Standby Mode</div>
+        <div class="brand-title">AZURA Co-Op Companion</div>
+        <div style="font-size: 12px; color: var(--text-muted);" id="page-title">2048 Interactive Arena</div>
       </div>
     </div>
-    <div class="status-badge" id="status-badge">
-      <div class="status-dot" id="status-dot"></div>
+    <div class="status-badge">
+      <div class="status-dot"></div>
       <span id="status-text">LIVE 60FPS</span>
     </div>
   </header>
 
   <main>
-    <div class="url-bar-container">
-      <span class="url-icon">🔒</span>
-      <span class="url-text" id="stream-url">about:blank</span>
-      <span class="badge-tag">Playwright 720p HD</span>
-    </div>
-
+    <!-- VIDEO STREAM -->
     <div class="stream-wrapper" id="stream-box">
       <img id="stream-canvas" src="" alt="Live Stream Screen">
       <div class="overlay-controls">
@@ -493,18 +656,45 @@ function getPortalHtml() {
       </div>
     </div>
 
-    <div class="stats-footer">
-      <div>Latency: <span class="badge-tag" id="latency-val">&lt; 80ms</span> • Viewers: <span class="badge-tag" id="viewer-count">1</span></div>
-      <div>Kontrol Suara: <span class="badge-tag" style="color: var(--neon-cyan);">"Azura scroll bawah"</span> / <span class="badge-tag" style="color: var(--neon-cyan);">"Azura buka [web]"</span></div>
+    <!-- AZURA SPOKEN DIALOGUE BUBBLE -->
+    <div class="azura-speech-card">
+      <div class="azura-avatar-badge">🌸</div>
+      <div class="azura-speech-content">
+        <div class="azura-name-tag">Azura • Companion Voice</div>
+        <div class="azura-speech-text" id="azura-text">"Halo Attila! Aku yang pegang bidak di browser, kamu yang kasih aba-aba yaa! Bisa ketik atau klik tombol mic di bawah 🎤✨"</div>
+      </div>
+    </div>
+
+    <!-- INTERACTIVE CONTROL CONSOLE -->
+    <div class="control-console">
+      <div class="input-row">
+        <button class="mic-btn" id="mic-btn" onclick="toggleVoiceInput()">
+          <span id="mic-icon">🎙️</span> <span id="mic-label">Bicara ke Azura</span>
+        </button>
+        <input type="text" id="cmd-input" class="cmd-input" placeholder="Ketik perintah: 'geser kiri', 'ke atas', 'auto 5x', 'saran'..." onkeydown="if(event.key==='Enter') sendCommand()">
+        <button class="send-btn" onclick="sendCommand()">Kirim Perintah 🚀</button>
+      </div>
+
+      <!-- QUICK D-PAD BUTTONS -->
+      <div class="quick-dpad-row">
+        <button class="dpad-btn" onclick="sendDirectMove('atas')">⬆️ Ke Atas</button>
+        <button class="dpad-btn" onclick="sendDirectMove('kiri')">⬅️ Geser Kiri</button>
+        <button class="dpad-btn" onclick="sendDirectMove('kanan')">➡️ Geser Kanan</button>
+        <button class="dpad-btn" onclick="sendDirectMove('bawah')">⬇️ Ke Bawah</button>
+        <button class="dpad-btn special" onclick="sendDirectMove('auto')">🤖 Auto 5 Langkah</button>
+        <button class="dpad-btn special" onclick="sendDirectMove('saran')">💡 Minta Saran</button>
+        <button class="dpad-btn" onclick="sendDirectMove('reset')">🔄 Reset Papan</button>
+      </div>
     </div>
   </main>
 
   <script>
     const streamImg = document.getElementById('stream-canvas');
-    const streamUrlEl = document.getElementById('stream-url');
-    const pageTitleEl = document.getElementById('page-title');
-    const statusTextEl = document.getElementById('status-text');
-    const statusDotEl = document.getElementById('status-dot');
+    const azuraTextEl = document.getElementById('azura-text');
+    const cmdInput = document.getElementById('cmd-input');
+    const micBtn = document.getElementById('mic-btn');
+    const micIcon = document.getElementById('mic-icon');
+    const micLabel = document.getElementById('mic-label');
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = protocol + '//' + location.host;
@@ -513,11 +703,7 @@ function getPortalHtml() {
     function connectWs() {
       ws = new WebSocket(wsUrl);
 
-      ws.onopen = () => {
-        statusTextEl.innerText = 'LIVE 60FPS';
-        statusDotEl.style.background = '#2ecc71';
-        statusDotEl.style.boxShadow = '0 0 8px #2ecc71';
-      };
+      ws.onopen = () => {};
 
       ws.onmessage = (event) => {
         try {
@@ -525,17 +711,14 @@ function getPortalHtml() {
           if (msg.type === 'frame' && msg.data) {
             streamImg.src = 'data:image/jpeg;base64,' + msg.data;
           }
-          if (msg.meta) {
-            if (msg.meta.url) streamUrlEl.innerText = msg.meta.url;
-            if (msg.meta.title) pageTitleEl.innerText = msg.meta.title;
+          if (msg.type === 'azura_reply' && msg.text) {
+            azuraTextEl.innerText = msg.text;
+            playVoiceResponse(msg.text);
           }
         } catch (e) {}
       };
 
       ws.onclose = () => {
-        statusTextEl.innerText = 'RECONNECTING...';
-        statusDotEl.style.background = '#f39c12';
-        statusDotEl.style.boxShadow = '0 0 8px #f39c12';
         setTimeout(connectWs, 2000);
       };
 
@@ -545,6 +728,107 @@ function getPortalHtml() {
     }
 
     connectWs();
+
+    function sendCommand() {
+      const text = cmdInput.value.trim();
+      if (!text) return;
+      cmdInput.value = '';
+
+      azuraTextEl.innerText = 'Mendengar aba-aba: "' + text + '"... mengeksekusi ke papan!';
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'game_command', command: text, userName: 'Attila' }));
+      } else {
+        // Fallback REST API
+        fetch('/api/game/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: text, userName: 'Attila' })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.result.response) {
+            azuraTextEl.innerText = data.result.response;
+            playVoiceResponse(data.result.response);
+          }
+        });
+      }
+    }
+
+    function sendDirectMove(dir) {
+      cmdInput.value = dir;
+      sendCommand();
+    }
+
+    // ── SPEECH-TO-TEXT VOICE MIC INPUT (WEB SPEECH API) ──
+    let recognition = null;
+    let isRecording = false;
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRec();
+      recognition.lang = 'id-ID';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        isRecording = true;
+        micBtn.classList.add('recording');
+        micIcon.innerText = '🔴';
+        micLabel.innerText = 'Mendengarkan...';
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        cmdInput.value = transcript;
+        sendCommand();
+      };
+
+      recognition.onerror = () => {
+        stopVoiceInput();
+      };
+
+      recognition.onend = () => {
+        stopVoiceInput();
+      };
+    }
+
+    function toggleVoiceInput() {
+      if (!recognition) {
+        alert('Fitur Voice Speech Recognition tidak didukung di browser ini. Gunakan Google Chrome / Edge ya!');
+        return;
+      }
+
+      if (isRecording) {
+        recognition.stop();
+        stopVoiceInput();
+      } else {
+        try {
+          recognition.start();
+        } catch (_) {}
+      }
+    }
+
+    function stopVoiceInput() {
+      isRecording = false;
+      micBtn.classList.remove('recording');
+      micIcon.innerText = '🎙️';
+      micLabel.innerText = 'Bicara ke Azura';
+    }
+
+    function playVoiceResponse(text) {
+      if ('speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const cleanSpeech = text.replace(/[*#_~\`\\[\\]]/g, '');
+          const utter = new SpeechSynthesisUtterance(cleanSpeech);
+          utter.lang = 'id-ID';
+          utter.pitch = 1.25;
+          utter.rate = 1.05;
+          window.speechSynthesis.speak(utter);
+        } catch (_) {}
+      }
+    }
 
     function toggleFullscreen() {
       const box = document.getElementById('stream-box');

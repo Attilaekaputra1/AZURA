@@ -1,349 +1,160 @@
 /**
- * AZURA Web Surf Agent — Live Research, Autonomous Task Execution, & Interactive Screen Share
+ * AZURA Web Surf Agent — Dual-Mode Autonomous & Interactive Web Companion
  * 
- * Capabilities:
- * 1. 📺 Live Web Surfing & Research with voice narration in Discord VC
- * 2. 🤖 Autonomous Task Execution: form filling, checkout, dashboard monitoring, PDF download
- * 3. 🛡️ Runs 100% on VPS headless Chromium — no VT-x, no emulator, no GPU needed
+ * Mode 1: 🎯 Autonomous Goal-Oriented Mission (Action-based based on first prompt)
+ *   - Example: "ara browsing situs learnext terus masuk ke website resminya"
+ *   - Azura decomposes instructions, types on screen, clicks into official sites, scrolls,
+ *     reports concise summary, and auto-closes session upon completion!
  * 
- * All visual output streams to http://203.175.10.163:7860/live in real-time 60fps.
+ * Mode 2: 🕹️ Persistent Step-by-Step Browsing (Mabar / Interactive Standby)
+ *   - Example: "ara, aku mau browsing-browsing nih, bantuin dong"
+ *   - Stays persistently open without auto-closing until user says "ara tutup browser"!
+ *   - Accepts real-time commands: "ketik ...", "klik ...", "scroll bawah", "jelaskan layar".
+ * 
+ * All visual output streams live 60fps to http://203.175.10.163:7860/browse.
  */
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
-const { getBrowser, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, sendVisualSnapshotCard } = require('./headlessBrowser');
+const { getBrowser, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, activeBrowserSessions } = require('./headlessBrowser');
 const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
 const config = require('./config');
 
 const BROWSE_URL = 'http://203.175.10.163:7860/browse';
 
-// ─── Active Research Sessions ───
-const activeResearchSessions = new Map(); // guildId -> { topic, steps[], channel, userName, client }
-
 /**
- * Smart Research Agent: Opens browser, searches, reads pages, and narrates findings live in VC
+ * MODE 1: Autonomous Goal-Oriented Browsing Mission
+ * Executes sequential browser actions, navigates into websites, reports concisely, and auto-closes.
  * @param {string} guildId 
- * @param {string} researchQuery - Natural language research request
+ * @param {string} missionPrompt 
  * @param {string} userName 
  * @param {import('discord.js').TextChannel} textChannel 
  * @param {import('discord.js').Client} client 
- * @returns {Promise<{ success: boolean, summary: string }>}
  */
-async function performLiveResearch(guildId, researchQuery, userName, textChannel, client) {
-  console.log(`[Web Surf Agent]: 🔍 Starting live research for "${researchQuery}" (Guild: ${guildId})`);
+async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName, textChannel, client) {
+  console.log(`[Web Surf Agent]: 🚀 Executing Autonomous Mission: "${missionPrompt}" for ${userName}`);
 
-  const session = {
-    topic: researchQuery,
-    steps: [],
-    channel: textChannel,
-    userName,
-    client,
-    startedAt: Date.now()
-  };
-  activeResearchSessions.set(guildId, session);
+  const announceText = `Siap ${userName}! Aku jalankan misi di browser: "${missionPrompt}". Pantau layarnya di live stream ya!`;
+  await speakInVC(guildId, announceText, client, userName);
+
+  const session = await require('./headlessBrowser').getOrCreateSession(guildId);
+  const { page } = session;
 
   try {
-    // Step 1: Announce in VC
-    const announceText = `Siap ${userName}! Aku mulai riset tentang "${researchQuery}" di browser sekarang ya. Kamu bisa pantau layarnya secara live di portal web!`;
-    await speakInVC(guildId, announceText, client, userName);
+    const cleanPrompt = missionPrompt
+      .replace(/<@!?\d+>/g, '')
+      .replace(/\b(?:ara|azura|tolong|coba|dong|ya|yuk|plis)\b/gi, '')
+      .trim();
 
-    // Step 2: Open search engine and visibly type the query on screen
-    const searchResult = await openWebpage(guildId, researchQuery);
+    // AI Action Decomposition
+    const { askAzura } = require('./azura');
+    const plannerPrompt = `Kamu adalah Azura, AI Autonomous Browser Agent. User "${userName}" memberi instruksi:
+"${cleanPrompt}"
 
-    if (!searchResult.success) {
-      const errMsg = `Maaf ${userName}, gagal melakukan pencarian: ${searchResult.error}`;
-      await speakInVC(guildId, errMsg, client, userName);
-      return { success: false, summary: errMsg };
-    }
+Rencanakan aksi browser:
+1. Kata kunci pencarian awal terbaik? (misal untuk "browsing situs learnext terus masuk ke website resminya" -> "learnext official website")
+2. Kata kunci link yang harus diklik untuk masuk ke situs resminya? (misal -> "learnext")
 
-    session.steps.push({ action: 'search', url: searchResult.url, title: searchResult.title });
+Jawab HANYA format JSON valid berikut tanpa penjelasan lain:
+{
+  "searchQuery": "kata kunci pencarian",
+  "clickKeyword": "kata kunci link tujuan"
+}`;
 
-    // Step 3: Read search results
-    await new Promise(r => setTimeout(r, 1200));
-    const pageSummary = await getWebpageSummary(guildId);
-    let findings = pageSummary.success ? (pageSummary.bodyText || pageSummary.headings || '') : '';
+    let plan = {
+      searchQuery: cleanPrompt.replace(/\b(?:browsing|situs|web|masuk\s+ke|website|resminya)\b/gi, '').trim() || cleanPrompt,
+      clickKeyword: cleanPrompt.split(' ')[0] || ''
+    };
 
-    // Step 4: Try clicking the first organic result link to dive deeper
     try {
-      const { activeBrowserSessions } = require('./headlessBrowser');
-      const curSession = activeBrowserSessions?.get(guildId);
-      if (curSession?.page && !curSession.page.isClosed()) {
-        const firstLink = await curSession.page.$('#b_results .b_algo h2 a, h2 a, a[href*="http"]:not([href*="bing.com"]):not([href*="microsoft"])');
-        if (firstLink) {
-          console.log('[Web Surf Agent]: 🖱️ Clicking first result link to inspect...');
-          await firstLink.click({ timeout: 4000 }).catch(() => {});
-          await curSession.page.waitForTimeout(2000);
-          await curSession.page.evaluate(() => window.scrollBy({ top: 300, behavior: 'smooth' })).catch(() => {});
-          const deepSummary = await getWebpageSummary(guildId);
-          if (deepSummary.success) {
-            findings += '\n\n' + (deepSummary.bodyText || deepSummary.headings || '');
-            session.steps.push({ action: 'deep_read', url: deepSummary.url, title: deepSummary.title });
-          }
-        }
+      const rawPlan = await askAzura(
+        config.OWNER_DISCORD_ID || 'planner_user',
+        plannerPrompt,
+        userName,
+        [],
+        false,
+        textChannel?.id || null,
+        guildId,
+        true
+      );
+      const planText = typeof rawPlan === 'string' ? rawPlan : (rawPlan?.content || '');
+      const jsonMatch = planText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.searchQuery) plan.searchQuery = parsed.searchQuery;
+        if (parsed.clickKeyword) plan.clickKeyword = parsed.clickKeyword;
       }
     } catch (_) {}
 
-    // Step 5: Compose concise summary (Singkat, Padat, Langsung ke Inti)
-    const combinedContent = findings.slice(0, 2500);
-    const { askAzura } = require('./azura');
-    const aiSummary = await askAzura(
-      config.OWNER_DISCORD_ID || 'research_user',
-      `Kamu baru saja melakukan riset di browser tentang: "${researchQuery}".
-Berikut konten yang kamu temukan di halaman web:
----
-${combinedContent}
----
-Buatlah ringkasan temuan riset ini untuk ${userName} secara SINGKAT, PADAT, dan LANGSUNG KE INTI INFORMASI (maksimal 2 paragraf pendek saja atau 3 poin bullet ringkas). Jangan bertele-tele atau membuat penjelasan panjang!`,
-      userName,
-      [],
-      false,
-      textChannel?.id || null,
-      guildId,
-      true
-    );
+    // 1. Open Search Engine
+    console.log(`[Autonomous Mission]: 🔍 Navigating to Bing with query: "${plan.searchQuery}"`);
+    await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(800);
 
-    const cleanSummary = typeof aiSummary === 'string'
-      ? aiSummary.replace(/<[^>]+>/g, '').replace(/\*\*/g, '').replace(/[*_~`#>]/g, '').trim()
-      : (aiSummary?.content || 'Pencarian selesai dilakukan.');
-
-    // Step 6: Narrate findings in Discord VC (Short & Sweet)
-    const narrationText = cleanSummary.length > 250 ? cleanSummary.slice(0, 250) : cleanSummary;
-    await speakInVC(guildId, narrationText, client, userName);
-
-    // Step 8: Post recap card in text channel
-    if (textChannel) {
-      const embed = new EmbedBuilder()
-        .setColor(0x3498DB)
-        .setTitle(`🔍 Hasil Riset: "${researchQuery}"`)
-        .setDescription(cleanSummary.slice(0, 2000))
-        .addFields(
-          { name: '📊 Sumber Ditelusuri', value: `\`${session.steps.length} halaman web\``, inline: true },
-          { name: '⏱️ Durasi Riset', value: `\`${Math.round((Date.now() - session.startedAt) / 1000)} detik\``, inline: true },
-          { name: '📺 Live Stream', value: `[Buka Halaman Browser](${BROWSE_URL})`, inline: true }
-        )
-        .setFooter({ text: `AZURA Web Surf Agent • Riset untuk ${userName}` })
-        .setTimestamp();
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setLabel('🌐 Buka Halaman Headless Browser')
-          .setStyle(ButtonStyle.Link)
-          .setURL(BROWSE_URL)
-      );
-
-      await textChannel.send({ embeds: [embed], components: [row] }).catch(() => {});
+    // 2. Visible On-Screen Typing (Human-like)
+    const searchInput = await page.$('input[name="q"], textarea[name="q"], #sb_form_q');
+    if (searchInput) {
+      await searchInput.click();
+      await page.waitForTimeout(200);
+      await page.keyboard.type(plan.searchQuery, { delay: 45 });
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(2500);
     }
 
-    activeResearchSessions.delete(guildId);
-    return { success: true, summary: cleanSummary };
+    // 3. Scroll Search Results
+    await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
+    await page.waitForTimeout(1000);
 
-  } catch (err) {
-    console.error('[Web Surf Agent Research Error]:', err.message);
-    activeResearchSessions.delete(guildId);
-    const errMsg = `Terjadi kendala saat riset: ${err.message}`;
-    await speakInVC(guildId, errMsg, client, userName);
-    return { success: false, summary: errMsg };
-  }
-}
+    // 4. Click Destination Official Website Link
+    const kw = (plan.clickKeyword || plan.searchQuery.split(' ')[0] || '').toLowerCase();
+    console.log(`[Autonomous Mission]: 🖱️ Locating official website link matching: "${kw}"`);
 
-/**
- * Autonomous Task Execution: Fill forms, login, download reports, monitor dashboards
- * @param {string} guildId 
- * @param {string} taskDescription - Natural language task instruction
- * @param {string} userName 
- * @param {import('discord.js').TextChannel} textChannel 
- * @param {import('discord.js').Client} client 
- * @returns {Promise<{ success: boolean, report: string }>}
- */
-async function executeAutonomousWebTask(guildId, taskDescription, userName, textChannel, client) {
-  console.log(`[Web Surf Agent]: 🤖 Autonomous task: "${taskDescription}" (Guild: ${guildId})`);
-
-  try {
-    // Step 1: Announce in VC
-    const announceText = `Oke ${userName}, aku mulai mengerjakan tugas "${taskDescription}" di browser secara otomatis. Kamu bisa pantau progresnya di portal live!`;
-    await speakInVC(guildId, announceText, client, userName);
-
-    // Step 2: Ask AI brain to decompose the task into browser action steps
-    const { askAzura } = require('./azura');
-    const planResponse = await askAzura(
-      config.OWNER_DISCORD_ID || 'task_user',
-      `Kamu adalah Azura, AI browser automation agent. User "${userName}" meminta kamu melakukan tugas berikut di browser:
-"${taskDescription}"
-
-Buat daftar langkah-langkah browser automation yang perlu dilakukan, dalam format JSON array:
-[
-  {"action": "navigate", "url": "https://..."},
-  {"action": "type", "selector": "input[name='search']", "value": "text to type"},
-  {"action": "click", "target": "Submit"},
-  {"action": "scroll", "direction": "down"},
-  {"action": "wait", "ms": 2000},
-  {"action": "screenshot"},
-  {"action": "read_page"}
-]
-
-HANYA kembalikan JSON array saja tanpa penjelasan lain. Jika tugas tidak bisa dilakukan secara aman (misalnya butuh password/data sensitif yang tidak tersedia), kembalikan:
-[{"action": "report", "message": "Penjelasan kenapa tidak bisa dilakukan"}]`,
-      userName,
-      [],
-      false,
-      textChannel?.id || null,
-      guildId,
-      true
-    );
-
-    let steps = [];
-    const rawPlan = typeof planResponse === 'string' ? planResponse : (planResponse?.content || '[]');
-
-    // Extract JSON from AI response
-    const jsonMatch = rawPlan.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      try {
-        steps = JSON.parse(jsonMatch[0]);
-      } catch (_) {
-        steps = [{ action: 'report', message: 'Gagal memproses rencana tugas otomatis.' }];
-      }
-    }
-
-    if (!steps.length) {
-      steps = [{ action: 'report', message: 'Tidak ada langkah yang bisa dieksekusi untuk tugas ini.' }];
-    }
-
-    // Step 3: Execute each browser action step
-    const executionLog = [];
-    for (const step of steps) {
-      try {
-        switch (step.action) {
-          case 'navigate': {
-            const res = await openWebpage(guildId, step.url);
-            executionLog.push(`🌐 Buka: ${step.url} → ${res.success ? 'OK' : res.error}`);
-            await new Promise(r => setTimeout(r, 1500));
-            break;
-          }
-          case 'type': {
-            const res = await typeIntoWebpage(guildId, step.value || step.text || '');
-            executionLog.push(`⌨️ Ketik: "${step.value}" → ${res.success ? 'OK' : res.error}`);
-            await new Promise(r => setTimeout(r, 1000));
-            break;
-          }
-          case 'click': {
-            const res = await clickOnWebpage(guildId, step.target || step.selector || '');
-            executionLog.push(`🖱️ Klik: "${step.target}" → ${res.success ? 'OK' : res.error}`);
-            await new Promise(r => setTimeout(r, 1500));
-            break;
-          }
-          case 'scroll': {
-            const res = await scrollWebpage(guildId, step.direction || 'down');
-            executionLog.push(`📜 Scroll: ${step.direction || 'down'} → ${res.success ? 'OK' : res.error}`);
-            await new Promise(r => setTimeout(r, 800));
-            break;
-          }
-          case 'wait': {
-            await new Promise(r => setTimeout(r, step.ms || 2000));
-            executionLog.push(`⏳ Tunggu: ${step.ms || 2000}ms`);
-            break;
-          }
-          case 'screenshot': {
-            executionLog.push('📸 Screenshot diambil (visible on live stream)');
-            break;
-          }
-          case 'read_page': {
-            const summary = await getWebpageSummary(guildId);
-            if (summary.success) {
-              executionLog.push(`📖 Baca: "${summary.title}" — ${(summary.bodyText || '').slice(0, 100)}...`);
-            }
-            break;
-          }
-          case 'report': {
-            executionLog.push(`📋 Laporan: ${step.message}`);
-            break;
-          }
-          default:
-            executionLog.push(`❓ Langkah tidak dikenal: ${step.action}`);
+    const clickResult = await page.evaluate((targetKw) => {
+      const links = Array.from(document.querySelectorAll('#b_results .b_algo h2 a, h2 a, a[href*="http"]'));
+      for (const a of links) {
+        const href = (a.href || '').toLowerCase();
+        const txt = (a.innerText || '').toLowerCase();
+        if (href.includes('bing.com') || href.includes('microsoft.com') || href.includes('google.com')) continue;
+        if (!targetKw || txt.includes(targetKw) || href.includes(targetKw)) {
+          a.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          a.click();
+          return { success: true, text: a.innerText, href: a.href };
         }
-      } catch (stepErr) {
-        executionLog.push(`❌ Error pada langkah "${step.action}": ${stepErr.message}`);
       }
+      if (links.length > 0) {
+        links[0].click();
+        return { success: true, text: links[0].innerText, href: links[0].href };
+      }
+      return { success: false };
+    }, kw);
+
+    if (clickResult && clickResult.success) {
+      console.log(`[Autonomous Mission]: ✅ Entered website: "${clickResult.text}" (${clickResult.href})`);
+      await page.waitForTimeout(3500);
+      // Smooth scroll the official website so viewers see the actual page content
+      await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'smooth' })).catch(() => {});
+      await page.waitForTimeout(1500);
     }
 
-    // Step 4: Generate final report
-    const reportText = executionLog.join('\n');
-    const shortReport = reportText.length > 500 ? reportText.slice(0, 500) + '...' : reportText;
+    // 5. Final State & Screenshot
+    const finalTitle = await page.title().catch(() => 'Halaman Web');
+    const finalUrl = page.url();
+    session.currentUrl = finalUrl;
+    session.currentTitle = finalTitle;
+    updateStreamMeta({ title: finalTitle, url: finalUrl, activeGuild: guildId, mode: 'browse' });
 
-    // Step 5: Narrate completion in VC
-    const completionVoice = `Tugas "${taskDescription}" sudah selesai aku kerjakan ${userName}! Total ${executionLog.length} langkah browser dieksekusi.`;
-    await speakInVC(guildId, completionVoice, client, userName);
-
-    // Step 6: Post report card to Discord text channel
-    if (textChannel) {
-      const embed = new EmbedBuilder()
-        .setColor(0x2ECC71)
-        .setTitle(`🤖 Laporan Tugas Otomatis Selesai`)
-        .setDescription(
-          `**Tugas:** ${taskDescription}\n` +
-          `**Oleh:** Azura untuk ${userName}\n\n` +
-          `**Eksekusi Log:**\n\`\`\`\n${shortReport}\n\`\`\``
-        )
-        .addFields(
-          { name: '📊 Total Langkah', value: `\`${executionLog.length}\``, inline: true },
-          { name: '📺 Live Stream', value: `[Tonton](${STREAM_URL})`, inline: true }
-        )
-        .setFooter({ text: 'AZURA Autonomous Task Agent' })
-        .setTimestamp();
-
-      await textChannel.send({ embeds: [embed] }).catch(() => {});
-    }
-
-    return { success: true, report: reportText };
-
-  } catch (err) {
-    console.error('[Web Surf Agent Task Error]:', err.message);
-    const errMsg = `Terjadi kendala saat mengerjakan tugas: ${err.message}`;
-    await speakInVC(guildId, errMsg, client, userName);
-    return { success: false, report: errMsg };
-  }
-}
-
-/**
- * Dashboard Monitoring: Navigate to a dashboard URL, take a screenshot, read metrics, report to Discord
- * @param {string} guildId 
- * @param {string} dashboardUrl 
- * @param {string} userName 
- * @param {import('discord.js').TextChannel} textChannel 
- * @param {import('discord.js').Client} client 
- */
-async function monitorDashboard(guildId, dashboardUrl, userName, textChannel, client) {
-  console.log(`[Web Surf Agent]: 📊 Dashboard monitoring: ${dashboardUrl}`);
-
-  try {
-    const announceText = `Oke ${userName}, aku buka dashboard-nya sekarang dan laporkan isinya ya!`;
-    await speakInVC(guildId, announceText, client, userName);
-
-    const navResult = await openWebpage(guildId, dashboardUrl);
-    if (!navResult.success) {
-      const errMsg = `Gagal membuka dashboard: ${navResult.error}`;
-      await speakInVC(guildId, errMsg, client, userName);
-      return { success: false, report: errMsg };
-    }
-
-    // Wait for dashboard to fully render
-    await new Promise(r => setTimeout(r, 3000));
-
-    // Read page content
     const summary = await getWebpageSummary(guildId);
-    let reportContent = 'Tidak ada data yang terbaca dari dashboard.';
-    if (summary.success) {
-      reportContent = `${summary.title}\n${summary.headings}\n${summary.bodyText}`.slice(0, 2000);
-    }
+    const screenshotBuffer = await page.screenshot({ type: 'png' }).catch(() => null);
 
-    // Generate AI analysis of dashboard data
-    const { askAzura } = require('./azura');
-    const aiAnalysis = await askAzura(
-      config.OWNER_DISCORD_ID || 'dashboard_user',
-      `Kamu baru saja membuka dashboard web "${dashboardUrl}" dan menemukan data berikut:
----
-${reportContent}
----
-Buatlah ringkasan metrik dan informasi penting dari dashboard ini untuk ${userName}. 
-Jelaskan angka-angka kunci, status, dan insight yang bisa diambil secara ringkas dan jelas.`,
+    // 6. Crisp AI Report (1-2 sentences)
+    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom: "${missionPrompt}".
+Saat ini kamu sudah berhasil membuka dan masuk ke website: "${finalTitle}" (${finalUrl}).
+Konten halaman: ${(summary.bodyText || '').slice(0, 500)}
+Berikan laporan singkat (maksimal 2 kalimat saja) untuk ${userName} bahwa kamu sudah berhasil masuk dan jelaskan intinya secara ceria!`;
+
+    const aiReport = await askAzura(
+      config.OWNER_DISCORD_ID || 'mission_user',
+      reportPrompt,
       userName,
       [],
       false,
@@ -352,44 +163,103 @@ Jelaskan angka-angka kunci, status, dan insight yang bisa diambil secara ringkas
       true
     );
 
-    const cleanAnalysis = typeof aiAnalysis === 'string'
-      ? aiAnalysis.replace(/<[^>]+>/g, '').replace(/\*\*/g, '').replace(/[*_~`#>]/g, '').trim()
-      : (aiAnalysis?.content || reportContent);
+    const cleanReport = typeof aiReport === 'string'
+      ? aiReport.replace(/<[^>]+>/g, '').replace(/\*\*/g, '').replace(/[*_~`#>]/g, '').trim()
+      : `Misi selesai! Aku sudah berhasil membuka dan masuk ke website "${finalTitle}".`;
 
-    // Narrate findings
-    const narration = cleanAnalysis.length > 500 ? cleanAnalysis.slice(0, 500) : cleanAnalysis;
-    await speakInVC(guildId, narration, client, userName);
+    // Speak in VC (if connected)
+    await speakInVC(guildId, cleanReport.slice(0, 180), client, userName);
 
-    // Post to Discord
-    if (textChannel && navResult.screenshot) {
-      const attachment = new AttachmentBuilder(navResult.screenshot, { name: 'dashboard_snapshot.png' });
+    // Send Discord embed with screenshot
+    if (textChannel) {
+      const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
       const embed = new EmbedBuilder()
-        .setColor(0x9B59B6)
-        .setTitle(`📊 Laporan Dashboard Monitoring`)
-        .setDescription(cleanAnalysis.slice(0, 2000))
-        .setImage('attachment://dashboard_snapshot.png')
-        .addFields(
-          { name: '🔗 URL', value: `\`${dashboardUrl}\``, inline: false },
-          { name: '📺 Live Stream', value: `[Tonton](${STREAM_URL})`, inline: true }
+        .setColor(0x00F2FE)
+        .setTitle(`🌐 Misi Browsing Selesai: "${finalTitle.slice(0, 60)}"`)
+        .setURL(finalUrl.startsWith('http') ? finalUrl : 'https://www.bing.com')
+        .setDescription(
+          `🎯 **Misi:** *${missionPrompt}*\n\n` +
+          `📝 **Laporan Singkat:**\n${cleanReport}\n\n` +
+          `🔗 **URL Website:** \`${finalUrl.slice(0, 100)}\`\n\n` +
+          `*🔒 Karena misi spesifik sudah selesai, sesi browser otomatis ditutup untuk menghemat resource.*`
         )
-        .setFooter({ text: `AZURA Dashboard Monitor • Untuk ${userName}` })
+        .setFooter({ text: `AZURA Autonomous Web Mission • ${userName}` })
         .setTimestamp();
 
-      await textChannel.send({ embeds: [embed], files: [attachment] }).catch(() => {});
+      if (attachment) {
+        embed.setImage('attachment://mission_destination.png');
+      }
+
+      await textChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
     }
 
-    return { success: true, report: cleanAnalysis };
+    // 7. AUTO-CLOSE SESSION after completing specific mission
+    setTimeout(async () => {
+      console.log(`[Web Surf Agent]: 🔒 Mission completed successfully. Auto-closing browser session for ${guildId}...`);
+      await closeBrowserSession(guildId);
+    }, 10000);
+
+    return { success: true, title: finalTitle, url: finalUrl };
 
   } catch (err) {
-    console.error('[Web Surf Agent Dashboard Error]:', err.message);
-    return { success: false, report: err.message };
+    console.error('[Autonomous Mission Error]:', err.message);
+    const errMsg = `Misi browsing gagal: ${err.message}`;
+    await speakInVC(guildId, errMsg, client, userName);
+    if (textChannel) textChannel.send(`❌ ${errMsg}`).catch(() => {});
+    setTimeout(() => closeBrowserSession(guildId), 5000);
+    return { success: false, error: err.message };
   }
 }
 
 /**
- * Handle text-based web surf agent commands from Discord chat
- * ONLY triggered by "tolong browsing [query]" and ONLY when Azura is in a Voice Channel.
- * This prevents conflict with Tavily research in regular chat.
+ * MODE 2: Persistent Interactive Step-by-Step Browsing (Mabar Standby)
+ * Opens browser and stays permanently active waiting for user commands until explicitly closed.
+ * @param {string} guildId 
+ * @param {string} userName 
+ * @param {import('discord.js').TextChannel} textChannel 
+ * @param {import('discord.js').Client} client 
+ */
+async function startPersistentInteractiveBrowsing(guildId, userName, textChannel, client) {
+  console.log(`[Web Surf Agent]: 🕹️ Starting Persistent Interactive Browsing for ${guildId}`);
+
+  const announceText = `Siap ${userName}! Aku buka browser dan standby di live stream yaa. Kamu bisa suruh aku ketik, klik, atau scroll secara realtime!`;
+  await speakInVC(guildId, announceText, client, userName);
+
+  const res = await openWebpage(guildId, 'https://www.bing.com');
+  const session = activeBrowserSessions?.get(guildId);
+  if (session) {
+    session.isPersistent = true; // Prevents idle auto-close!
+  }
+
+  if (textChannel) {
+    const embed = new EmbedBuilder()
+      .setColor(0x38BDF8)
+      .setTitle(`🌐 Sesi Browsing Interaktif Standby (Mode Mabar)`)
+      .setDescription(
+        `Halo **${userName}**! Browser sudah dibuka dan siap menemani kamu browsing! 🌸✨\n\n` +
+        `📺 **Tonton Layar Live 60 FPS:**\n` +
+        `👉 **[KLIK DI SINI: PORTAL BROWSER LIVE](${BROWSE_URL})**\n\n` +
+        `🕹️ **Perintah Step-by-Step yang Bisa Kamu Berikan:**\n` +
+        `• Ketik teks: \`ara ketik [kata kunci]\`\n` +
+        `• Klik link/tombol: \`ara klik [nama link]\`\n` +
+        `• Gulir layar: \`ara scroll bawah\` atau \`ara scroll atas\`\n` +
+        `• Buka situs: \`ara buka [url atau pencarian]\`\n` +
+        `• Baca layar: \`ara jelaskan halaman ini\`\n` +
+        `• Tutup browser: \`ara tutup browser\`\n\n` +
+        `*🔒 Sesi ini akan tetap aktif dan TIDAK akan ditutup otomatis sampai kamu minta tutup!*`
+      )
+      .setFooter({ text: 'AZURA Persistent Interactive Web Companion' })
+      .setTimestamp();
+
+    await textChannel.send({ embeds: [embed] }).catch(() => {});
+  }
+
+  return { success: true };
+}
+
+/**
+ * Handle Web Surf Agent commands from Discord chat
+ * Intercepts BOTH Mode 1 (Autonomous Mission) and Mode 2 (Step-by-Step Standby)
  * @param {import('discord.js').Message} message 
  * @param {import('discord.js').Client} client 
  * @returns {Promise<boolean>}
@@ -400,28 +270,83 @@ async function handleWebSurfCommands(message, client) {
   if (!isOwner) return false;
 
   const content = message.content.trim();
+  const lower = content.toLowerCase();
   const guildId = message.guild?.id || 'default_guild';
   const userName = message.member?.displayName || message.author.displayName || message.author.username;
   const textChannel = message.channel;
 
-  // Check if Azura is in a Voice Channel in this guild
-  const guild = message.guild;
-  const botMember = guild?.members?.me;
-  const isInVC = botMember?.voice?.channel != null;
+  // 1. Explicit Close Command: "ara tutup browser", "ara stop browsing", "ara matikan browser"
+  if (/\b(?:ara|azura)\s+(?:tolong\s+)?(?:tutup|close|stop|matikan|selesai)\s+(?:browser|chrome|web|tab|browsing)\b/i.test(lower)) {
+    const res = await closeBrowserSession(guildId);
+    await message.reply(`🔒 **[AZURA Browser]** ${res.message}`);
+    await speakInVC(guildId, 'Sesi browser sudah aku tutup yaa!', client, userName);
+    return true;
+  }
 
-  if (!isInVC) return false; // Headless browsing only works when Azura is in VC
+  // 2. Open-ended Persistent Session Request: "ara aku mau browsing-browsing nih bantuin dong", "ara bantu browsing dong", "ara buka chrome standby"
+  const isPersistentIntent = /\b(?:ara|azura)\s+(?:aku\s+)?(?:mau|pengen|yuk|bantu|temenin)\s+browsing\b/i.test(lower) ||
+                             /\b(?:ara|azura)\s+(?:tolong\s+)?buka\s+(?:chrome|browser)\s*(?:standby)?\b/i.test(lower) ||
+                             /\b(?:ara|azura)\s+bantu\s+browsing\s+dong\b/i.test(lower);
 
-  // EXCLUSIVE TRIGGER: "ara tolong browsing [query]"
-  const browsingMatch = content.match(/\b(?:ara|azura)\s+tolong\s+browsing\s+(.+)/i);
-  if (browsingMatch && browsingMatch[1]) {
-    const query = browsingMatch[1]
-      .replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '')
-      .trim();
-    if (query.length > 2) {
-      await message.reply(`🌐 **[AZURA Live Browsing]** Membuka browser & browsing: **"${query}"**...\nPantau live di: 👉 ${BROWSE_URL}`);
-      await performLiveResearch(guildId, query, userName, textChannel, client);
+  if (isPersistentIntent && !/terus|kemudian|lalu|masuk\s+ke|klik|carikan|cari/i.test(lower)) {
+    await startPersistentInteractiveBrowsing(guildId, userName, textChannel, client);
+    return true;
+  }
+
+  // 3. Step-by-Step commands while active session is running
+  const session = activeBrowserSessions?.get(guildId);
+  const isSessionRunning = session && !session.page.isClosed();
+
+  if (isSessionRunning) {
+    // A. Ketik di web
+    const typeMatch = content.match(/\b(?:ara|azura)\s+(?:tolong\s+)?ketik\s+(.+)/i);
+    if (typeMatch && typeMatch[1]) {
+      const textToType = typeMatch[1].replace(/\b(?:dong|ya|yuk|plis)\b/gi, '').trim();
+      const res = await typeIntoWebpage(guildId, textToType);
+      await message.reply(`⌨️ **[AZURA Browser]** Berhasil mengetik: \`${textToType}\``);
+      await speakInVC(guildId, `Aku ketik ${textToType} di layar ya!`, client, userName);
       return true;
     }
+
+    // B. Klik link/tombol
+    const clickMatch = content.match(/\b(?:ara|azura)\s+(?:tolong\s+)?(?:klik|pilih|tekan)\s+(.+)/i);
+    if (clickMatch && clickMatch[1]) {
+      const target = clickMatch[1].replace(/\b(?:dong|ya|yuk|plis)\b/gi, '').trim();
+      const res = await clickOnWebpage(guildId, target);
+      await message.reply(`🖱️ **[AZURA Browser]** Berhasil mengklik: \`${target}\``);
+      await speakInVC(guildId, `Siap, aku klik ${target} di layar!`, client, userName);
+      return true;
+    }
+
+    // C. Scroll halaman
+    if (/\b(?:ara|azura)\s+(?:tolong\s+)?(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i.test(lower)) {
+      const dir = /atas|up/i.test(lower) ? 'up' : 'down';
+      await scrollWebpage(guildId, dir);
+      await message.reply(`📜 **[AZURA Browser]** Layar digulir ke ${dir === 'down' ? 'bawah ⬇️' : 'atas ⬆️'}.`);
+      return true;
+    }
+
+    // D. Baca layar
+    if (/\b(?:ara|azura)\s+(?:tolong\s+)?(?:jelaskan|baca|bacakan|ringkas)\s+(?:tampilan|isi|halaman|layar)\b/i.test(lower)) {
+      const summary = await getWebpageSummary(guildId);
+      const text = summary.success ? (summary.bodyText || summary.headings) : 'Halaman kosong.';
+      await message.reply(`👁️ **[Tampilan Web: ${summary.title}]**\n\n${text.slice(0, 500)}`);
+      await speakInVC(guildId, `Di halaman ${summary.title}, pembahasannya tentang: ${text.slice(0, 160)}`, client, userName);
+      return true;
+    }
+  }
+
+  // 4. Goal-Oriented Autonomous Mission (Action-based based on first prompt!)
+  // E.g.: "ara browsing situs learnext terus masuk ke website resminya"
+  // E.g.: "ara tolong browsing tiket pesawat jakarta bali terus pilih jadwal termurah"
+  // E.g.: "ara browsing [topic]"
+  const isMission = /\b(?:ara|azura)\s+(?:tolong\s+)?(?:browsing|cari|carikan|bukain|buka)\s+(.+)/i.test(content) ||
+                    /\b(?:browsing|masuk\s+ke\s+website|kunjungi\s+situs)\b/i.test(lower);
+
+  if (isMission) {
+    await message.reply(`🌐 **[AZURA Autonomous Mission]** Memulai misi browsing: *"${content}"*...\nPantau langsung di: 👉 ${BROWSE_URL}`);
+    await executeAutonomousBrowsingMission(guildId, content, userName, textChannel, client);
+    return true;
   }
 
   return false;
@@ -446,8 +371,7 @@ async function speakInVC(guildId, text, client, userName) {
 }
 
 module.exports = {
-  performLiveResearch,
-  executeAutonomousWebTask,
-  monitorDashboard,
+  executeAutonomousBrowsingMission,
+  startPersistentInteractiveBrowsing,
   handleWebSurfCommands
 };

@@ -1522,20 +1522,26 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     // This prevents conflict with Tavily research in regular text chat.
     // Sub-commands (ketik, klik, scroll, baca, tutup) only work when a browsing session is already active.
     if (hasWake) {
-      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+tolong\s+browsing\s+(.+)/i;
+      // 1. Persistent Standby Session: "ara aku mau browsing-browsing nih bantuin dong", "ara buka browser standby"
+      const persistentVoicePattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:aku\s+)?(?:mau|pengen|yuk|bantu|temenin)\s+browsing\b/i;
+      if (persistentVoicePattern.test(transcript) || persistentVoicePattern.test(cleanTranscript)) {
+        console.log(`[Voice Pipeline]: 🌐 Persistent Browsing Standby triggered via VC`);
+        const { startPersistentInteractiveBrowsing } = require('./webSurfAgent');
+        startPersistentInteractiveBrowsing(guildId, speakerName || 'Attila', textChannel, client).catch(e => {
+          console.error('[Voice Pipeline Persistent Browsing Error]:', e.message);
+        });
+        return;
+      }
+
+      // 2. Goal-Oriented Autonomous Mission: "ara tolong browsing ...", "ara browsing situs X terus masuk ke Y"
+      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?browsing\s+(.+)/i;
       const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger);
       if (browsingMatch && browsingMatch[1]) {
         const query = browsingMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
         if (query.length > 2) {
-          console.log(`[Voice Pipeline]: 🌐 Headless Browsing triggered via VC -> "${query}"`);
-
-          const spoken = `Siap ${speakerName || 'Attila'}! Aku buka browser dan browsing "${query}" sekarang ya. Pantau layarnya di portal live!`;
-          recordSessionEntry(guildId, 'AZURA', spoken);
-          const audioResource = await textToAudioResource(spoken, client);
-          if (audioResource) await playInVC(guildId, audioResource);
-
-          const { performLiveResearch } = require('./webSurfAgent');
-          performLiveResearch(guildId, query, speakerName || 'Attila', textChannel, client).catch(e => {
+          console.log(`[Voice Pipeline]: 🌐 Autonomous Browsing Mission triggered via VC -> "${query}"`);
+          const { executeAutonomousBrowsingMission } = require('./webSurfAgent');
+          executeAutonomousBrowsingMission(guildId, query, speakerName || 'Attila', textChannel, client).catch(e => {
             console.error('[Voice Pipeline Browsing Error]:', e.message);
           });
           return;

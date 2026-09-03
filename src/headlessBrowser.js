@@ -20,7 +20,7 @@ const BLOCKED_DOMAINS = [
 
 let globalBrowser = null;
 const activeBrowserSessions = new Map(); // guildId -> { context, page, cdp, lastActive, timer, currentUrl, currentTitle }
-const IDLE_BROWSER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes auto close
+const IDLE_BROWSER_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes auto close if idle
 
 // Documentation Mode:
 // false = Background Mode (Silent in Discord chat, live streaming 60fps only on http://203.175.10.163:7860/live)
@@ -854,6 +854,7 @@ module.exports = {
   getWebpageSummary,
   takeScreenshotOnDemand,
   closeBrowserSession,
+  resetSessionTimer,
   sendVisualSnapshotCard,
   setVisualDocumentationMode,
   isVisualDocumentationEnabled,

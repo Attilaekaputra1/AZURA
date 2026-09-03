@@ -15,7 +15,7 @@
  */
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
-const { getBrowser, getOrCreateSession, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, activeBrowserSessions } = require('./headlessBrowser');
+const { getBrowser, getOrCreateSession, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, resetSessionTimer, activeBrowserSessions } = require('./headlessBrowser');
 const { broadcastFrame, updateStreamMeta, broadcastAzuraReply, STREAM_URL } = require('./livePortal');
 const { askAzura } = require('./azura');
 const config = require('./config');
@@ -24,7 +24,7 @@ const BROWSE_URL = 'http://203.175.10.163:7860/browse';
 
 /**
  * MODE 1: Autonomous Goal-Oriented Browsing Mission
- * Executes sequential browser actions, navigates into websites, reports concisely, and auto-closes.
+ * Executes sequential browser actions, navigates into websites, reports concisely, and keeps session open for chained commands.
  * @param {string} guildId 
  * @param {string} missionPrompt 
  * @param {string} userName 
@@ -32,18 +32,44 @@ const BROWSE_URL = 'http://203.175.10.163:7860/browse';
  * @param {import('discord.js').Client} client 
  */
 async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName, textChannel, client) {
-  console.log(`[Web Surf Agent]: 🚀 Executing Autonomous Mission: "${missionPrompt}"`);
+  console.log(`[Web Surf Agent]: 🚀 Processing Browsing Request: "${missionPrompt}"`);
 
-  // Exact opening dialogue requested by user (no name mentioned)
-  const announceText = 'Siap, aku browsing sekarang ya, kamu bisa pantau prosesnya di link streaming.';
-  await speakInVC(guildId, announceText, client, userName);
-
-  if (textChannel) {
-    textChannel.send(`✨ **Siap, aku browsing sekarang ya!**\nPantau layarnya secara live di: ${BROWSE_URL}`).catch(() => {});
+  // 1. Explicit Session Termination Check
+  const isCloseCmd = /\b(?:tutup|close|akhiri|selesai|exit|keluar|reset)\s*(?:browser|sesi|browsing)?\b/i.test(missionPrompt.trim());
+  if (isCloseCmd) {
+    console.log(`[Web Surf Agent]: 🔒 User requested to close browser session for ${guildId}`);
+    await closeBrowserSession(guildId);
+    const closeMsg = 'Siap, sesi browser telah ditutup dan memori dibebaskan ya.';
+    await speakInVC(guildId, closeMsg, client, userName);
+    if (textChannel) {
+      textChannel.send('🔒 **Sesi browser telah ditutup.** Browser berhasil dibersihkan!').catch(() => {});
+    }
+    if (typeof broadcastAzuraReply === 'function') {
+      broadcastAzuraReply('🔒 Sesi browser telah ditutup dan memori dibebaskan.');
+    }
+    return { success: true, title: 'Sesi Ditutup', url: 'about:blank' };
   }
 
   const session = await getOrCreateSession(guildId);
   const { page } = session;
+
+  const currentUrl = page.url() || '';
+  const currentTitle = await page.title().catch(() => '');
+  const isOnActivePage = currentUrl && !currentUrl.includes('about:blank') && currentUrl !== 'https://www.google.com/' && !currentUrl.includes('google.com/search') && !currentUrl.includes('search.yahoo.com');
+
+  if (!isOnActivePage) {
+    const announceText = 'Siap, aku browsing sekarang ya, kamu bisa pantau prosesnya di link streaming.';
+    await speakInVC(guildId, announceText, client, userName);
+    if (textChannel) {
+      textChannel.send(`✨ **Siap, aku browsing sekarang ya!**\nPantau layarnya secara live di: ${BROWSE_URL}`).catch(() => {});
+    }
+  } else {
+    console.log(`[Web Surf Agent]: ⚡ Continuing chained action on active page: "${currentTitle}" (${currentUrl})`);
+    await speakInVC(guildId, 'Siap, aku lanjutkan aksinya ya!', client, userName);
+    if (textChannel) {
+      textChannel.send(`⚡ **Melanjutkan aksi di halaman aktif:** \`${currentTitle || currentUrl}\``).catch(() => {});
+    }
+  }
 
   try {
     const cleanPrompt = missionPrompt
@@ -53,12 +79,12 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
 
     updateStreamMeta({
       title: '🌐 AZURA: ' + cleanPrompt.slice(0, 30),
-      url: 'https://www.google.com',
+      url: currentUrl || 'https://www.google.com',
       activeGuild: guildId,
       mode: 'browse'
     });
 
-    // 🧠 Autonomous Multi-Step Action Chain Planner (Direct LLM Reasoning)
+    // 🧠 Autonomous Multi-Step Action Chain Planner (Direct LLM Reasoning with Page Continuity)
     let plan = {
       goal: cleanPrompt,
       category: 'general',
@@ -77,6 +103,18 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
             content: `Kamu adalah arsitek eksekusi web browsing otonom berintelektual tinggi yang selalu merespon dalam format JSON.
 Tugasmu menganalisis instruksi user dan menyusun RANTAI AKSI OTONOM (Action Chain) berurutan (MAKSIMAL 8 LANGKAH) dalam bentuk format JSON yang akan dieksekusi secara nyata di browser headless.
 
+INFORMASI STATE BROWSER SAAT INI:
+- Halaman aktif saat ini: "${currentTitle}" (${currentUrl})
+- Status: ${isOnActivePage ? 'Browser SUDAH TERBUKA dan sedang aktif di halaman ini!' : 'Browser baru dibuka/kosong'}
+
+ATURAN RANTAI AKSI BERKELANJUTAN (SANGAT PENTING):
+1. Jika browser SUDAH berada di halaman aktif (misal "${currentTitle}" / "${currentUrl}") dan instruksi user adalah AKSI LANJUTAN (misal: "ketik ...", "klik tombol ...", "tanya lagi ...", "scroll ...", "coba pakai ..."):
+   -> JANGAN PERNAH memulai ulang dari Google atau menavigasi ulang! JANGAN tambahkan aksi navigate atau search!
+   -> Langsung lakukan aksi interaksi (click, type, press_key, wait, scroll) DI HALAMAN AKTIF SAAT INI!
+2. Hanya gunakan aksi "navigate" atau "search" jika:
+   - User secara eksplisit meminta membuka situs/URL lain (contoh: "buka youtube", "cari di google ...", "pindah ke situs X")
+   - Atau halaman saat ini masih kosong / belum membuka website apa pun.
+
 Pilihan aksi yang didukung:
 1. "navigate": { "action": "navigate", "url": "https://...", "description": "..." }
 2. "click": { "action": "click", "selector": "#id, button, a, [data-testid=...]", "text": "opsional teks tombol", "description": "..." }
@@ -86,34 +124,32 @@ Pilihan aksi yang didukung:
 6. "wait": { "action": "wait", "durationMs": 3000, "description": "..." }
 7. "search": { "action": "search", "query": "kata kunci pencarian", "description": "..." }
 
-Contoh Kasus 1: "ara tolong browsing chat gpt terus coba pake chat gpt nya deh, ketik 'halo aku azura, salam kenal'"
+Contoh Kasus A (Aksi Lanjutan di Halaman Terbuka, misal di ChatGPT):
+User: "ketik 'Nama aku azura, salam kenal, nama kamu siapa?'"
+-> Steps:
+[
+  { "action": "click", "selector": "#prompt-textarea, textarea, div[contenteditable='true']", "description": "Klik kolom input chat" },
+  { "action": "type", "selector": "#prompt-textarea, textarea, div[contenteditable='true']", "text": "Nama aku azura, salam kenal, nama kamu siapa?", "description": "Ketik pesan sapaan" },
+  { "action": "click", "selector": "button[data-testid='send-button'], button[aria-label*='Send'], button[aria-label*='Kirim']", "description": "Klik tombol kirim pesan" },
+  { "action": "press_key", "key": "Enter", "description": "Kirim pesan dengan Enter" },
+  { "action": "wait", "durationMs": 7000, "description": "Menunggu respon balasan ChatGPT" },
+  { "action": "scroll", "amount": 350, "description": "Scroll membaca balasan" }
+]
+
+Contoh Kasus B (Membuka Situs Baru dari Awal):
+User: "buka chat gpt"
 -> Steps:
 [
   { "action": "navigate", "url": "https://chatgpt.com", "description": "Membuka situs ChatGPT" },
-  { "action": "wait", "durationMs": 3000, "description": "Menunggu tampilan ChatGPT termuat" },
-  { "action": "click", "selector": "#prompt-textarea, textarea, div[contenteditable='true']", "description": "Klik kolom input chat" },
-  { "action": "type", "selector": "#prompt-textarea, textarea, div[contenteditable='true']", "text": "halo aku azura, salam kenal", "description": "Mengetik sapaan Azura" },
-  { "action": "click", "selector": "button[data-testid='send-button'], button[aria-label*='Send'], button[aria-label*='Kirim']", "description": "Klik tombol kirim pesan" },
-  { "action": "press_key", "key": "Enter", "description": "Kirim pesan dengan Enter" },
-  { "action": "wait", "durationMs": 7000, "description": "Menunggu ChatGPT menjawab" },
-  { "action": "scroll", "amount": 350, "description": "Scroll membaca respon" }
+  { "action": "wait", "durationMs": 3000, "description": "Menunggu tampilan ChatGPT termuat" }
 ]
 
-Contoh Kasus 2: "ara browsing lagu montagem coma"
+Contoh Kasus C (Mencari di Mesin Pencari):
+User: "browsing lagu montagem coma"
 -> Steps:
 [
-  { "action": "search", "query": "lagu montagem coma", "description": "Mencari lagu montagem coma" },
-  { "action": "scroll", "amount": 350, "description": "Melihat hasil teratas" }
-]
-
-Contoh Kasus 3: "ara browsing situs learnext terus masuk ke website resminya terus cari klien-klien nya apa aja"
--> Steps:
-[
-  { "action": "navigate", "url": "https://www.learnext.ai", "description": "Buka situs resmi LearnExt" },
-  { "action": "wait", "durationMs": 3000, "description": "Menunggu halaman termuat" },
-  { "action": "scroll", "amount": 600, "description": "Scroll melihat daftar klien" },
-  { "action": "wait", "durationMs": 1500, "description": "Memuat logo mitra" },
-  { "action": "scroll", "amount": 800, "description": "Scroll melihat testimoni direktur" }
+  { "action": "search", "query": "lagu montagem coma", "description": "Cari lagu montagem coma" },
+  { "action": "scroll", "amount": 350, "description": "Lihat hasil teratas" }
 ]
 
 Format Keluaran JSON WAJIB:
@@ -383,7 +419,7 @@ Format: Poin-poin rapi dan ramah khas Azura.`;
             `🎯 **Misi:** *${missionPrompt}*\n\n` +
             `📝 **Detail Temuan:**\n${cleanReport}\n\n` +
             `🔗 **Website:** [👉 ${shortLabel}](${cleanDirectUrl})\n\n` +
-            `*🔒 Sesi browser otomatis ditutup untuk menghemat resource.*`
+            `*💡 Sesi browser tetap aktif di halaman ini. Kamu bisa lanjut memberi perintah seperti "ketik ...", "klik ...", atau "tutup browser" untuk mengakhiri.*`
           )
           .setFooter({ text: 'AZURA Autonomous Web Mission' })
           .setTimestamp();
@@ -396,11 +432,9 @@ Format: Poin-poin rapi dan ramah khas Azura.`;
       }
     }
 
-    // 7. AUTO-CLOSE SESSION after completing specific mission
-    setTimeout(async () => {
-      console.log(`[Web Surf Agent]: 🔒 Mission completed successfully. Auto-closing browser session for ${guildId}...`);
-      await closeBrowserSession(guildId);
-    }, 10000);
+    // 7. KEEP SESSION OPEN FOR CHAINED COMMANDS (Reset 10-minute inactivity timer)
+    console.log(`[Web Surf Agent]: 🟢 Browser session kept active on "${finalTitle}" for chained commands.`);
+    resetSessionTimer(guildId);
 
     return { success: true, title: finalTitle, url: finalUrl };
 
@@ -496,45 +530,26 @@ async function handleWebSurfCommands(message, client) {
     return true;
   }
 
-  // 3. Step-by-Step commands while active session is running
+  // 3. Step-by-Step chained commands while active session is running
   const session = activeBrowserSessions?.get(guildId);
-  const isSessionRunning = session && !session.page.isClosed();
+  const isSessionRunning = session && session.page && !session.page.isClosed();
 
   if (isSessionRunning) {
-    // A. Ketik di web
-    const typeMatch = content.match(/\b(?:ara|azura)\s+(?:tolong\s+)?ketik\s+(.+)/i);
-    if (typeMatch && typeMatch[1]) {
-      const textToType = typeMatch[1].replace(/\b(?:dong|ya|yuk|plis)\b/gi, '').trim();
-      const res = await typeIntoWebpage(guildId, textToType);
-      await message.reply(`⌨️ **[AZURA Browser]** Berhasil mengetik: \`${textToType}\``);
-      await speakInVC(guildId, `Aku ketik ${textToType} di layar ya!`, client, userName);
+    // A. Close session
+    if (/\b(?:tutup|close|stop|akhiri|keluar|reset)\s*(?:browser|sesi|browsing)?\b/i.test(lower)) {
+      const res = await closeBrowserSession(guildId);
+      await message.reply(`🔒 **[AZURA Browser]** ${res.message}`);
+      await speakInVC(guildId, 'Sesi browser sudah aku tutup yaa!', client, userName);
       return true;
     }
 
-    // B. Klik link/tombol
-    const clickMatch = content.match(/\b(?:ara|azura)\s+(?:tolong\s+)?(?:klik|pilih|tekan)\s+(.+)/i);
-    if (clickMatch && clickMatch[1]) {
-      const target = clickMatch[1].replace(/\b(?:dong|ya|yuk|plis)\b/gi, '').trim();
-      const res = await clickOnWebpage(guildId, target);
-      await message.reply(`🖱️ **[AZURA Browser]** Berhasil mengklik: \`${target}\``);
-      await speakInVC(guildId, `Siap, aku klik ${target} di layar!`, client, userName);
-      return true;
-    }
+    // B. Chained actions (ketik, klik, tanya, scroll, dll.)
+    // Seamlessly execute on current active page without restarting from Google!
+    const isChainedAction = /^(?:ara\s+|azura\s+)?(?:tolong\s+)?(?:ketik|klik|tekan|pilih|tanya|coba|scroll|gulir|baca|jelaskan)\b/i.test(lower) ||
+                            /^(?:ketik|klik|scroll|tutup)\b/i.test(lower);
 
-    // C. Scroll halaman
-    if (/\b(?:ara|azura)\s+(?:tolong\s+)?(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i.test(lower)) {
-      const dir = /atas|up/i.test(lower) ? 'up' : 'down';
-      await scrollWebpage(guildId, dir);
-      await message.reply(`📜 **[AZURA Browser]** Layar digulir ke ${dir === 'down' ? 'bawah ⬇️' : 'atas ⬆️'}.`);
-      return true;
-    }
-
-    // D. Baca layar
-    if (/\b(?:ara|azura)\s+(?:tolong\s+)?(?:jelaskan|baca|bacakan|ringkas)\s+(?:tampilan|isi|halaman|layar)\b/i.test(lower)) {
-      const summary = await getWebpageSummary(guildId);
-      const text = summary.success ? (summary.bodyText || summary.headings) : 'Halaman kosong.';
-      await message.reply(`👁️ **[Tampilan Web: ${summary.title}]**\n\n${text.slice(0, 500)}`);
-      await speakInVC(guildId, `Di halaman ${summary.title}, pembahasannya tentang: ${text.slice(0, 160)}`, client, userName);
+    if (isChainedAction) {
+      await executeAutonomousBrowsingMission(guildId, content, userName, textChannel, client);
       return true;
     }
   }

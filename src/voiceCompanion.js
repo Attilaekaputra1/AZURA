@@ -1533,15 +1533,15 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // 2. Goal-Oriented Autonomous Mission: "ara tolong browsing ...", "ara carikan di web ...", "ara buka situs X"
-      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+situs|buka\s+web)\s+(.+)/i;
+      // 2. Goal-Oriented Autonomous Mission & Chained Follow-ups: "ara tolong browsing ...", "ara buka chat gpt", "ara ketik ..."
+      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+situs|buka\s+web|buka|ketik|klik|tekan)\s+(.+)/i;
       const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger);
       if (browsingMatch && browsingMatch[1]) {
         const query = browsingMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
         if (query.length > 2) {
-          console.log(`[Voice Pipeline]: 🌐 Autonomous Browsing Mission triggered via VC -> "${query}"`);
+          console.log(`[Voice Pipeline]: 🌐 Autonomous Browsing Action triggered via VC -> "${transcript}"`);
           const { executeAutonomousBrowsingMission } = require('./webSurfAgent');
-          executeAutonomousBrowsingMission(guildId, query, speakerName || 'Attila', textChannel, client).catch(e => {
+          executeAutonomousBrowsingMission(guildId, transcript, speakerName || 'Attila', textChannel, client).catch(e => {
             console.error('[Voice Pipeline Browsing Error]:', e.message);
           });
           return;
@@ -1613,12 +1613,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // Tutup browser: "ara tutup browser"
-      const closeBrowserPattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?(?:tutup|close|stop)\s+(?:chrome|browser|web|tab)\b/i;
+      // Tutup browser: "ara tutup browser", "ara akhiri sesi", "ara reset browsing"
+      const closeBrowserPattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?(?:tutup|close|stop|akhiri|reset|keluar\s+dari)\s*(?:chrome|browser|web|tab|sesi|browsing)?\b/i;
       if (closeBrowserPattern.test(cleanTranscript) || closeBrowserPattern.test(transcript)) {
-        console.log('[Voice Pipeline]: 🔒 Browser Close');
+        console.log('[Voice Pipeline]: 🔒 Browser Close requested via VC');
         const closeRes = await closeBrowserSession(guildId);
-        const spokenClose = 'Sesi browser sudah aku tutup ya, memori sudah dibebaskan!';
+        const spokenClose = 'Siap Attila, sesi browser sudah aku tutup ya, memori sudah dibebaskan!';
         recordSessionEntry(guildId, 'AZURA', spokenClose);
         if (textChannel) textChannel.send(`🔒 **[AZURA Browser]** ${closeRes.message}`).catch(() => {});
         const audioRes = await textToAudioResource(spokenClose, client);

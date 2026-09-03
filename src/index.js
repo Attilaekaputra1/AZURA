@@ -737,17 +737,19 @@ let finalPrompt = rawPrompt;
         .toLowerCase()
         .trim();
 
-      // Direct Camera (Video Stream) Commands from text chat (Attila Only)
+      // Direct Camera (Video Stream) Commands from text chat (Attila Only - Strict Full Sentence Sentences)
       const isCloseCamText =
-        /\b(?:tutup|tutupin|matikan|matiin|nonaktifkan|nonaktifin|stop|close|off|turn\s*off)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(cleanUserText) ||
-        /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:off|tutup|tutupin|mati|matiin|matikan|stop|hide)\b/i.test(cleanUserText) ||
-        /\b(?:off\s*cam|close\s*cam|stop\s*cam|stop\s*camera|tutup\s*cam)\b/i.test(cleanUserText);
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:tutup|matikan|matiin|nonaktifkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)\b/i.test(cleanUserText) ||
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:off\s*cam|close\s*cam)\b/i.test(cleanUserText) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:tutup|matikan|matiin|nonaktifkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanUserText) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:off\s*cam|close\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanUserText);
 
       const isOpenCamText =
-        /\b(?:buka|bukain|nyalain|nyalakan|aktifkan|aktifin|hidupkan|hidupin|start|open|show|pasang|tampilkan|turn\s*on)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(cleanUserText) ||
-        /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:on|buka|bukain|aktif|aktifin|nyala|nyalain|hidup|hidupin|pasang|show|dong|mana)\b/i.test(cleanUserText) ||
-        /\b(?:kamera|cam|camera|video)\s*(?:kamu\s+)?(?:mana|dimana)\b/i.test(cleanUserText) ||
-        /\b(?:on\s*cam|open\s*cam|show\s*cam|start\s*cam|start\s*camera|buka\s*cam)\b/i.test(cleanUserText);
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)\b/i.test(cleanUserText) ||
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:on\s*cam|open\s*cam)\b/i.test(cleanUserText) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanUserText) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:on\s*cam|open\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanUserText) ||
+        /\b(?:azura|ara|zura)\s+(?:mana\s+kamera\s+kamu|kameranya\s+mana)\b/i.test(cleanUserText);
 
       if (isCloseCamText) {
         console.log(`[Camera Controller]: Attila triggered Close Camera from text chat.`);

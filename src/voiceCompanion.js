@@ -1450,14 +1450,13 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream - Highest Priority Before Music) ──
+      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream - Strict Full Sentence Sentences) ──
       const isOpenCam =
-        /\b(?:buka|bukain|nyalain|nyalakan|aktifkan|aktifin|hidupkan|hidupin|start|open|show|pasang|tampilkan|turn\s*on)\s+(?:dong\s+)?(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:dong\s+)?(?:buka|bukain|nyalain|nyala|aktif|aktifkan|aktifin|hidup|hidupin|hidupkan|on|show|pasang|mana)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:kamera|cam|camera|video)\s*(?:kamu\s+)?(?:mana|dimana)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:on\s*cam|open\s*cam|show\s*cam|start\s*cam|start\s*camera|buka\s*cam)\b/i.test(normalizedVoiceTranscript) ||
-        /(?:bisa|coba|tolong|minta|pengen|mau)?\s*(?:kamu\s+)?(?:buka|nyalain|aktifin|hidupin|open)\b.*?\b(?:kamera|cam|camera|video|webcam)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:buka|nyalain|aktifin|hidupin)\b.*?\b(?:kamera|cam|camera|webcam)\b/i.test(normalizedVoiceTranscript);
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)\b/i.test(normalizedVoiceTranscript) ||
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:on\s*cam|open\s*cam)\b/i.test(normalizedVoiceTranscript) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:on\s*cam|open\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript) ||
+        /\b(?:azura|ara|zura)\s+(?:mana\s+kamera\s+kamu|kameranya\s+mana)\b/i.test(normalizedVoiceTranscript);
 
       if (isOpenCam) {
         console.log('[Voice Pipeline]: 🎥 Open Camera command detected.');
@@ -1486,11 +1485,10 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       const isCloseCam =
-        /\b(?:tutup|tutupin|matikan|matiin|nonaktifkan|nonaktifin|stop|close|hide|padamkan|off|turn\s*off)\s+(?:dong\s+)?(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:dong\s+)?(?:off|tutup|tutupin|mati|matiin|matikan|stop|hide)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:off\s*cam|close\s*cam|stop\s*cam|stop\s*camera|tutup\s*cam)\b/i.test(normalizedVoiceTranscript) ||
-        /(?:bisa|coba|tolong|minta)?\s*(?:kamu\s+)?(?:tutup|matiin|matikan|stop|close|off)\b.*?\b(?:kamera|cam|camera|video|webcam)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:tutup|matiin|matikan|stop|off)\b.*?\b(?:kamera|cam|camera|webcam)\b/i.test(normalizedVoiceTranscript);
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:tutup|matikan|matiin|nonaktifkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)\b/i.test(normalizedVoiceTranscript) ||
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:off\s*cam|close\s*cam)\b/i.test(normalizedVoiceTranscript) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:tutup|matikan|matiin|nonaktifkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:off\s*cam|close\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript);
 
       if (isCloseCam) {
         console.log('[Voice Pipeline]: 🛑 Close Camera command detected.');

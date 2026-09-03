@@ -439,6 +439,11 @@ async function handleIncomingMessage(message, isEdit = false) {
   const browserHandled = await handleTextBrowserCommands(message, client);
   if (browserHandled) return;
 
+  // Handle autonomous browser game commands ("ara main game 2048", "ara main 2048", "ara stop game")
+  const { handleBrowserGameCommands } = require('./browserGameAgent');
+  const gameHandled = await handleBrowserGameCommands(message);
+  if (gameHandled) return;
+
   // Extract Visual Media for Vision (Attachments, Discord Stickers, Tenor/Giphy GIFs, Embeds)
   const { extractVisualMedia } = require('./visionHelper');
   const { imageUrls, visualContextPrompt } = await extractVisualMedia(message);
@@ -1027,6 +1032,13 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('trivia_') || interaction.customId.startsWith('triviadiff_') || interaction.customId.startsWith('triviastop_')) {
       const { handleTriviaButton } = require('./miniGames');
       return handleTriviaButton(interaction);
+    }
+
+    // Handle Autonomous Browser Game Replay Button
+    if (interaction.customId === 'btn_replay_2048') {
+      const { launchAutonomousBrowserGame } = require('./browserGameAgent');
+      await interaction.deferUpdate().catch(() => {});
+      return launchAutonomousBrowserGame(interaction.message, '2048');
     }
 
     // Handle Direct Music Streaming control buttons

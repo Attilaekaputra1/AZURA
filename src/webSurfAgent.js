@@ -65,7 +65,6 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
     }
   } else {
     console.log(`[Web Surf Agent]: ⚡ Continuing chained action on active page: "${currentTitle}" (${currentUrl})`);
-    await speakInVC(guildId, 'Siap, aku lanjutkan aksinya ya!', client, userName);
     if (textChannel) {
       textChannel.send(`⚡ **Melanjutkan aksi di halaman aktif:** \`${currentTitle || currentUrl}\``).catch(() => {});
     }
@@ -357,8 +356,40 @@ Buat KESIMPULAN HASIL AKSI (Conclusion) yang jelas, padat (2-4 kalimat), dan nat
       broadcastAzuraReply(`💬 ${conclusion}`);
     }
 
-    // Send visual card and conclusion to Discord text channel if present
-    if (textChannel) {
+    // 4. Resolve Discord text channel (for both Discord and Web Portal commands)
+    let targetDiscordChannel = textChannel;
+    let discordClient = client;
+    if (!discordClient) {
+      try {
+        discordClient = require('./index');
+      } catch (_) {}
+    }
+
+    if (!targetDiscordChannel && discordClient) {
+      try {
+        const { getCompanionTextChannel } = require('./voiceCompanion');
+        if (guildId && guildId !== 'global') {
+          targetDiscordChannel = getCompanionTextChannel(guildId);
+        }
+        if (!targetDiscordChannel) {
+          const { activeConnections } = require('./voiceCompanion');
+          for (const [gid] of activeConnections.entries()) {
+            const ch = getCompanionTextChannel(gid);
+            if (ch) {
+              targetDiscordChannel = ch;
+              break;
+            }
+          }
+        }
+        if (!targetDiscordChannel && discordClient.channels && discordClient.channels.cache) {
+          targetDiscordChannel = discordClient.channels.cache.get('1539307727690407986') ||
+                                 discordClient.channels.cache.find(c => c.isTextBased && c.isTextBased() && c.name && /general|chat|utama/i.test(c.name));
+        }
+      } catch (_) {}
+    }
+
+    // Send visual card and conclusion to Discord
+    if (targetDiscordChannel) {
       const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
       const validUrl = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
       
@@ -392,12 +423,12 @@ Buat KESIMPULAN HASIL AKSI (Conclusion) yang jelas, padat (2-4 kalimat), dan nat
         embed.setImage('attachment://mission_destination.png');
       }
 
-      await textChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
+      await targetDiscordChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
     }
 
-    // Speak brief conclusion in VC if connected
-    const spokenConclusion = conclusion.length > 150 ? conclusion.slice(0, 150) + '...' : conclusion;
-    await speakInVC(guildId, spokenConclusion, client, userName);
+    // 5. Short, cost-efficient closing announcement in VC (Fixed short sentence, saves ElevenLabs quota)
+    const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';
+    await speakInVC(guildId, completionVoiceText, discordClient, userName);
 
     // 🟢 KEEP SESSION OPEN FOR CHAINED COMMANDS (DO NOT AUTO-CLOSE!)
     console.log(`[Web Surf Agent]: 🟢 Browser session kept active on "${finalTitle}" for continued actions.`);

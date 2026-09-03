@@ -17,6 +17,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
 const { getBrowser, getOrCreateSession, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, activeBrowserSessions } = require('./headlessBrowser');
 const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
+const { askAzura } = require('./azura');
 const config = require('./config');
 
 const BROWSE_URL = 'http://203.175.10.163:7860/browse';
@@ -33,7 +34,7 @@ const BROWSE_URL = 'http://203.175.10.163:7860/browse';
 async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName, textChannel, client) {
   console.log(`[Web Surf Agent]: 🚀 Executing Autonomous Mission: "${missionPrompt}" for ${userName}`);
 
-  const announceText = `Siap ${userName}! Aku jalankan misi di browser: "${missionPrompt}". Pantau layarnya di live stream ya!`;
+  const announceText = `Siap ${userName}! Aku jalankan misi di Google browser: "${missionPrompt}". Pantau layarnya di live stream ya!`;
   await speakInVC(guildId, announceText, client, userName);
 
   const session = await getOrCreateSession(guildId);
@@ -47,51 +48,36 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
 
     updateStreamMeta({
       title: '🌐 AZURA: ' + cleanPrompt.slice(0, 30),
-      url: 'https://www.bing.com',
+      url: 'https://www.google.com',
       activeGuild: guildId,
       mode: 'browse'
     });
 
     // Smart heuristic baseline: extracts the core target (e.g. "learnext")
     const targetBrand = cleanPrompt
-      .replace(/\b(?:browsing|buka|situs|web|website|resminya|resmi|terus|lalu|kemudian|masuk\s+ke|dan|tolong|cari|carikan)\b/gi, ' ')
+      .replace(/\b(?:browsing|buka|situs|web|website|resminya|resmi|terus|lalu|kemudian|masuk\s+ke|dan|tolong|cari|carikan|klien|kliennya|apa\s+aja)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
     let plan = {
-      searchQuery: targetBrand ? `${targetBrand} official website` : cleanPrompt,
+      searchQuery: targetBrand || cleanPrompt,
       clickKeyword: targetBrand.split(' ')[0] || cleanPrompt.split(' ')[0] || ''
     };
 
-    // AI Action Decomposition refinement
+    // 1. Open Google (Clean homepage)
+    console.log(`[Autonomous Mission]: 🔍 Navigating to Google with query: "${plan.searchQuery}"`);
+    await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(700);
 
-    try {
-      const rawPlan = await askAzura(
-        config.OWNER_DISCORD_ID || 'planner_user',
-        plannerPrompt,
-        userName,
-        [],
-        false,
-        textChannel?.id || null,
-        guildId,
-        true
-      );
-      const planText = typeof rawPlan === 'string' ? rawPlan : (rawPlan?.content || '');
-      const jsonMatch = planText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.searchQuery) plan.searchQuery = parsed.searchQuery;
-        if (parsed.clickKeyword) plan.clickKeyword = parsed.clickKeyword;
-      }
-    } catch (_) {}
+    // Auto-click consent if present
+    const consentBtn = await page.$('button:has-text("Setuju"), button:has-text("I agree"), button:has-text("Accept all"), #L2AGLb');
+    if (consentBtn) {
+      await consentBtn.click().catch(() => {});
+      await page.waitForTimeout(500);
+    }
 
-    // 1. Open Search Engine (Yahoo: zero-captcha, reliable on datacenter IPs)
-    console.log(`[Autonomous Mission]: 🔍 Navigating to Yahoo search with query: "${plan.searchQuery}"`);
-    await page.goto('https://search.yahoo.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForTimeout(800);
-
-    // 2. Visible On-Screen Typing (Human-like)
-    const searchInput = await page.waitForSelector('input[name="p"], #yschsp, input[type="text"]', { timeout: 8000 }).catch(() => null);
+    // 2. Visible On-Screen Typing on Google
+    const searchInput = await page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 8000 }).catch(() => null);
     if (searchInput) {
       await searchInput.click();
       await page.waitForTimeout(200);
@@ -100,7 +86,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       await page.keyboard.press('Enter');
       await page.waitForTimeout(3000);
     } else {
-      await page.goto(`https://search.yahoo.com/search?p=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.goto(`https://www.google.com/search?q=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.waitForTimeout(2500);
     }
 
@@ -110,21 +96,21 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
 
     // 4. Click Destination Official Website Link
     const kw = (plan.clickKeyword || plan.searchQuery.split(' ')[0] || '').toLowerCase();
-    console.log(`[Autonomous Mission]: 🖱️ Locating official website link matching: "${kw}"`);
+    console.log(`[Autonomous Mission]: 🖱️ Locating official website link on Google matching: "${kw}"`);
 
     const linkTarget = await page.evaluate((targetKw) => {
-      const all = Array.from(document.querySelectorAll('a'));
+      const all = Array.from(document.querySelectorAll('#search a, #rso a, h3 a, a[href*="http"]'));
       for (const a of all) {
         const href = (a.href || '').toLowerCase();
         const txt = (a.innerText || '').toLowerCase();
-        if (href.includes('yahoo.com') || href.includes('search.yahoo') || href.includes('javascript') || !href.startsWith('http')) continue;
+        if (href.includes('google.com') || href.includes('gstatic.com') || href.includes('javascript') || !href.startsWith('http')) continue;
         if (!targetKw || txt.includes(targetKw) || href.includes(targetKw)) {
           return { text: a.innerText.trim() || href, href: a.href };
         }
       }
       for (const a of all) {
         const href = (a.href || '').toLowerCase();
-        if (!href.includes('yahoo.com') && href.startsWith('http')) {
+        if (!href.includes('google.com') && href.startsWith('http')) {
           return { text: a.innerText.trim() || href, href: a.href };
         }
       }
@@ -135,8 +121,10 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       console.log(`[Autonomous Mission]: ✅ Entering official website: "${linkTarget.text}" (${linkTarget.href})`);
       await page.goto(linkTarget.href, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
       await page.waitForTimeout(3000);
-      // Smooth scroll the official website so viewers see the actual page content
-      await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'smooth' })).catch(() => {});
+      // Smooth scroll the official website so viewers see the actual page content & client logos
+      await page.evaluate(() => window.scrollBy({ top: 450, behavior: 'smooth' })).catch(() => {});
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' })).catch(() => {});
       await page.waitForTimeout(1500);
     }
 
@@ -148,13 +136,28 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
     updateStreamMeta({ title: finalTitle, url: finalUrl, activeGuild: guildId, mode: 'browse' });
 
     const summary = await getWebpageSummary(guildId);
+    
+    // Extract logo alt tags (which often contain client/partner company names)
+    const clientAltNames = await page.evaluate(() => {
+      const imgs = Array.from(document.querySelectorAll('img[alt]'));
+      return imgs
+        .map(i => i.alt.trim())
+        .filter(alt => alt.length > 2 && !alt.toLowerCase().includes('logo') && !alt.toLowerCase().includes('icon'))
+        .slice(0, 15);
+    }).catch(() => []);
+
+    const combinedFindings = `${summary.bodyText || ''}\n\nPartner/Client Logos: ${clientAltNames.join(', ')}`;
     const screenshotBuffer = await page.screenshot({ type: 'png' }).catch(() => null);
 
-    // 6. Crisp AI Report (1-2 sentences)
+    // 6. Intelligent AI Report addressing the specific mission request
     const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom: "${missionPrompt}".
 Saat ini kamu sudah berhasil membuka dan masuk ke website: "${finalTitle}" (${finalUrl}).
-Konten halaman: ${(summary.bodyText || '').slice(0, 500)}
-Berikan laporan singkat (maksimal 2 kalimat saja) untuk ${userName} bahwa kamu sudah berhasil masuk dan jelaskan intinya secara ceria!`;
+Konten halaman website yang berhasil kamu baca:
+---
+${combinedFindings.slice(0, 1600)}
+---
+Instruksi spesifik user: "${cleanPrompt}".
+Jawablah permintaan user secara tepat, akurat, dan natural (misal jika user bertanya siapa saja klien-kliennya, sebutkan nama-nama klien/perusahaan/partner yang ditemukan di web). Maksimal 2-3 kalimat atau 3 poin bullet ringkas!`;
 
     const aiReport = await askAzura(
       config.OWNER_DISCORD_ID || 'mission_user',

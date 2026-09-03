@@ -225,13 +225,19 @@ async function openWebpage(guildId, targetInput) {
       await page.waitForTimeout(1200);
     } else {
       // Human-like search with real-time on-screen typing (bypasses bot detection)
-      // Human-like search with real-time on-screen typing (Yahoo: 100% captcha-free on VPS)
-      console.log(`[Headless Browser]: 🔍 Performing human-like search on Yahoo for: "${targetInput}"`);
-      await page.goto('https://search.yahoo.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+      console.log(`[Headless Browser]: 🔍 Performing human-like search on Google for: "${targetInput}"`);
+      await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.waitForTimeout(700);
 
+      // Auto-click Google consent dialog if present
+      const consentBtn = await page.$('button:has-text("Setuju"), button:has-text("I agree"), button:has-text("Accept all"), #L2AGLb');
+      if (consentBtn) {
+        await consentBtn.click().catch(() => {});
+        await page.waitForTimeout(500);
+      }
+
       // Focus search input
-      const searchInput = await page.waitForSelector('input[name="p"], #yschsp, input[type="text"]', { timeout: 8000 }).catch(() => null);
+      const searchInput = await page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 8000 }).catch(() => null);
       if (searchInput) {
         await searchInput.click();
         await page.waitForTimeout(200);
@@ -244,7 +250,7 @@ async function openWebpage(guildId, targetInput) {
         await page.evaluate(() => window.scrollBy({ top: 380, behavior: 'smooth' })).catch(() => {});
         await page.waitForTimeout(1000);
       } else {
-        await page.goto(`https://search.yahoo.com/search?p=${encodeURIComponent(targetInput.trim())}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.goto(`https://www.google.com/search?q=${encodeURIComponent(targetInput.trim())}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
         await page.waitForTimeout(2500);
       }
       targetUrl = page.url();

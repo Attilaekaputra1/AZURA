@@ -1517,126 +1517,44 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
     }
 
-    // ── 4. WEB SURF AGENT: LIVE RESEARCH, AUTONOMOUS TASKS, DASHBOARD MONITORING (Voice-Triggered) ──
+    // ── 4. HEADLESS BROWSING: EXCLUSIVE "TOLONG BROWSING" TRIGGER (VC-Only) ──
+    // All live headless browsing is gated behind the single phrase "tolong browsing [query]".
+    // This prevents conflict with Tavily research in regular text chat.
+    // Sub-commands (ketik, klik, scroll, baca, tutup) only work when a browsing session is already active.
     if (hasWake) {
-      // 4a. Live Web Research via Voice: "Ara, carikan tiket pesawat termurah", "Ara riset berita X"
-      const researchVoicePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:carikan|cari(?:n|kan)?|riset|telusuri|investigasi|research|analisis)\s+(.+)/i;
-      const researchVoiceMatch = transcript.match(researchVoicePattern) || cleanTranscript.match(researchVoicePattern);
-      if (researchVoiceMatch && researchVoiceMatch[1]) {
-        const query = researchVoiceMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+web|di\s+internet|di\s+browser)\b/gi, '').trim();
-        if (query.length > 3) {
-          console.log(`[Voice Pipeline]: 🔍 Web Surf Agent Research triggered -> "${query}"`);
+      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+tolong\s+browsing\s+(.+)/i;
+      const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger);
+      if (browsingMatch && browsingMatch[1]) {
+        const query = browsingMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
+        if (query.length > 2) {
+          console.log(`[Voice Pipeline]: 🌐 Headless Browsing triggered via VC -> "${query}"`);
+
+          const spoken = `Siap ${speakerName || 'Attila'}! Aku buka browser dan browsing "${query}" sekarang ya. Pantau layarnya di portal live!`;
+          recordSessionEntry(guildId, 'AZURA', spoken);
+          const audioResource = await textToAudioResource(spoken, client);
+          if (audioResource) await playInVC(guildId, audioResource);
+
           const { performLiveResearch } = require('./webSurfAgent');
           performLiveResearch(guildId, query, speakerName || 'Attila', textChannel, client).catch(e => {
-            console.error('[Voice Pipeline Web Research Error]:', e.message);
+            console.error('[Voice Pipeline Browsing Error]:', e.message);
           });
           return;
         }
       }
 
-      // 4b. Autonomous Task via Voice: "Ara, tolong isi form di ...", "Ara booking tiket ...", "Ara checkout ..."
-      const taskVoicePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:isi\s+form|booking|pesan|checkout|order|daftar|login|masuk\s+ke|unduh\s+laporan|download\s+report)\s+(.+)/i;
-      const taskVoiceMatch = transcript.match(taskVoicePattern) || cleanTranscript.match(taskVoicePattern);
-      if (taskVoiceMatch && taskVoiceMatch[1]) {
-        const task = taskVoiceMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
-        if (task.length > 3) {
-          console.log(`[Voice Pipeline]: 🤖 Web Surf Agent Task triggered -> "${task}"`);
-          const { executeAutonomousWebTask } = require('./webSurfAgent');
-          executeAutonomousWebTask(guildId, task, speakerName || 'Attila', textChannel, client).catch(e => {
-            console.error('[Voice Pipeline Web Task Error]:', e.message);
-          });
-          return;
-        }
-      }
+      // Sub-commands: only work when a browsing session is already active
+      const { closeBrowserSession, getWebpageSummary, scrollWebpage, clickOnWebpage, typeIntoWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
 
-      // 4c. Dashboard Monitoring via Voice: "Ara, pantau dashboard ...", "Ara cek analytics ..."
-      const dashVoicePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:cek|buka|pantau|monitor)\s+(?:dashboard|analitik|analytics|statistik)\s+(https?:\/\/[^\s]+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)/i;
-      const dashVoiceMatch = transcript.match(dashVoicePattern) || cleanTranscript.match(dashVoicePattern);
-      if (dashVoiceMatch && dashVoiceMatch[1]) {
-        const dashUrl = dashVoiceMatch[1].startsWith('http') ? dashVoiceMatch[1] : `https://${dashVoiceMatch[1]}`;
-        console.log(`[Voice Pipeline]: 📊 Web Surf Agent Dashboard triggered -> "${dashUrl}"`);
-        const { monitorDashboard } = require('./webSurfAgent');
-        monitorDashboard(guildId, dashUrl, speakerName || 'Attila', textChannel, client).catch(e => {
-          console.error('[Voice Pipeline Dashboard Error]:', e.message);
-        });
-        return;
-      }
-    }
-
-    // ── 5. HEADLESS BROWSING COMMANDS (Strict Wake-Word Locked) ──
-    if (hasWake) {
-      // A. Buka Chrome / Browser Standby
-      const openChromePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:buka|bukain|buka\s+aplikasi|jalankan)\s+(?:chrome|browser|google\s+chrome)\b/i;
-      if (openChromePattern.test(transcript) || openChromePattern.test(cleanTranscript)) {
-        console.log('[Voice Pipeline]: 🌐 Headless Browser Open Chrome triggered.');
-        const spoken = 'Siap Attila, Chrome sudah aku buka di latar belakang yaa!';
-        recordSessionEntry(guildId, 'AZURA', spoken);
-        const audioResource = await textToAudioResource(spoken, client);
-        if (audioResource) await playInVC(guildId, audioResource);
-
-        const { openWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
-        const res = await openWebpage(guildId, 'https://www.google.com');
-        if (res.success && res.screenshot && textChannel) {
-          await sendVisualSnapshotCard(textChannel, 'Google Chrome Standby', res.url, res.screenshot, 'Browser Chrome aktif & siap menerima instruksi navigasi kamu.');
-        }
-        return;
-      }
-
-      // B. Buka YouTube
-      const ytBrowsePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:buka|putar|tonton)\s+youtube\s*(?:cari|tentang|video)?\s*(.+)/i;
-      const ytMatch = transcript.match(ytBrowsePattern) || cleanTranscript.match(ytBrowsePattern);
-      if (ytMatch && ytMatch[1]) {
-        const query = ytMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
-        console.log(`[Voice Pipeline]: 🎥 Headless Browser YouTube triggered -> "${query}"`);
-
-        const spokenGreeting = 'Siap Attila sayang, ini aku bukain YouTube dan cariin videonya yaa [laughs]~';
-        recordSessionEntry(guildId, 'AZURA', spokenGreeting);
-        const audioResource = await textToAudioResource(spokenGreeting, client);
-        if (audioResource) await playInVC(guildId, audioResource);
-
-        const { browseYouTube, sendVisualSnapshotCard } = require('./headlessBrowser');
-        const ytRes = await browseYouTube(guildId, query, client, voiceChannel, textChannel);
-        if (ytRes.success && ytRes.screenshot && textChannel) {
-          await sendVisualSnapshotCard(textChannel, ytRes.title, ytRes.url, ytRes.screenshot, 'Video YouTube berhasil dimuat & audio dialirkan langsung ke VC!');
-        }
-        return;
-      }
-
-      // C. Cari / Buka Situs
-      const webBrowsePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:cari|buka|kunjungi|browsing)\s+situs\s+(.+)/i;
-      const webMatch = transcript.match(webBrowsePattern) || cleanTranscript.match(webBrowsePattern);
-      if (webMatch && webMatch[1]) {
-        const targetUrl = webMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+vc)\b/gi, '').trim();
-        console.log(`[Voice Pipeline]: 🌐 Headless Browser Webpage triggered -> "${targetUrl}"`);
-
-        const spokenGreeting = `Oke Attila, aku bukain situs ${targetUrl} sekarang yaa~`;
-        recordSessionEntry(guildId, 'AZURA', spokenGreeting);
-        const audioResource = await textToAudioResource(spokenGreeting, client);
-        if (audioResource) await playInVC(guildId, audioResource);
-
-        const { openWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
-        const webRes = await openWebpage(guildId, targetUrl);
-        if (webRes.success && webRes.screenshot && textChannel) {
-          await sendVisualSnapshotCard(textChannel, webRes.title, webRes.url, webRes.screenshot, `Halaman web ${targetUrl} berhasil dimuat di browser.`);
-        } else if (!webRes.success && textChannel) {
-          textChannel.send(`❌ ${webRes.error}`).catch(() => {});
-        }
-        return;
-      }
-
-      // D. Ketik Teks di Web
-      const typePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?ketik\s+(.+)/i;
+      // Ketik di browser: "ara ketik [teks]"
+      const typePattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?ketik\s+(.+)/i;
       const typeMatch = transcript.match(typePattern) || cleanTranscript.match(typePattern);
       if (typeMatch && typeMatch[1]) {
         const textToType = typeMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
-        console.log(`[Voice Pipeline]: ⌨️ Headless Browser Type -> "${textToType}"`);
-
-        const spoken = `Oke, aku ketik "${textToType}" di halaman browser yaa!`;
+        console.log(`[Voice Pipeline]: ⌨️ Browser Type -> "${textToType}"`);
+        const spoken = `Oke, aku ketik "${textToType}" di browser yaa!`;
         recordSessionEntry(guildId, 'AZURA', spoken);
-        const audioResource = await textToAudioResource(spoken, client);
-        if (audioResource) await playInVC(guildId, audioResource);
-
-        const { typeIntoWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
+        const audioRes = await textToAudioResource(spoken, client);
+        if (audioRes) await playInVC(guildId, audioRes);
         const res = await typeIntoWebpage(guildId, textToType);
         if (res.success && res.screenshot && textChannel) {
           await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, `Berhasil mengetik: \`${textToType}\``);
@@ -1644,34 +1562,29 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // E. Pilih / Klik Elemen di Web
-      const clickPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:pilih|klik|tekan|jawab\s+captcha)\s+(.+)/i;
+      // Klik di browser: "ara klik [target]"
+      const clickPattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?(?:klik|pilih|tekan)\s+(.+)/i;
       const clickMatch = transcript.match(clickPattern) || cleanTranscript.match(clickPattern);
       if (clickMatch && clickMatch[1]) {
-        const targetOption = clickMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
-        console.log(`[Voice Pipeline]: 🖱️ Headless Browser Click -> "${targetOption}"`);
-
-        const spoken = `Siap, aku klik "${targetOption}" di layar yaa!`;
+        const target = clickMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
+        console.log(`[Voice Pipeline]: 🖱️ Browser Click -> "${target}"`);
+        const spoken = `Siap, aku klik "${target}" di layar yaa!`;
         recordSessionEntry(guildId, 'AZURA', spoken);
-        const audioResource = await textToAudioResource(spoken, client);
-        if (audioResource) await playInVC(guildId, audioResource);
-
-        const { clickOnWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
-        const res = await clickOnWebpage(guildId, targetOption);
+        const audioRes = await textToAudioResource(spoken, client);
+        if (audioRes) await playInVC(guildId, audioRes);
+        const res = await clickOnWebpage(guildId, target);
         if (res.success && res.screenshot && textChannel) {
-          await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, `Berhasil mengklik/memilih: \`${targetOption}\``);
+          await sendVisualSnapshotCard(textChannel, res.title, res.url, res.screenshot, `Berhasil klik: \`${target}\``);
         }
         return;
       }
 
-      // F. Scroll Halaman Web
-      const scrollPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i;
+      // Scroll browser: "ara scroll bawah / atas"
+      const scrollPattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?(?:scroll|gulir)\s*(?:ke\s+)?(?:bawah|atas|down|up)\b/i;
       if (scrollPattern.test(transcript) || scrollPattern.test(cleanTranscript)) {
         const isUp = /\b(?:atas|up)\b/i.test(transcript);
         const direction = isUp ? 'up' : 'down';
-        console.log(`[Voice Pipeline]: 📜 Headless Browser Scroll (${direction})`);
-
-        const { scrollWebpage, sendVisualSnapshotCard } = require('./headlessBrowser');
+        console.log(`[Voice Pipeline]: 📜 Browser Scroll (${direction})`);
         const scrollRes = await scrollWebpage(guildId, direction);
         if (scrollRes.success && scrollRes.screenshot && textChannel) {
           await sendVisualSnapshotCard(textChannel, scrollRes.title, scrollRes.url, scrollRes.screenshot, `Halaman digulir ke ${direction === 'down' ? 'bawah ⬇️' : 'atas ⬆️'}.`);
@@ -1679,36 +1592,31 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // G. Jelaskan / Baca Tampilan Web
-      const readWebPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:jelaskan|baca|bacakan|ringkas|lihat)\s+(?:tampilan|isi|halaman|layar)\s*(?:web|browser|ini)?\b/i;
+      // Baca/jelaskan layar browser: "ara baca layar"
+      const readWebPattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?(?:jelaskan|baca|bacakan|ringkas)\s+(?:tampilan|isi|halaman|layar)\b/i;
       if (readWebPattern.test(transcript) || readWebPattern.test(cleanTranscript)) {
-        console.log('[Voice Pipeline]: 👁️ Headless Browser Read & Summarize Page');
-        const { getWebpageSummary } = require('./headlessBrowser');
+        console.log('[Voice Pipeline]: 👁️ Browser Read & Summarize');
         const summary = await getWebpageSummary(guildId);
-
-        let spoken = 'Halaman browser belum aktif atau kosong nih Attila.';
+        let spoken = 'Halaman browser belum aktif atau kosong nih.';
         if (summary.success) {
           spoken = `Di halaman ${summary.title}, pembahasannya tentang: ${summary.headings || summary.bodyText.slice(0, 180)}`;
         }
         recordSessionEntry(guildId, 'AZURA', spoken);
-        const audioResource = await textToAudioResource(spoken, client);
-        if (audioResource) await playInVC(guildId, audioResource);
+        const audioRes = await textToAudioResource(spoken, client);
+        if (audioRes) await playInVC(guildId, audioRes);
         return;
       }
 
-      // H. Tutup Browser
-      const closeBrowserPattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:tutup|close|stop|matikan)\s+(?:chrome|browser|web|tab)\b/i;
+      // Tutup browser: "ara tutup browser"
+      const closeBrowserPattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?(?:tutup|close|stop)\s+(?:chrome|browser|web|tab)\b/i;
       if (closeBrowserPattern.test(cleanTranscript) || closeBrowserPattern.test(transcript)) {
-        console.log('[Voice Pipeline]: 🔒 Headless Browser Close');
-        const { closeBrowserSession } = require('./headlessBrowser');
+        console.log('[Voice Pipeline]: 🔒 Browser Close');
         const closeRes = await closeBrowserSession(guildId);
-
-        const spokenClose = 'Sesi Chrome browser sudah aku tutup ya Attila, memori RAM sudah dibebaskan!';
+        const spokenClose = 'Sesi browser sudah aku tutup ya, memori sudah dibebaskan!';
         recordSessionEntry(guildId, 'AZURA', spokenClose);
         if (textChannel) textChannel.send(`🔒 **[AZURA Browser]** ${closeRes.message}`).catch(() => {});
-
-        const audioResource = await textToAudioResource(spokenClose, client);
-        if (audioResource) await playInVC(guildId, audioResource);
+        const audioRes = await textToAudioResource(spokenClose, client);
+        if (audioRes) await playInVC(guildId, audioRes);
         return;
       }
     }

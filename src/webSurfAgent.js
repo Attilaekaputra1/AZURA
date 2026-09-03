@@ -45,7 +45,7 @@ async function performLiveResearch(guildId, researchQuery, userName, textChannel
     await speakInVC(guildId, announceText, client, userName);
 
     // Step 2: Open search engine with the query
-    const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(researchQuery)}`;
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(researchQuery)}`;
     const searchResult = await openWebpage(guildId, searchUrl);
 
     if (!searchResult.success) {
@@ -385,6 +385,8 @@ Jelaskan angka-angka kunci, status, dan insight yang bisa diambil secara ringkas
 
 /**
  * Handle text-based web surf agent commands from Discord chat
+ * ONLY triggered by "tolong browsing [query]" and ONLY when Azura is in a Voice Channel.
+ * This prevents conflict with Tavily research in regular chat.
  * @param {import('discord.js').Message} message 
  * @param {import('discord.js').Client} client 
  * @returns {Promise<boolean>}
@@ -395,49 +397,28 @@ async function handleWebSurfCommands(message, client) {
   if (!isOwner) return false;
 
   const content = message.content.trim();
-  const lower = content.toLowerCase()
-    .replace(/<@!?\d+>/g, '')
-    .replace(/[.,!?;:'"()\[\]]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
   const guildId = message.guild?.id || 'default_guild';
   const userName = message.member?.displayName || message.author.displayName || message.author.username;
   const textChannel = message.channel;
 
-  // 1. Live Research: "ara carikan tiket pesawat termurah", "ara riset berita X", "ara tolong cari info tentang Y"
-  const researchMatch = content.match(/\b(?:ara|azura)\s+(?:tolong\s+)?(?:carikan|cari(?:n|kan)?|riset|telusuri|investigasi|research|analisis)\s+(.+)/i);
-  if (researchMatch && researchMatch[1]) {
-    const query = researchMatch[1]
-      .replace(/\b(?:dong|ya|yuk|plis|please|di\s+web|di\s+internet|di\s+browser)?\b/gi, '')
+  // Check if Azura is in a Voice Channel in this guild
+  const guild = message.guild;
+  const botMember = guild?.members?.me;
+  const isInVC = botMember?.voice?.channel != null;
+
+  if (!isInVC) return false; // Headless browsing only works when Azura is in VC
+
+  // EXCLUSIVE TRIGGER: "ara tolong browsing [query]"
+  const browsingMatch = content.match(/\b(?:ara|azura)\s+tolong\s+browsing\s+(.+)/i);
+  if (browsingMatch && browsingMatch[1]) {
+    const query = browsingMatch[1]
+      .replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '')
       .trim();
-    if (query.length > 3) {
-      await message.reply(`🔍 **[AZURA Web Research]** Memulai riset: **"${query}"**...\nPantau live di: 👉 ${STREAM_URL}`);
+    if (query.length > 2) {
+      await message.reply(`🌐 **[AZURA Live Browsing]** Membuka browser & browsing: **"${query}"**...\nPantau live di: 👉 ${STREAM_URL}`);
       await performLiveResearch(guildId, query, userName, textChannel, client);
       return true;
     }
-  }
-
-  // 2. Autonomous Task: "ara tolong isi form di web X", "ara booking tiket di Y", "ara checkout barang di Z"
-  const taskMatch = content.match(/\b(?:ara|azura)\s+(?:tolong\s+)?(?:isi\s+form|booking|pesan|checkout|order|daftar|login|masuk\s+ke|unduh\s+laporan|download\s+report|monitor|pantau)\s+(.+)/i);
-  if (taskMatch && taskMatch[1]) {
-    const task = taskMatch[1]
-      .replace(/\b(?:dong|ya|yuk|plis|please)?\b/gi, '')
-      .trim();
-    if (task.length > 3) {
-      await message.reply(`🤖 **[AZURA Task Agent]** Memulai tugas otomatis: **"${task}"**...\nPantau live di: 👉 ${STREAM_URL}`);
-      await executeAutonomousWebTask(guildId, task, userName, textChannel, client);
-      return true;
-    }
-  }
-
-  // 3. Dashboard Monitoring: "ara cek dashboard X", "ara buka monitor Y", "ara pantau analitik Z"
-  const dashMatch = content.match(/\b(?:ara|azura)\s+(?:tolong\s+)?(?:cek|buka|pantau|monitor)\s+(?:dashboard|analitik|analytics|statistik)\s+(https?:\/\/[^\s]+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)/i);
-  if (dashMatch && dashMatch[1]) {
-    const dashUrl = dashMatch[1].startsWith('http') ? dashMatch[1] : `https://${dashMatch[1]}`;
-    await message.reply(`📊 **[AZURA Dashboard Monitor]** Membuka dashboard: \`${dashUrl}\`...\nPantau live di: 👉 ${STREAM_URL}`);
-    await monitorDashboard(guildId, dashUrl, userName, textChannel, client);
-    return true;
   }
 
   return false;

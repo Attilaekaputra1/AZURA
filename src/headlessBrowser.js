@@ -185,7 +185,7 @@ function formatToUrl(input) {
   let clean = input.trim();
   if (/^https?:\/\//i.test(clean)) return clean;
   if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/.*)?$/i.test(clean)) return `https://${clean}`;
-  return `https://duckduckgo.com/?q=${encodeURIComponent(clean)}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
 }
 
 /**
@@ -553,6 +553,11 @@ async function handleTextBrowserCommands(message, client) {
   if (!message.content) return false;
   const isOwner = message.author.id === config.OWNER_DISCORD_ID;
   if (!isOwner) return false;
+
+  // Headless browsing commands only work when Azura is in a Voice Channel
+  const botMember = message.guild?.members?.me;
+  const isInVC = botMember?.voice?.channel != null;
+  if (!isInVC) return false;
 
   const content = message.content.trim();
   const lower = content.toLowerCase();

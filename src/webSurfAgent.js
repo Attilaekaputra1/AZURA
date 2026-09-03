@@ -16,7 +16,7 @@
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
 const { getBrowser, getOrCreateSession, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, activeBrowserSessions } = require('./headlessBrowser');
-const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
+const { broadcastFrame, updateStreamMeta, broadcastAzuraReply, STREAM_URL } = require('./livePortal');
 const { askAzura } = require('./azura');
 const config = require('./config');
 
@@ -161,6 +161,10 @@ Format Keluaran JSON WAJIB:
         activeGuild: guildId,
         mode: 'browse'
       });
+
+      if (typeof broadcastAzuraReply === 'function') {
+        broadcastAzuraReply(`[Aksi ${i + 1}/${maxSteps}] ${step.description || step.action}`);
+      }
 
       try {
         if (step.action === 'navigate') {
@@ -323,7 +327,11 @@ Format: Poin-poin rapi dan ramah khas Azura.`;
                        /belum berhasil menemukan|tidak ada data yang berhasil|halaman kosong|tidak menemukan informasi apa-apa/i.test(rawReport);
 
     if (isNotFound) {
-      console.log(`[Autonomous Mission]: ⚠️ No relevant information found on web for: "${plan.searchQuery}"`);
+      console.log(`[Autonomous Mission]: ⚠️ No relevant information found on web for: "${plan.goal}"`);
+      if (typeof broadcastAzuraReply === 'function') {
+        broadcastAzuraReply('⚠️ Maaf Attila, aku belum berhasil menemukan informasi yang sesuai.');
+      }
+
       // 1. Apologize briefly in VC
       const apologyVoiceText = 'Maaf Attila, aku belum berhasil nemuin informasi yang kamu minta di web.';
       await speakInVC(guildId, apologyVoiceText, client, 'Attila');
@@ -334,6 +342,10 @@ Format: Poin-poin rapi dan ramah khas Azura.`;
       }
     } else {
       const cleanReport = rawReport.replace(/\[NOT_FOUND\]/g, '').replace(/<[^>]+>/g, '').trim();
+
+      if (typeof broadcastAzuraReply === 'function') {
+        broadcastAzuraReply(`✅ Selesai: ${cleanReport.slice(0, 200)}...`);
+      }
 
       // 1. Speak in VC first (Exact phrase requested by user)
       const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';

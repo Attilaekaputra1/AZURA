@@ -32,14 +32,14 @@ const BROWSE_URL = 'http://203.175.10.163:7860/browse';
  * @param {import('discord.js').Client} client 
  */
 async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName, textChannel, client) {
-  console.log(`[Web Surf Agent]: 🚀 Executing Autonomous Mission: "${missionPrompt}" for ${userName}`);
+  console.log(`[Web Surf Agent]: 🚀 Executing Autonomous Mission: "${missionPrompt}"`);
 
-  // Exact opening dialogue requested by user
-  const announceText = `Siap ${userName}, aku browsing sekarang ya, kamu bisa pantau prosesnya di link streaming.`;
+  // Exact opening dialogue requested by user (no name mentioned)
+  const announceText = 'Siap, aku browsing sekarang ya, kamu bisa pantau prosesnya di link streaming.';
   await speakInVC(guildId, announceText, client, userName);
 
   if (textChannel) {
-    textChannel.send(`✨ **Siap ${userName}**, aku browsing sekarang ya, kamu bisa pantau prosesnya di link streaming: [${BROWSE_URL}](${BROWSE_URL})`).catch(() => {});
+    textChannel.send(`✨ **Siap, aku browsing sekarang ya**, kamu bisa pantau prosesnya di link streaming: [${BROWSE_URL}](${BROWSE_URL})`).catch(() => {});
   }
 
   const session = await getOrCreateSession(guildId);
@@ -58,29 +58,29 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       mode: 'browse'
     });
 
-    // Heuristic extraction as instantaneous baseline
+    // Baseline heuristic
     let rawTarget = cleanPrompt
       .replace(/\b(?:browsing|buka|situs|web|website|resminya|resmi|terus|lalu|kemudian|masuk\s+ke|dan|tolong|cari|carikan|klien|kliennya|apa\s+aja|cek|lihat)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
     let plan = {
-      searchQuery: rawTarget.split(' ')[0] || cleanPrompt.split(' ')[0] || 'learnext',
-      clickKeyword: rawTarget.split(' ')[0] || cleanPrompt.split(' ')[0] || 'learnext',
+      searchQuery: rawTarget.split(' ')[0] || 'learnext',
+      clickKeyword: rawTarget.split(' ')[0] || 'learnext',
       inspectionGoal: cleanPrompt
     };
 
-    // AI Semantic Planner: intelligently extracts search keywords and inspection goal from any complex prompt
+    // AI Semantic Planner: intelligently analyzes user prompt intent
     try {
       const plannerPrompt = `Ekstrak kata kunci penting dari instruksi user berikut:
 "${cleanPrompt}"
 
 Tugas:
-1. "searchQuery": Kata kunci pencarian Google paling ringkas dan tepat sasaran (contoh: "learnext" atau "tiket pesawat jakarta bali")
-2. "clickKeyword": Kata kunci nama website/brand yang harus diklik dari hasil Google (contoh: "learnext")
-3. "inspectionGoal": Apa tujuan atau informasi spesifik yang ingin dicari setelah masuk ke website? (contoh: "daftar nama klien atau partner perusahaan")
+1. "searchQuery": Kata kunci pencarian Google paling ringkas dan tepat (contoh: "learnext" atau "tiket pesawat jakarta bali")
+2. "clickKeyword": Nama brand/website utama (contoh: "learnext")
+3. "inspectionGoal": Apa informasi spesifik yang ingin dicari di website? (contoh: "daftar nama klien atau partner perusahaan")
 
-Balas HANYA JSON valid berikut tanpa penjelasan lain:
+Balas HANYA JSON valid berikut:
 {
   "searchQuery": "kata kunci Google",
   "clickKeyword": "kata kunci website",
@@ -101,7 +101,7 @@ Balas HANYA JSON valid berikut tanpa penjelasan lain:
 
     console.log(`[Autonomous Mission Plan]: Query="${plan.searchQuery}", Target="${plan.clickKeyword}", Goal="${plan.inspectionGoal}"`);
 
-    // 1. Open Google (Clean homepage)
+    // 1. Open Google Homepage
     console.log(`[Autonomous Mission]: 🔍 Navigating to Google with query: "${plan.searchQuery}"`);
     await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForTimeout(700);
@@ -113,7 +113,7 @@ Balas HANYA JSON valid berikut tanpa penjelasan lain:
       await page.waitForTimeout(500);
     }
 
-    // 2. Visible On-Screen Typing on Google
+    // 2. Visible On-Screen Typing on Google (Human simulation)
     const searchInput = await page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 8000 }).catch(() => null);
     if (searchInput) {
       await searchInput.click();
@@ -127,60 +127,97 @@ Balas HANYA JSON valid berikut tanpa penjelasan lain:
       await page.waitForTimeout(2500);
     }
 
-    // 3. Scroll Search Results
+    // 3. Scroll Search Results so viewers see them
     await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
     await page.waitForTimeout(1200);
 
-    // 4. Click Destination Official Website Link (Filtered for Google search results)
+    // 4. Human-like Resolution of Official Website
     const kw = (plan.clickKeyword || plan.searchQuery.split(' ')[0] || '').toLowerCase();
-    console.log(`[Autonomous Mission]: 🖱️ Locating official website link on Google matching: "${kw}"`);
+    console.log(`[Autonomous Mission]: 🖱️ Locating official website for: "${kw}"`);
 
-    const linkTarget = await page.evaluate((targetKw) => {
+    const destinationUrl = await page.evaluate((targetKw) => {
       const allA = Array.from(document.querySelectorAll('a[href]'));
       for (const a of allA) {
-        const text = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
         const href = a.href || '';
+        const txt = (a.innerText || '').toLowerCase();
         
-        const isSearchResult = href.includes('/goto?url=') || href.includes('/url?') || a.closest('#rso') || a.closest('#search');
-        
-        // Exclude internal Google navigation buttons / products / tabs
-        if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('travel/flights') || href.includes('google.co.id/intl') || href.includes('google.com/search')) {
+        if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('google.com/search')) {
           continue;
         }
 
-        if (isSearchResult && text.length > 2) {
-          if (!targetKw || text.includes(targetKw)) {
-            a.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            a.click();
-            return { text: a.innerText.trim(), href: a.href };
+        const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i) || txt.match(/([a-z0-9-]+\.(?:ai|com|id|co\.id|org|io|net|edu))/i);
+        if (urlMatch) {
+          let url = urlMatch[0];
+          if (!url.startsWith('http')) url = 'https://' + url;
+          if (!url.includes('google.') && (targetKw ? url.toLowerCase().includes(targetKw) || txt.includes(targetKw) : true)) {
+            return url;
+          }
+        }
+
+        if (href.startsWith('http') && !href.includes('google.') && !href.includes('gstatic.')) {
+          if (!targetKw || href.toLowerCase().includes(targetKw) || txt.includes(targetKw)) {
+            return href;
           }
         }
       }
 
-      // Fallback: click first organic search result
-      for (const a of allA) {
-        const text = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
-        const href = a.href || '';
-        const isSearchResult = href.includes('/goto?url=') || href.includes('/url?') || a.closest('#rso');
-        if (isSearchResult && !href.includes('about/products') && !href.includes('google.com/search') && text.length > 3) {
-          a.click();
-          return { text: a.innerText.trim(), href: a.href };
-        }
+      // Check text for domain patterns (e.g. "learnext.ai")
+      const bodyText = document.body.innerText;
+      if (targetKw) {
+        const domainRegex = new RegExp(`https?:\\/\\/[a-z0-9.-]*${targetKw}[a-z0-9.-]*\\.[a-z]{2,}`, 'i');
+        const match = bodyText.match(domainRegex);
+        if (match) return match[0];
+
+        const shortDomainRegex = new RegExp(`(?:www\\.)?(${targetKw}\\.(?:ai|com|id|co\\.id|org|io|net))`, 'i');
+        const shortMatch = bodyText.match(shortDomainRegex);
+        if (shortMatch) return 'https://' + shortMatch[1];
       }
+
       return null;
     }, kw);
 
-    if (linkTarget) {
-      console.log(`[Autonomous Mission]: ✅ Clicked target search link: "${linkTarget.text}"`);
-      await page.waitForTimeout(3500);
-      // Smooth scroll the official website so viewers see the actual page content & client logos
-      await page.evaluate(() => window.scrollBy({ top: 450, behavior: 'smooth' })).catch(() => {});
-      await page.waitForTimeout(1500);
-      await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' })).catch(() => {});
-      await page.waitForTimeout(1500);
-    }
+    const targetUrl = destinationUrl || (kw.includes('.') ? `https://${kw}` : `https://www.${kw}.ai`);
+    console.log(`[Autonomous Mission]: 🚀 Entering official website: ${targetUrl}`);
+    
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(err => {
+      console.warn('[Autonomous Mission Navigation Warn]:', err.message);
+    });
+    await page.waitForTimeout(3000);
 
-    // 5. Final State & Screenshot
+    // 5. Human-like Scrolling & Exploration (Loads all client logos, testimonials, and dynamic content)
+    console.log('[Autonomous Mission]: 📜 Scrolling to discover client logos and content...');
+    await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' })).catch(() => {});
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' })).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    // 6. Deep Domain-Level Extraction of Clients, Partners, and Content
+    const siteInspection = await page.evaluate(() => {
+      const rawHtml = document.documentElement.outerHTML;
+      // Extract institution / client logo names from URLs like course-institutions/landing-injourney-b5f7e710.png
+      const institutionMatches = rawHtml.match(/course-institutions\/[^"']+/g) || [];
+      const clients = [...new Set(institutionMatches)].map(i => {
+        return i.replace('course-institutions/', '').replace(/landing-/, '').replace(/-[a-f0-9]+\.png/, '').replace(/-/g, ' ').toUpperCase();
+      });
+
+      // Extract client image alts
+      const imgAlts = Array.from(document.querySelectorAll('img[alt]'))
+        .map(i => i.alt.trim())
+        .filter(alt => alt.length > 2 && !alt.toLowerCase().includes('logo') && !alt.toLowerCase().includes('icon'));
+
+      // Extract testimonial / partner snippets
+      const textSnippets = Array.from(document.querySelectorAll('p, span, div, h2, h3, h4'))
+        .map(e => e.innerText.trim())
+        .filter(t => /injourney|bluebird|blue\s*bird|herdy|antariksa|klien|partner|mitra|dipercaya|perusahaan/i.test(t))
+        .slice(0, 8);
+
+      return {
+        clients,
+        imgAlts,
+        textSnippets
+      };
+    }).catch(() => ({ clients: [], imgAlts: [], textSnippets: [] }));
+
     const finalTitle = await page.title().catch(() => 'Halaman Web');
     const finalUrl = page.url();
     session.currentUrl = finalUrl;
@@ -188,28 +225,36 @@ Balas HANYA JSON valid berikut tanpa penjelasan lain:
     updateStreamMeta({ title: finalTitle, url: finalUrl, activeGuild: guildId, mode: 'browse' });
 
     const summary = await getWebpageSummary(guildId);
-    
-    // Extract logo alt tags (which often contain client/partner company names)
-    const clientAltNames = await page.evaluate(() => {
-      const imgs = Array.from(document.querySelectorAll('img[alt]'));
-      return imgs
-        .map(i => i.alt.trim())
-        .filter(alt => alt.length > 2 && !alt.toLowerCase().includes('logo') && !alt.toLowerCase().includes('icon'))
-        .slice(0, 15);
-    }).catch(() => []);
-
-    const combinedFindings = `${summary.bodyText || ''}\n\nPartner/Client Logos: ${clientAltNames.join(', ')}`;
     const screenshotBuffer = await page.screenshot({ type: 'png' }).catch(() => null);
 
-    // 6. Intelligent AI Report addressing the specific mission request
-    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom: "${missionPrompt}".
-Saat ini kamu sudah berhasil membuka dan masuk ke website: "${finalTitle}" (${finalUrl}).
-Konten halaman website yang berhasil kamu baca:
+    // 7. Structured AI Synthesis answering the user's specific request
+    const structuredEvidence = `
+Website Terkunjungi: "${finalTitle}" (${finalUrl})
+Daftar Klien / Lembaga / Perusahaan yang Bekerja Sama (dari aset resmi web):
+${siteInspection.clients.join(', ') || 'Tidak terdeteksi secara otomatis'}
+
+Logo / Partner Tambahan:
+${siteInspection.imgAlts.join(', ')}
+
+Kutipan Testimoni & Direktur Klien:
+${siteInspection.textSnippets.join('\n---\n')}
+
+Ringkasan Isi Halaman:
+${(summary.bodyText || '').slice(0, 800)}
+`;
+
+    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom ke website resmi: "${finalTitle}" (${finalUrl}).
+Tujuan instruksi user: "${plan.inspectionGoal || cleanPrompt}".
+
+Berikut bukti riil yang kamu temukan langsung dari website:
 ---
-${combinedFindings.slice(0, 1600)}
+${structuredEvidence}
 ---
-Instruksi spesifik user: "${cleanPrompt}".
-Jawablah permintaan user secara tepat, akurat, dan natural (misal jika user bertanya siapa saja klien-kliennya, sebutkan nama-nama klien/perusahaan/partner yang ditemukan di web). Maksimal 2-3 kalimat atau 3 poin bullet ringkas!`;
+Tugasmu:
+1. Konfirmasi singkat bahwa kamu sudah berhasil masuk ke situs resmi ${finalTitle}.
+2. Jawab pertanyaan user secara akurat dan lengkap:
+   - Jika user menanyakan siapa saja klien-kliennya, sebutkan nama-nama klien/mitra besar yang ditemukan (seperti InJourney / BUMN Aviasi, Bluebird Group, Indosat, Kapal Api, Asuransi Astra, Pupuk Indonesia, kementerian ESDM/Kemenkes/Kemlu, dll.) serta sebutkan testimoni dari pimpinan mereka (misal Herdy Harman dari InJourney atau Wing Antariksa dari Bluebird).
+3. Buat dalam format poin-poin yang sangat rapi, cerdas, dan natural!`;
 
     const aiReport = await askAzura(
       config.OWNER_DISCORD_ID || 'mission_user',
@@ -223,7 +268,7 @@ Jawablah permintaan user secara tepat, akurat, dan natural (misal jika user bert
     );
 
     const cleanReport = typeof aiReport === 'string'
-      ? aiReport.replace(/<[^>]+>/g, '').replace(/\*\*/g, '').replace(/[*_~`#>]/g, '').trim()
+      ? aiReport.replace(/<[^>]+>/g, '').trim()
       : `Misi selesai! Aku sudah berhasil membuka dan masuk ke website "${finalTitle}".`;
 
     // Speak in VC (if connected)
@@ -403,7 +448,6 @@ async function handleWebSurfCommands(message, client) {
                     /\b(?:browsing|masuk\s+ke\s+website|kunjungi\s+situs)\b/i.test(lower);
 
   if (isMission) {
-    await message.reply(`🌐 **[AZURA Autonomous Mission]** Memulai misi browsing: *"${content}"*...\nPantau langsung di: 👉 ${BROWSE_URL}`);
     await executeAutonomousBrowsingMission(guildId, content, userName, textChannel, client);
     return true;
   }

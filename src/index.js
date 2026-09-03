@@ -727,7 +727,7 @@ let finalPrompt = rawPrompt;
         return message.reply(leaveRes.message);
       }
 
-      // Direct Music Commands from text chat (Attila Only)
+      // Direct Camera and Music Helpers
       const { streamMusicDirect, pauseMusic, resumeMusic, stopMusic } = require('./musicStreamer');
       const { audioPlayers, activeConnections } = require('./voiceCompanion');
       const cleanUserText = (rawPrompt || message.content)
@@ -736,6 +736,39 @@ let finalPrompt = rawPrompt;
         .replace(/\s+/g, ' ')
         .toLowerCase()
         .trim();
+
+      // Direct Camera (Video Stream) Commands from text chat (Attila Only)
+      const isCloseCamText =
+        /\b(?:tutup|tutupin|matikan|matiin|nonaktifkan|nonaktifin|stop|close|off|turn\s*off)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(cleanUserText) ||
+        /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:off|tutup|tutupin|mati|matiin|matikan|stop|hide)\b/i.test(cleanUserText) ||
+        /\b(?:off\s*cam|close\s*cam|stop\s*cam|stop\s*camera|tutup\s*cam)\b/i.test(cleanUserText);
+
+      const isOpenCamText =
+        /\b(?:buka|bukain|nyalain|nyalakan|aktifkan|aktifin|hidupkan|hidupin|start|open|show|pasang|tampilkan|turn\s*on)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)\b/i.test(cleanUserText) ||
+        /\b(?:kamera|cam|camera|video|webcam)\s*(?:nya)?\s*(?:on|buka|bukain|aktif|aktifin|nyala|nyalain|hidup|hidupin|pasang|show|dong|mana)\b/i.test(cleanUserText) ||
+        /\b(?:on\s*cam|open\s*cam|show\s*cam|start\s*cam|start\s*camera|buka\s*cam)\b/i.test(cleanUserText);
+
+      if (isCloseCamText) {
+        console.log(`[Camera Controller]: Attila triggered Close Camera from text chat.`);
+        const { stopCameraStream } = require('./videoStreamer');
+        const res = await stopCameraStream(guildId);
+        return message.reply(res.message || '🔒 Kamera Azura telah ditutup / dimatikan.');
+      }
+
+      if (isOpenCamText) {
+        console.log(`[Camera Controller]: Attila triggered Open Camera from text chat.`);
+        const member = message.member;
+        const voiceChannel = member?.voice?.channel || activeConnections?.get(guildId)?.channel;
+        const targetChannelId = voiceChannel?.id || activeConnections?.get(guildId)?.joinConfig?.channelId;
+
+        if (!targetChannelId) {
+          return message.reply('⚠️ Kamu atau Azura harus berada di Voice Channel untuk menyalakan kamera video!');
+        }
+
+        const { startCameraStream } = require('./videoStreamer');
+        const res = await startCameraStream(guildId, targetChannelId, message.channel, 'Attila');
+        return message.reply(res.message);
+      }
 
       const isStopMusic = /\b(?:stop|matikan|matiin|hentikan|berhenti)\s+(?:musik|lagu|musiknya|lagunya|sound)\b/i.test(cleanUserText) || /^(?:stop\s+musik|stop\s+lagu)$/i.test(cleanUserText);
       if (isStopMusic) {

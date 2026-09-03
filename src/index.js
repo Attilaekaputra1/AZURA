@@ -1034,7 +1034,11 @@ let finalPrompt = rawPrompt;
 
 // Event: Message Created
 client.on('messageCreate', async (message) => {
-  await handleIncomingMessage(message, false);
+  try {
+    await handleIncomingMessage(message, false);
+  } catch (err) {
+    console.error('[CRITICAL MessageCreate Error]:', err.stack || err);
+  }
 });
 
 // Event: Message Updated / Edited (Handles edited messages when user forgot to tag/call Azura initially)
@@ -1384,7 +1388,7 @@ client.on('interactionCreate', async (interaction) => {
 
 // Client Error Listener
 client.on('error', (error) => {
-  console.error('[AZURA Discord Client Error]:', error.message || error);
+  console.error('[AZURA Discord Client Error]:', error.stack || error.message || error);
 });
 
 // Process Unhandled Rejection Safeguard

@@ -478,6 +478,7 @@ async function startPersistentInteractiveBrowsing(guildId, userName, textChannel
 /**
  * Handle Web Surf Agent commands from Discord chat
  * Intercepts BOTH Mode 1 (Autonomous Mission) and Mode 2 (Step-by-Step Standby)
+ */
 async function handleWebSurfCommands(message, client) {
   if (!message.guild) return false;
 

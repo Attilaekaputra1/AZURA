@@ -478,35 +478,38 @@ async function startPersistentInteractiveBrowsing(guildId, userName, textChannel
 /**
  * Handle Web Surf Agent commands from Discord chat
  * Intercepts BOTH Mode 1 (Autonomous Mission) and Mode 2 (Step-by-Step Standby)
- * @param {import('discord.js').Message} message 
- * @param {import('discord.js').Client} client 
- * @returns {Promise<boolean>}
- */
 async function handleWebSurfCommands(message, client) {
-  if (!message.content) return false;
-  const isOwner = message.author.id === config.OWNER_DISCORD_ID;
-  if (!isOwner) return false;
+  if (!message.guild) return false;
 
   const content = message.content.trim();
   const lower = content.toLowerCase();
-  const guildId = message.guild?.id || 'default_guild';
-  const userName = message.member?.displayName || message.author.displayName || message.author.username;
+  const guildId = message.guild.id;
+  const userName = message.author.displayName || message.author.username;
   const textChannel = message.channel;
 
-  // 1. Explicit Close Command: "ara tutup browser", "ara stop browsing", "ara matikan browser"
-  if (/\b(?:ara|azura)\s+(?:tolong\s+)?(?:tutup|close|stop|matikan|selesai)\s+(?:browser|chrome|web|tab|browsing)\b/i.test(lower)) {
-    const res = await closeBrowserSession(guildId);
-    await message.reply(`🔒 **[AZURA Browser]** ${res.message}`);
-    await speakInVC(guildId, 'Sesi browser sudah aku tutup yaa!', client, userName);
+  // Ignore camera commands completely (handled by videoStreamer)
+  if (/\b(?:kamera|cam|camera|webcam)\b/i.test(lower)) {
+    return false;
+  }
+
+  // 1. Direct status query: "status browsing", "status browser"
+  if (/^(?:status|cek)\s+(?:browser|browsing)$/i.test(lower)) {
+    const status = getBrowserSessionStatus(guildId);
+    if (!status.active) {
+      await message.reply('ℹ️ Tidak ada sesi browsing aktif di server ini.');
+    } else {
+      await message.reply(`🌐 **[AZURA Browser Active]**\n• URL: \`${status.url}\`\n• Judul: **${status.title}**\n• Monitor Live: ${BROWSE_URL}`);
+    }
     return true;
   }
 
-  // 2. Open-ended Persistent Session Request: "ara aku mau browsing-browsing nih bantuin dong", "ara bantu browsing dong", "ara buka chrome standby"
-  const isPersistentIntent = /\b(?:ara|azura)\s+(?:aku\s+)?(?:mau|pengen|yuk|bantu|temenin)\s+browsing\b/i.test(lower) ||
-                             /\b(?:ara|azura)\s+(?:tolong\s+)?buka\s+(?:chrome|browser)\s*(?:standby)?\b/i.test(lower) ||
-                             /\b(?:ara|azura)\s+bantu\s+browsing\s+dong\b/i.test(lower);
+  // 2. Manual Standby Session Trigger ("ara buka browser", "ara bukain browser")
+  // User wants to open browser, stay standby, and command manually without auto-close!
+  const isManualStandby = /\b(?:ara|azura)\s+(?:tolong\s+)?(?:buka|bukain)\s+(?:browser|chrome|web)\s*(?:standby)?$/i.test(lower) ||
+                          /\b(?:ara|azura)\s+(?:aku\s+)?(?:mau|pengen|yuk|bantu|temenin)\s+browsing\b/i.test(lower) ||
+                          /^buka\s+browser\s*(?:standby)?$/i.test(lower);
 
-  if (isPersistentIntent && !/terus|kemudian|lalu|masuk\s+ke|klik|carikan|cari/i.test(lower)) {
+  if (isManualStandby) {
     await startPersistentInteractiveBrowsing(guildId, userName, textChannel, client);
     return true;
   }
@@ -539,7 +542,7 @@ async function handleWebSurfCommands(message, client) {
   // E.g.: "ara browsing situs learnext terus masuk ke website resminya"
   // E.g.: "ara tolong browsing tiket pesawat jakarta bali terus pilih jadwal termurah"
   // E.g.: "ara browsing [topic]"
-  const isMission = /\b(?:ara|azura)\s+(?:tolong\s+)?(?:browsing|cari|carikan|bukain|buka)\s+(.+)/i.test(content) ||
+  const isMission = /\b(?:ara|azura)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+(?:situs|web|website|halaman|link))\s+(.+)/i.test(content) ||
                     /\b(?:browsing|masuk\s+ke\s+website|kunjungi\s+situs)\b/i.test(lower);
 
   if (isMission) {

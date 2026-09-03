@@ -1559,9 +1559,9 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
 
       // 2. Goal-Oriented Autonomous Mission & Chained Follow-ups: "ara tolong browsing ...", "ara buka chat gpt terus ketik..."
-      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+situs|buka\s+web|buka|ketik|klik|tekan)\s+(.+)/i;
+      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+(?:situs|web|website|halaman|link)|ketik|klik|tekan)\s+(.+)/i;
       const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger);
-      if (browsingMatch && browsingMatch[1] && !/^(?:browser|chrome|web)\s*(?:standby)?$/i.test(browsingMatch[1].trim())) {
+      if (browsingMatch && browsingMatch[1] && !/\b(?:kamera|cam|camera|webcam|video)\b/i.test(transcript) && !/^(?:browser|chrome|web)\s*(?:standby)?$/i.test(browsingMatch[1].trim())) {
         const query = browsingMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
         if (query.length > 2) {
           console.log(`[Voice Pipeline]: 🌐 Autonomous Browsing Action triggered via VC -> "${transcript}"`);

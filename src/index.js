@@ -434,6 +434,53 @@ async function handleIncomingMessage(message, isEdit = false) {
   // If not a direct call and not the 3rd passive mention, ignore
   if (!isDirectCall && !isThirdPersonNimbrung) return;
 
+  // Handle direct Camera (Video Stream) Commands for Owner (Attila)
+  const cleanCamText = (message.content || '')
+    .replace(/<@!?\d+>/g, '')
+    .replace(/[.,!?;:'"()\[\]]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .trim();
+
+  const isCloseCamEarly =
+    /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:tutup|matikan|matiin|nonaktifkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)\b/i.test(cleanCamText) ||
+    /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:off\s*cam|close\s*cam)\b/i.test(cleanCamText) ||
+    /^(?:tolong\s+|coba\s+|bisa\s+)?(?:tutup|matikan|matiin|nonaktifkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanCamText) ||
+    /^(?:tolong\s+|coba\s+|bisa\s+)?(?:off\s*cam|close\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanCamText);
+
+  const isOpenCamEarly =
+    /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)\b/i.test(cleanCamText) ||
+    /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:on\s*cam|open\s*cam)\b/i.test(cleanCamText) ||
+    /^(?:tolong\s+|coba\s+|bisa\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanCamText) ||
+    /^(?:tolong\s+|coba\s+|bisa\s+)?(?:on\s*cam|open\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(cleanCamText) ||
+    /\b(?:azura|ara|zura)\s+(?:mana\s+kamera\s+kamu|kameranya\s+mana)\b/i.test(cleanCamText);
+
+  if (isCloseCamEarly) {
+    console.log(`[Camera Controller]: Attila triggered Close Camera from text chat.`);
+    const { stopCameraStream } = require('./videoStreamer');
+    const res = await stopCameraStream(message.guild?.id || 'global');
+    await message.reply(res.message || '🔒 Kamera Azura telah ditutup / dimatikan.');
+    return;
+  }
+
+  if (isOpenCamEarly) {
+    console.log(`[Camera Controller]: Attila triggered Open Camera from text chat.`);
+    const { activeConnections } = require('./voiceCompanion');
+    const member = message.member;
+    const voiceChannel = member?.voice?.channel || activeConnections?.get(message.guild?.id)?.channel;
+    const targetChannelId = voiceChannel?.id || activeConnections?.get(message.guild?.id)?.joinConfig?.channelId;
+
+    if (!targetChannelId) {
+      await message.reply('⚠️ Kamu atau Azura harus berada di Voice Channel untuk menyalakan kamera video!');
+      return;
+    }
+
+    const { startCameraStream } = require('./videoStreamer');
+    const res = await startCameraStream(message.guild?.id, targetChannelId, message.channel, 'Attila');
+    await message.reply(res.message);
+    return;
+  }
+
   // Handle direct headless browser text commands for Owner (Attila)
   const { handleTextBrowserCommands } = require('./headlessBrowser');
   const browserHandled = await handleTextBrowserCommands(message, client);

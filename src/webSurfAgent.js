@@ -98,55 +98,79 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
 
     console.log(`[Autonomous Mission Plan]: Query="${plan.searchQuery}", Type="${plan.targetType}", Domain="${plan.preferredDomain}", Goal="${plan.inspectionGoal}"`);
 
-    // 1. Open Google Homepage
-    console.log(`[Autonomous Mission]: 🔍 Navigating to Google with query: "${plan.searchQuery}"`);
-    await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForTimeout(700);
-
-    // Auto-click consent if present
-    const consentBtn = await page.$('button:has-text("Setuju"), button:has-text("I agree"), button:has-text("Accept all"), #L2AGLb');
-    if (consentBtn) {
-      await consentBtn.click().catch(() => {});
-      await page.waitForTimeout(500);
-    }
-
-    // 2. Visible On-Screen Typing on Google (Human simulation)
-    const searchInput = await page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 8000 }).catch(() => null);
-    if (searchInput) {
-      await searchInput.click();
-      await page.waitForTimeout(200);
-      await page.keyboard.type(plan.searchQuery, { delay: 45 });
-      await page.waitForTimeout(300);
-      await page.keyboard.press('Enter');
+    // 1. Open Search Engine or Direct Website
+    if (plan.preferredDomain && plan.targetType === 'website') {
+      const directUrl = plan.preferredDomain.startsWith('http') ? plan.preferredDomain : `https://${plan.preferredDomain}`;
+      console.log(`[Autonomous Mission]: 🎯 Navigating directly to requested domain: ${directUrl}`);
+      await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
       await page.waitForTimeout(3000);
     } else {
-      await page.goto(`https://www.google.com/search?q=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await page.waitForTimeout(2500);
-    }
+      console.log(`[Autonomous Mission]: 🔍 Navigating to Google with query: "${plan.searchQuery}"`);
+      await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.waitForTimeout(700);
 
-    // 3. Scroll Search Results so viewers see them
-    await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
-    await page.waitForTimeout(1200);
+      // Auto-click consent if present
+      const consentBtn = await page.$('button:has-text("Setuju"), button:has-text("I agree"), button:has-text("Accept all"), #L2AGLb');
+      if (consentBtn) {
+        await consentBtn.click().catch(() => {});
+        await page.waitForTimeout(500);
+      }
 
-    // 4. Human-like Resolution of Destination Website / Article
-    console.log(`[Autonomous Mission]: 🖱️ Resolving target destination for query: "${plan.searchQuery}"`);
+      // Visible On-Screen Typing on Google (Human simulation)
+      const searchInput = await page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 8000 }).catch(() => null);
+      if (searchInput) {
+        await searchInput.click();
+        await page.waitForTimeout(200);
+        await page.keyboard.type(plan.searchQuery, { delay: 45 });
+        await page.waitForTimeout(300);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(3000);
+      } else {
+        await page.goto(`https://www.google.com/search?q=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(2500);
+      }
 
-    const destination = await page.evaluate(({ preferredDomain, targetType }) => {
-      const allA = Array.from(document.querySelectorAll('#rso a[href], #search a[href], a[href]'));
-      
-      for (const a of allA) {
-        const href = a.href || '';
-        const txt = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
+      // Check if Google showed reCAPTCHA / Sorry page (unusual traffic block)
+      const isGoogleBlocked = page.url().includes('google.com/sorry') || await page.evaluate(() => {
+        return document.body.innerText.includes('Saya bukan robot') || document.body.innerText.includes('unusual traffic');
+      }).catch(() => false);
+
+      if (isGoogleBlocked) {
+        console.log('[Autonomous Mission]: ⚠️ Google triggered bot verification! Seamlessly bypassing to Yahoo search...');
+        updateStreamMeta({ title: '🌐 AZURA: ' + plan.searchQuery.slice(0, 30), url: 'https://search.yahoo.com', activeGuild: guildId, mode: 'browse' });
+        await page.goto(`https://search.yahoo.com/search?p=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(2500);
+      }
+
+      // Scroll Search Results so viewers see them
+      await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
+      await page.waitForTimeout(1200);
+
+      // Human-like Resolution of Destination Website / Article
+      console.log(`[Autonomous Mission]: 🖱️ Resolving target destination for query: "${plan.searchQuery}"`);
+
+      const destination = await page.evaluate(({ preferredDomain, targetType }) => {
+        const allA = Array.from(document.querySelectorAll('#rso a[href], #search a[href], #web a[href], .compText a[href], h3 a, h4 a, a[href]'));
         
-        // Skip Google system navigation
-        if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('google.com/search') || href.includes('google.co.id/intl') || href.includes('maps.google')) {
-          continue;
-        }
+        for (const a of allA) {
+          const href = a.href || '';
+          const txt = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
+          
+          if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('google.com/search') || href.includes('search.yahoo.com') || href.includes('yahoo.com/preferences') || href.includes('help.yahoo.com')) {
+            continue;
+          }
 
-        // Case A: Specific website domain requested (e.g. learnext.ai)
-        if (preferredDomain) {
-          const domClean = preferredDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
-          if (href.toLowerCase().includes(domClean) || txt.includes(domClean)) {
+          if (preferredDomain) {
+            const domClean = preferredDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+            if (href.toLowerCase().includes(domClean) || txt.includes(domClean)) {
+              let realUrl = href;
+              const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i);
+              if (urlMatch) realUrl = urlMatch[0];
+              return { title: a.innerText.trim(), url: realUrl };
+            }
+          }
+
+          if (href.startsWith('http') && !href.includes('google.') && !href.includes('yahoo.') && txt.length > 5) {
             let realUrl = href;
             const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i);
             if (urlMatch) realUrl = urlMatch[0];
@@ -154,60 +178,41 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
           }
         }
 
-        // Case B: General or News query -> pick top organic article / result
-        const isOrganic = href.includes('/goto?url=') || href.includes('/url?') || a.closest('#rso') || a.querySelector('h3');
-        if (isOrganic && txt.length > 5) {
-          let realUrl = href;
-          const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i);
-          if (urlMatch) realUrl = urlMatch[0];
-          return { title: a.innerText.trim(), url: realUrl };
-        }
+        return null;
+      }, { preferredDomain: plan.preferredDomain, targetType: plan.targetType });
+
+      if (destination && destination.url && destination.url.startsWith('http')) {
+        console.log(`[Autonomous Mission]: 🚀 Entering target destination: ${destination.url}`);
+        await page.goto(destination.url, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(err => {
+          console.warn('[Autonomous Mission Navigation Warn]:', err.message);
+        });
+        await page.waitForTimeout(3000);
       }
-
-      // Fallback for specific domain
-      if (preferredDomain) {
-        const domClean = preferredDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
-        const match = document.body.innerText.match(new RegExp(`https?:\\/\\/[a-z0-9.-]*${domClean}[a-z0-9.-]*`, 'i'));
-        if (match) return { title: preferredDomain, url: match[0] };
-      }
-
-      return null;
-    }, { preferredDomain: plan.preferredDomain, targetType: plan.targetType });
-
-    if (destination && destination.url) {
-      console.log(`[Autonomous Mission]: 🚀 Entering target destination: ${destination.url}`);
-      await page.goto(destination.url, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(err => {
-        console.warn('[Autonomous Mission Navigation Warn]:', err.message);
-      });
-      await page.waitForTimeout(3000);
     }
 
-    // 5. Human-like Scrolling & Exploration (Loads all content, articles, images, and text)
+    // 2. Human-like Scrolling & Exploration (Loads all content, articles, images, and text)
     console.log('[Autonomous Mission]: 📜 Scrolling to explore page content...');
-    await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' })).catch(() => {});
+    await page.evaluate(() => window.scrollBy({ top: 500, behavior: 'smooth' })).catch(() => {});
     await page.waitForTimeout(1500);
-    await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' })).catch(() => {});
+    await page.evaluate(() => window.scrollBy({ top: 700, behavior: 'smooth' })).catch(() => {});
     await page.waitForTimeout(1500);
 
-    // 6. Deep Domain-Level Extraction of Clients, Partners, and Article Text
+    // 3. Deep Domain-Level Extraction of Clients, Partners, and Article Text
     const siteInspection = await page.evaluate(() => {
       const rawHtml = document.documentElement.outerHTML;
-      // Extract institution / client logo names
       const institutionMatches = rawHtml.match(/course-institutions\/[^"']+/g) || [];
       const clients = [...new Set(institutionMatches)].map(i => {
         return i.replace('course-institutions/', '').replace(/landing-/, '').replace(/-[a-f0-9]+\.png/, '').replace(/-/g, ' ').toUpperCase();
       });
 
-      // Extract client image alts
       const imgAlts = Array.from(document.querySelectorAll('img[alt]'))
         .map(i => i.alt.trim())
         .filter(alt => alt.length > 2 && !alt.toLowerCase().includes('logo') && !alt.toLowerCase().includes('icon'));
 
-      // Extract text snippets
       const textSnippets = Array.from(document.querySelectorAll('p, span, div, h1, h2, h3, h4'))
         .map(e => e.innerText.trim())
-        .filter(t => t.length > 20)
-        .slice(0, 10);
+        .filter(t => t.length > 25 && !t.includes('function(') && !t.includes('{'))
+        .slice(0, 12);
 
       return {
         clients,
@@ -225,34 +230,30 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
     const summary = await getWebpageSummary(guildId);
     const screenshotBuffer = await page.screenshot({ type: 'png' }).catch(() => null);
 
-    // 7. Structured AI Synthesis answering the user's specific request
+    // 4. Dynamic AI Synthesis strictly tailored to user query intent
+    const isClientSearch = /\b(?:klien|client|mitra|partner|perusahaan)\b/i.test(plan.inspectionGoal || cleanPrompt);
+
     const structuredEvidence = `
 Website Terkunjungi: "${finalTitle}" (${finalUrl})
-Daftar Klien / Lembaga / Perusahaan yang Bekerja Sama (dari aset resmi web):
-${siteInspection.clients.join(', ') || 'Tidak terdeteksi secara otomatis'}
+Kutipan Artikel & Konten Penting dari Halaman:
+${siteInspection.textSnippets.slice(0, 8).join('\n---\n')}
 
-Logo / Partner Tambahan:
-${siteInspection.imgAlts.join(', ')}
-
-Kutipan Testimoni & Direktur Klien:
-${siteInspection.textSnippets.join('\n---\n')}
-
-Ringkasan Isi Halaman:
-${(summary.bodyText || '').slice(0, 800)}
+Ringkasan Halaman:
+${(summary.bodyText || '').slice(0, 1000)}
+${isClientSearch && siteInspection.clients.length > 0 ? `\nDaftar Klien/Mitra: ${siteInspection.clients.join(', ')}` : ''}
 `;
 
-    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom ke website resmi: "${finalTitle}" (${finalUrl}).
+    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom ke halaman web: "${finalTitle}" (${finalUrl}).
 Tujuan instruksi user: "${plan.inspectionGoal || cleanPrompt}".
 
-Berikut bukti riil yang kamu temukan langsung dari website:
+Berikut fakta dan konten riil yang berhasil kamu baca langsung dari halaman website:
 ---
 ${structuredEvidence}
 ---
 Tugasmu:
-1. Konfirmasi singkat bahwa kamu sudah berhasil masuk ke situs resmi ${finalTitle}.
-2. Jawab pertanyaan user secara akurat dan lengkap:
-   - Jika user menanyakan siapa saja klien-kliennya, sebutkan nama-nama klien/mitra besar yang ditemukan (seperti InJourney / BUMN Aviasi, Bluebird Group, Indosat, Kapal Api, Asuransi Astra, Pupuk Indonesia, kementerian ESDM/Kemenkes/Kemlu, dll.) serta sebutkan testimoni dari pimpinan mereka (misal Herdy Harman dari InJourney atau Wing Antariksa dari Bluebird).
-3. Buat dalam format poin-poin yang sangat rapi, cerdas, dan natural!`;
+1. Berikan jawaban yang cerdas, akurat, dan to the point sesuai tujuan user di atas.
+2. Jelaskan fakta penting yang ditemukan (misal jika tentang lagu/berita Akon, ceritakan tentang lagunya, rilis, lirik, atau faktanya; jika tentang perusahaan, ceritakan tentang layanan atau mitranya).
+3. Buat dalam format poin-poin yang rapi dan ramah khas Azura!`;
 
     const aiReport = await askAzura(
       config.OWNER_DISCORD_ID || 'mission_user',

@@ -1,10 +1,10 @@
 /**
- * AZURA Autonomous Headless Browser Game Player - Co-Op Interactive Edition
- * Plays 2048 collaboratively with Attila & members.
- * - Real-Time accurate score evaluation directly from browser DOM.
- * - Streams live 60fps video directly to http://203.175.10.163:7860/live.
- * - Automatic Game-Over detection & verified scorecard reporting.
- * - Speaks live in Discord Voice Channel (Kak Ceria / Gadis Neural).
+ * AZURA Autonomous Headless Browser Game Player - Co-Op & Strategic Discussion Edition
+ * - Autonomous & Smooth Gameplay with Live 60fps Stream to http://203.175.10.163:7860/live.
+ * - Silent & Snappy Move Execution (Zero noisy TTS on keystrokes).
+ * - Live Strategic Discussion Partner: Ask questions, tactical advice, or casual banter with real-time board awareness!
+ * - Real-Time accurate score evaluation directly from browser DOM upon game end/over.
+ * - Speaks thoughtfully in Discord Voice Channel (Kak Ceria persona).
  */
 
 const { AttachmentBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -53,7 +53,7 @@ const HTML_2048_PAGE = `<!DOCTYPE html>
 <body>
   <div class="header">
     <div class="title">🌸 AZURA & ATTILA 2048 CO-OP</div>
-    <div class="subtitle">Live Interactive Companion • Voice & Text Command Stream</div>
+    <div class="subtitle">Autonomous AI Player & Strategic Discussion Partner</div>
     <div class="stats-bar">
       <div class="stat-box"><div class="stat-label">Score</div><div id="score" class="stat-value">0</div></div>
       <div class="stat-box"><div class="stat-label">Highest Tile</div><div id="highest-tile" class="stat-value">2</div></div>
@@ -63,7 +63,7 @@ const HTML_2048_PAGE = `<!DOCTYPE html>
   <div class="grid-container">
     <div id="grid" class="grid"></div>
   </div>
-  <div id="thought" class="thought-bubble">Siap menerima aba-aba dari Attila! Ketik atau bicara di portal web 🎤</div>
+  <div id="thought" class="thought-bubble">Azura siap bermain & berdiskusi strategi bersamamu! 🎮💬</div>
 
 <script>
 let board = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
@@ -367,7 +367,7 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
     return session;
   }
 
-  console.log(`[Browser Game Agent]: 🚀 Launching new Co-Op Game session for ${guildId}...`);
+  console.log(`[Browser Game Agent]: 🚀 Launching new Game session for ${guildId}...`);
   const browser = await getBrowser();
   const context = await browser.newContext({
     viewport: { width: 850, height: 720 },
@@ -421,7 +421,78 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
 }
 
 /**
- * Execute an interactive move ordered by the user
+ * Intelligent Tactical Discussion & Open Q&A with Live Game Awareness
+ * @param {string} question 
+ * @param {string} [userName='Attila'] 
+ * @param {object} session 
+ * @returns {Promise<string>}
+ */
+async function discussGameWithAzura(question, userName = 'Attila', session = null) {
+  const currentState = session?.page && !session.page.isClosed()
+    ? await session.page.evaluate(() => window.getGameState()).catch(() => null)
+    : null;
+
+  let gameContextPrompt = '';
+  if (currentState && currentState.board) {
+    const bestMove = getBest2048Move(currentState.board);
+    const indonesianDirs = { up: 'ATAS', down: 'BAWAH', left: 'KIRI', right: 'KANAN' };
+    gameContextPrompt = `[GAMEPLAY CONTEXT - LIVE 2048 MATCH]:
+Kamu (Azura) sedang bermain game 2048 secara otonom di live stream bersama ${userName}.
+Kondisi papan saat ini:
+- Skor saat ini: ${currentState.score.toLocaleString()} Pts
+- Tile tertinggi di papan: Tile ${currentState.highestTile}
+- Total langkah yang sudah dimainkan: ${currentState.moves}
+- Rekomendasi langkah terbaik menurut algoritma corner-lock mu: Geser ke ${indonesianDirs[bestMove]}
+- Susunan baris papan 4x4:
+  Baris 1: [${currentState.board[0].join(', ')}]
+  Baris 2: [${currentState.board[1].join(', ')}]
+  Baris 3: [${currentState.board[2].join(', ')}]
+  Baris 4: [${currentState.board[3].join(', ')}]
+
+${userName} sedang menonton kamu bermain dan mengajakmu berdiskusi / bertanya: "${question}".
+Instruksi respons:
+- Jawablah secara santai, cerdas, taktis, dan hidup seperti partner mabar yang asyik!
+- Jika dia bertanya tentang taktik/langkah papan atau minta saran, berikan analisa taktis yang jelas berdasarkan posisi angka di atas.
+- Jika dia bertanya hal santai/umum, jawablah dengan persona Azura yang ceria dan akrab.
+- Buat jawaban ringkas, natural untuk didengarkan di Voice Channel (hindari format markdown berlebihan).`;
+  } else {
+    gameContextPrompt = `Kamu (Azura) sedang di arena game bersama ${userName}. Dia bertanya: "${question}". Jawablah dengan ceria dan natural!`;
+  }
+
+  const { askAzura } = require('./azura');
+  const rawAnswer = await askAzura(
+    config.OWNER_DISCORD_ID || 'game_user',
+    gameContextPrompt,
+    userName,
+    [],
+    false,
+    session?.channel?.id || null,
+    session?.guildId || null,
+    true
+  );
+
+  let cleanAnswer = typeof rawAnswer === 'string' ? rawAnswer : (rawAnswer?.content || 'Oke!');
+  cleanAnswer = cleanAnswer
+    .replace(/<[^>]+>/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/[*_~`#>]/g, '')
+    .trim();
+
+  // Speak thoughtful answer in Discord Voice Channel (Kak Ceria)
+  try {
+    const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
+    if (session?.guildId && session.guildId !== 'global') {
+      speakTextInVC(session.guildId, cleanAnswer, session.client || null, userName).catch(() => {});
+    } else {
+      speakInAllActiveVCs(cleanAnswer, session?.client || null).catch(() => {});
+    }
+  } catch (_) {}
+
+  return cleanAnswer;
+}
+
+/**
+ * Execute an interactive move or discuss strategy
  * @param {string} rawCommand 
  * @param {string} [userName='Attila'] 
  * @param {string} [guildId='global'] 
@@ -435,56 +506,53 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
     return { success: false, response: 'Sesi browser game belum aktif. Buka dulu di Discord atau web yaa!', state: null };
   }
 
+  // 1. Direct Move Control: SILENT & FAST (No repetitive TTS spamming per step!)
   let direction = null;
-  let isAuto = false;
-  let isReset = false;
-  let isHint = false;
+  if (/^(?:kiri|left|geser\s*(?:ke\s*)?kiri|arah\s*kiri|ke\s*kiri)$/i.test(cleanCmd)) direction = 'left';
+  else if (/^(?:kanan|right|geser\s*(?:ke\s*)?kanan|arah\s*kanan|ke\s*kanan)$/i.test(cleanCmd)) direction = 'right';
+  else if (/^(?:atas|up|geser\s*(?:ke\s*)?atas|arah\s*atas|ke\s*atas|naik)$/i.test(cleanCmd)) direction = 'up';
+  else if (/^(?:bawah|down|geser\s*(?:ke\s*)?bawah|arah\s*bawah|ke\s*bawah|turun)$/i.test(cleanCmd)) direction = 'down';
 
-  // Natural Indonesian Voice & Text Command Parser
-  if (/\b(?:kiri|left|geser\s*(?:ke\s*)?kiri|arah\s*kiri|ke\s*kiri|tolong\s*kiri|coba\s*kiri)\b/i.test(cleanCmd)) direction = 'left';
-  else if (/\b(?:kanan|right|geser\s*(?:ke\s*)?kanan|arah\s*kanan|ke\s*kanan|tolong\s*kanan|coba\s*kanan)\b/i.test(cleanCmd)) direction = 'right';
-  else if (/\b(?:atas|up|geser\s*(?:ke\s*)?atas|arah\s*atas|ke\s*atas|naik|tolong\s*atas|coba\s*atas)\b/i.test(cleanCmd)) direction = 'up';
-  else if (/\b(?:bawah|down|geser\s*(?:ke\s*)?bawah|arah\s*bawah|ke\s*bawah|turun|tolong\s*bawah|coba\s*bawah)\b/i.test(cleanCmd)) direction = 'down';
-  else if (/\b(?:auto|bantu|otonom|mainkan|mainin|jalan\s*sendiri|bot|selesaikan|bantu\s*main)\b/i.test(cleanCmd)) isAuto = true;
-  else if (/\b(?:reset|ulang|restart|baru|mulai\s*lagi|hapus\s*papan)\b/i.test(cleanCmd)) isReset = true;
-  else if (/\b(?:saran|hint|bagusnya|kemana|rekomendasi|bingung|gimana|menurutmu)\b/i.test(cleanCmd)) isHint = true;
+  if (direction) {
+    const indonesianDirs = { up: 'ATAS', down: 'BAWAH', left: 'KIRI', right: 'KANAN' };
+    const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
+      dir: direction,
+      thoughtText: `Geser ${indonesianDirs[direction]} (Skor: ${session.score.toLocaleString()})`
+    });
 
-  // 1. Reset Board
-  if (isReset) {
+    session.score = res.score;
+    session.highestTile = res.highestTile;
+    session.moves = res.moves;
+
+    if (res.gameOver) {
+      setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1200);
+    }
+
+    return {
+      success: true,
+      response: `Bidak digeser ke ${indonesianDirs[direction]} (Skor: ${res.score.toLocaleString()} | Tile Tertinggi: ${res.highestTile})`,
+      state: res
+    };
+  }
+
+  // 2. Reset Board
+  if (/^(?:reset|ulang|restart|baru|mulai\s*lagi)$/i.test(cleanCmd)) {
     const newState = await session.page.evaluate(() => window.resetGame());
     session.score = newState.score;
     session.moves = newState.moves;
     session.highestTile = newState.highestTile;
-    const resp = `Sip ${userName}! Papan 2048-nya sudah aku reset bersih yaa. Yuk mulai susun dari awal lagi! 🌸`;
-    try {
-      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (session.guildId && session.guildId !== 'global') speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
-      else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
-    } catch (_) {}
+    const resp = `Papan 2048 sudah di-reset! Yuk kita susun lagi dari awal.`;
     return { success: true, response: resp, state: newState };
   }
 
-  // 2. Hint / Suggestion
-  if (isHint) {
-    const currentState = await session.page.evaluate(() => window.getGameState());
-    const bestMove = getBest2048Move(currentState.board);
-    const indonesianDirs = { up: 'ATAS', down: 'BAWAH', left: 'KIRI', right: 'KANAN' };
-    const resp = `Hmm setelah aku analisis papannya, langkah paling aman dan optimal sekarang adalah geser ke **${indonesianDirs[bestMove]}**! Mau aku eksekusikan sekarang? 😉`;
-    try {
-      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (session.guildId && session.guildId !== 'global') speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
-      else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
-    } catch (_) {}
-    return { success: true, response: resp, state: currentState };
-  }
-
-  // 3. Auto Play 5 Steps
-  if (isAuto) {
+  // 3. Autonomous Play Loop (Azura plays 10 steps autonomously and smoothly)
+  if (/\b(?:auto|otonom|mainkan|mainin|jalan\s*sendiri|bot|bantu\s*main)\b/i.test(cleanCmd)) {
     let stepsDone = 0;
-    for (let s = 0; s < 5; s++) {
+    for (let s = 0; s < 10; s++) {
       const currentState = await session.page.evaluate(() => window.getGameState());
+      if (!currentState || currentState.gameOver) break;
       const bestMove = getBest2048Move(currentState.board);
-      const thought = `Auto-play langkah ${s + 1}/5: geser ${bestMove.toUpperCase()}...`;
+      const thought = `Auto-Play langkah ${s + 1}/10: geser ${bestMove.toUpperCase()}...`;
       const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
         dir: bestMove,
         thoughtText: thought
@@ -494,86 +562,26 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
       session.score = res.score;
       session.highestTile = res.highestTile;
       session.moves = res.moves;
-      await session.page.waitForTimeout(200);
-      if (res.gameOver) break;
+      await session.page.waitForTimeout(160);
+      if (res.gameOver) {
+        setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1200);
+        break;
+      }
     }
     const finalState = await session.page.evaluate(() => window.getGameState());
-    session.score = finalState.score;
-    session.highestTile = finalState.highestTile;
-    session.moves = finalState.moves;
-
-    const resp = `Selesai ${userName}! Aku sudah eksekusi ${stepsDone} langkah otonom. Skor kita sekarang **${finalState.score.toLocaleString()}** dengan tile tertinggi **${finalState.highestTile}**! Sekarang giliranmu, mau geser kemana lagi? 💅✨`;
-    try {
-      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (session.guildId && session.guildId !== 'global') speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
-      else speakInAllActiveVCs(resp, session.client || null).catch(() => {});
-    } catch (_) {}
-
-    if (finalState.gameOver) {
-      setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1500);
-    }
-
-    return { success: true, response: resp, state: finalState };
+    return {
+      success: true,
+      response: `Azura mengeksekusi ${stepsDone} langkah otonom. Skor sekarang: ${finalState.score.toLocaleString()} (Tile ${finalState.highestTile})`,
+      state: finalState
+    };
   }
 
-  // 4. Single Direction Move
-  if (direction) {
-    const indonesianDirs = { up: 'ATAS', down: 'BAWAH', left: 'KIRI', right: 'KANAN' };
-    const thought = `Mengikuti aba-aba ${userName}: geser ${indonesianDirs[direction]}!`;
-    const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
-      dir: direction,
-      thoughtText: thought
-    });
-
-    session.score = res.score;
-    session.highestTile = res.highestTile;
-    session.moves = res.moves;
-
-    let resp = '';
-    if (res.changed) {
-      const reactions = [
-        `Siap ${userName}! Aku geser ke **${indonesianDirs[direction]}**! Papan bergerak rapi, skor jadi **${res.score.toLocaleString()}**! ✨`,
-        `Oke meluncur ke **${indonesianDirs[direction]}**! Mantap, langkahmu tepat! 👍`,
-        `Sip! Geser **${indonesianDirs[direction]}** berhasil! Tile tertinggi kita sekarang **Tile ${res.highestTile}**! 🔥`,
-        `Aba-aba diterima! Bidak bergeser ke **${indonesianDirs[direction]}**. Next kemana lagi nih? 😉`
-      ];
-      resp = reactions[Math.floor(Math.random() * reactions.length)];
-    } else {
-      resp = `Hmm ${userName}, geser ke **${indonesianDirs[direction]}** gak ada bidak yang bisa digabung atau bergerak nih. Coba arah yang lain yaa!`;
-    }
-
-    // 🎙️ Voice Output directly to Discord Voice Channel (Kak Ceria / Edge-TTS)
-    try {
-      const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-      if (session.guildId && session.guildId !== 'global') {
-        speakTextInVC(session.guildId, resp, session.client || null, userName).catch(() => {});
-      } else {
-        speakInAllActiveVCs(resp, session.client || null).catch(() => {});
-      }
-    } catch (_) {}
-
-    // Check if Game Over
-    if (res.gameOver) {
-      setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1500);
-    }
-
-    return { success: true, response: resp, state: res };
-  }
-
-  const fallbackResp = `Aku kurang paham arahnya nih ${userName}. Kamu bisa bilang: *"geser kiri"*, *"ke atas"*, *"kanan"*, *"bawah"*, atau *"auto"*!`;
-  try {
-    const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
-    if (session.guildId && session.guildId !== 'global') {
-      speakTextInVC(session.guildId, fallbackResp, session.client || null, userName).catch(() => {});
-    } else {
-      speakInAllActiveVCs(fallbackResp, session.client || null).catch(() => {});
-    }
-  } catch (_) {}
-
+  // 4. Open-Ended Strategic Discussion / Tactical Q&A / Banter with Live Board Awareness!
+  const discussionAnswer = await discussGameWithAzura(rawCommand, userName, session);
   return {
-    success: false,
-    response: fallbackResp,
-    state: null
+    success: true,
+    response: discussionAnswer,
+    state: await session.page.evaluate(() => window.getGameState()).catch(() => null)
   };
 }
 
@@ -594,22 +602,22 @@ async function launchAutonomousBrowserGame(message) {
 
   const startEmbed = new EmbedBuilder()
     .setColor(0x00AE89) // Emerald
-    .setTitle('🎮 Arena 2048 Co-Op Azura & Attila Telah Dibuka!')
+    .setTitle('🎮 Arena 2048 Otonom & Diskusi Terbuka Azura!')
     .setDescription(
-      `Halo **${userName}**! Aku sudah membuka papan **2048 di browser live** nih! 🌸✨\n\n` +
-      `🕹️ **Kita main bareng ya! Kamu yang kasih aba-aba/perintah, aku yang geserkan bidaknya!**\n\n` +
-      `📺 **Buka Portal Web Live Stream untuk Memberi Perintah & Nonton 60 FPS:**\n` +
+      `Halo **${userName}**! Papan **2048 live stream** sudah dibuka! 🌸✨\n\n` +
+      `🕹️ **Azura bermain secara otonom & kamu bisa berdiskusi taktik secara terbuka kapanpun!**\n\n` +
+      `📺 **Buka Portal Web Live Stream untuk Menonton & Diskusi:**\n` +
       `👉 **[KLIK DI SINI UNTUK BUKA PORTAL INTERAKTIF](${streamUrl})**\n\n` +
-      `💡 **Cara Mengontrol Azura:**\n` +
-      `• **Di Portal Web:** Bisa ketik teks, tekan tombol D-Pad, atau **klik tombol Mic 🎙️ untuk bicara langsung ke Azura!**\n` +
-      `• **Di Chat Discord:** Kamu juga bisa ketik \`ara geser kiri\`, \`ara ke atas\`, \`ara auto play\`, dll.`
+      `💡 **Fitur:**\n` +
+      `• **Gameplay Mulus & Tenang:** Gerakan bidak geser cepat tanpa suara berisik per tombol.\n` +
+      `• **Diskusi Terbuka & Tanya Jawab Suara di VC:** Kamu bisa tanya strategi (*"Menurutmu gimana?"*, *"Kenapa geser atas?"*, *"Saran taktik dong"*), dan Azura akan menjawab taktis & hidup lewat suara VC Discord!`
     )
     .addFields(
-      { name: '🌐 Portal Web Interaktif', value: `[\`${streamUrl}\`](${streamUrl})`, inline: false },
-      { name: '🎙️ Fitur Kontrol', value: '`Voice Speech Mic • Text Chat • Quick D-Pad`', inline: true },
+      { name: '🌐 Portal Live Stream', value: `[\`${streamUrl}\`](${streamUrl})`, inline: false },
+      { name: '💬 Diskusi Taktis', value: '`Voice VC • Chat Diskusi • Analisis Papan Realtime`', inline: true },
       { name: '⚡ Streaming', value: '`Playwright Chromium 60fps HD`', inline: true }
     )
-    .setFooter({ text: 'AZURA Interactive Co-Op Gaming 2026' })
+    .setFooter({ text: 'AZURA Autonomous & Strategic Companion 2026' })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
@@ -640,7 +648,6 @@ async function stopAutonomousBrowserGame(guildId = 'global') {
     let attachment = null;
 
     if (session.page && !session.page.isClosed()) {
-      // 🌟 LIVE EVALUATION: Ambil langsung skor paling aktual dari memori browser JavaScript
       const liveState = await session.page.evaluate(() => window.getGameState()).catch(() => null);
       if (liveState) {
         session.score = liveState.score || 0;
@@ -656,9 +663,9 @@ async function stopAutonomousBrowserGame(guildId = 'global') {
 
       const resultEmbed = new EmbedBuilder()
         .setColor(session.highestTile >= 512 ? 0xF1C40F : 0x38BDF8)
-        .setTitle('🏆 HASIL AKHIR PERTANDINGAN 2048 CO-OP (REAL-TIME)')
+        .setTitle('🏆 HASIL AKHIR PERTANDINGAN 2048 (REAL-TIME)')
         .setDescription(
-          `Permainan kita selesai! Terima kasih sudah mabar bareng aku yaa **${session.userName}**! 🌸✨\n\n` +
+          `Permainan selesai! Terima kasih sudah menemani dan mabar bareng aku yaa **${session.userName}**! 🌸✨\n\n` +
           `📊 **Rekapitulasi Skor Aktual:**\n` +
           `• 🏆 **Skor Akhir:** \`${session.score.toLocaleString()} Pts\`\n` +
           `• 🌟 **Tile Tertinggi:** \`Tile ${session.highestTile}\`\n` +
@@ -692,7 +699,7 @@ async function stopAutonomousBrowserGame(guildId = 'global') {
       }
 
       // Voice commentary in Discord VC
-      const farewellVoice = `Selesai ${session.userName}! Skor akhir kita mencapai ${session.score.toLocaleString()} poin dengan tile tertinggi ${session.highestTile} dalam ${session.moves} langkah! Seru banget mabar bareng kamu! 🌸✨`;
+      const farewellVoice = `Selesai ${session.userName}! Skor akhir kita mencapai ${session.score.toLocaleString()} poin dengan tile tertinggi ${session.highestTile} dalam ${session.moves} langkah! Seru banget mabar dan diskusi bareng kamu! 🌸✨`;
       try {
         const { speakInAllActiveVCs, speakTextInVC } = require('./voiceCompanion');
         if (session.guildId && session.guildId !== 'global') {
@@ -735,7 +742,7 @@ async function handleBrowserGameCommands(message) {
   // 1. Start game: "ara main game 2048", "ara main 2048"
   if (/\b(?:mainkan|main|play)\s+(?:game\s+|permainan\s+)?(?:2048|web|browser)\b/i.test(cleanText) ||
       /^(?:main\s+2048|main\s+game)$/i.test(cleanText)) {
-    console.log(`[Browser Game Agent]: Triggered Co-Op game for user: ${userName}`);
+    console.log(`[Browser Game Agent]: Triggered game for user: ${userName}`);
     await launchAutonomousBrowserGame(message);
     return true;
   }
@@ -751,14 +758,18 @@ async function handleBrowserGameCommands(message) {
     return true;
   }
 
-  // 3. Move commands from Discord
-  const isMoveCommand = /\b(?:geser|ke|arah|move)\s+(?:kiri|kanan|atas|bawah|left|right|up|down)\b/i.test(cleanText) ||
-                        /\b(?:auto|auto\s+play|saran|hint|reset\s+board)\b/i.test(cleanText);
+  // 3. Move or discussion commands from Discord chat while game session is active
+  if (activeGameSessions.has(guildId)) {
+    const isDirection = /^(?:geser\s*)?(?:kiri|kanan|atas|bawah|left|right|up|down|auto|reset)$/i.test(cleanText);
+    const isDiscussion = /\b(?:menurutmu|kenapa|gimana|saran|taktik|bisa\s*menang|mikirin\s*apa|bingung|strategi)\b/i.test(cleanText);
 
-  if (isMoveCommand) {
-    const res = await executeInteractiveMove(cleanText, userName, guildId);
-    await message.reply(res.response);
-    return true;
+    if (isDirection || isDiscussion) {
+      const res = await executeInteractiveMove(cleanText, userName, guildId);
+      if (res.response) {
+        await message.reply(res.response);
+      }
+      return true;
+    }
   }
 
   return false;
@@ -768,5 +779,6 @@ module.exports = {
   launchAutonomousBrowserGame,
   stopAutonomousBrowserGame,
   handleBrowserGameCommands,
-  executeInteractiveMove
+  executeInteractiveMove,
+  discussGameWithAzura
 };

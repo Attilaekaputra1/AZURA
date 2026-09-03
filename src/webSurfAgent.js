@@ -58,12 +58,11 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       mode: 'browse'
     });
 
-    // 🧠 Ultra-Intelligent AI Mission Planner (Direct LLM Reasoning)
+    // 🧠 Autonomous Multi-Step Action Chain Planner (Direct LLM Reasoning)
     let plan = {
-      searchQuery: cleanPrompt,
+      goal: cleanPrompt,
       category: 'general',
-      preferredDomain: null,
-      inspectionGoal: cleanPrompt
+      steps: []
     };
 
     try {
@@ -75,12 +74,55 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
         messages: [
           {
             role: 'system',
-            content: `Kamu adalah asisten otonom web browsing berintelektual tinggi. Tugasmu menganalisis instruksi user dan menghasilkan rencana aksi browsing:
+            content: `Kamu adalah arsitek eksekusi web browsing otonom berintelektual tinggi.
+Tugasmu menganalisis instruksi user dan menyusun RANTAI AKSI OTONOM (Action Chain) berurutan (MAKSIMAL 8 LANGKAH) yang akan dieksekusi secara nyata di browser headless.
+
+Pilihan aksi yang didukung:
+1. "navigate": { "action": "navigate", "url": "https://...", "description": "..." }
+2. "click": { "action": "click", "selector": "#id, button, a, [data-testid=...]", "text": "opsional teks tombol", "description": "..." }
+3. "type": { "action": "type", "selector": "#id, input, textarea, div[contenteditable=true]", "text": "teks yang diketik", "description": "..." }
+4. "press_key": { "action": "press_key", "key": "Enter" | "Tab" | "Escape", "description": "..." }
+5. "scroll": { "action": "scroll", "amount": 400, "description": "..." }
+6. "wait": { "action": "wait", "durationMs": 3000, "description": "..." }
+7. "search": { "action": "search", "query": "kata kunci pencarian", "description": "..." }
+
+Contoh Kasus 1: "ara tolong browsing chat gpt terus coba pake chat gpt nya deh, ketik 'halo aku azura, salam kenal'"
+-> Steps:
+[
+  { "action": "navigate", "url": "https://chatgpt.com", "description": "Membuka situs ChatGPT" },
+  { "action": "wait", "durationMs": 3000, "description": "Menunggu tampilan ChatGPT termuat" },
+  { "action": "click", "selector": "#prompt-textarea, textarea, div[contenteditable='true']", "description": "Klik kolom input chat" },
+  { "action": "type", "selector": "#prompt-textarea, textarea, div[contenteditable='true']", "text": "halo aku azura, salam kenal", "description": "Mengetik sapaan Azura" },
+  { "action": "click", "selector": "button[data-testid='send-button'], button[aria-label*='Send'], button[aria-label*='Kirim']", "description": "Klik tombol kirim pesan" },
+  { "action": "press_key", "key": "Enter", "description": "Kirim pesan dengan Enter" },
+  { "action": "wait", "durationMs": 7000, "description": "Menunggu ChatGPT menjawab" },
+  { "action": "scroll", "amount": 350, "description": "Scroll membaca respon" }
+]
+
+Contoh Kasus 2: "ara browsing lagu montagem coma"
+-> Steps:
+[
+  { "action": "search", "query": "lagu montagem coma", "description": "Mencari lagu montagem coma" },
+  { "action": "scroll", "amount": 350, "description": "Melihat hasil teratas" }
+]
+
+Contoh Kasus 3: "ara browsing situs learnext terus masuk ke website resminya terus cari klien-klien nya apa aja"
+-> Steps:
+[
+  { "action": "navigate", "url": "https://www.learnext.ai", "description": "Buka situs resmi LearnExt" },
+  { "action": "wait", "durationMs": 3000, "description": "Menunggu halaman termuat" },
+  { "action": "scroll", "amount": 600, "description": "Scroll melihat daftar klien" },
+  { "action": "wait", "durationMs": 1500, "description": "Memuat logo mitra" },
+  { "action": "scroll", "amount": 800, "description": "Scroll melihat testimoni direktur" }
+]
+
+Format Keluaran JSON WAJIB:
 {
-  "searchQuery": "kata kunci pencarian Google paling akurat, efektif, dan alami untuk diketik di search box (contoh untuk 'browsing lagu montagem coma' -> 'lagu montagem coma', untuk 'ara browsing berita tentang lagu akon right now deh' -> 'Akon Right Now lagu', untuk 'browsing situs learnext terus masuk ke website resminya' -> 'learnext')",
-  "category": "music" | "news" | "company" | "commercial" | "knowledge" | "general",
-  "preferredDomain": "nama domain jika user spesifik menyebut website tertentu (contoh: 'learnext.ai'), atau null jika mencari berita/informasi/artikel/lagu umum",
-  "inspectionGoal": "apa inti informasi yang harus dicari dan dirangkum untuk user"
+  "goal": "penjelasan singkat tujuan misi",
+  "category": "ai_chat" | "music" | "news" | "form" | "commercial" | "general",
+  "steps": [
+    // Array aksi berurutan, MAKSIMAL 8 LANGKAH!
+  ]
 }`
           },
           { role: 'user', content: cleanPrompt }
@@ -88,143 +130,121 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       });
 
       const parsedPlan = JSON.parse(aiPlannerRes.choices[0].message.content);
-      if (parsedPlan.searchQuery) plan.searchQuery = parsedPlan.searchQuery;
+      if (parsedPlan.goal) plan.goal = parsedPlan.goal;
       if (parsedPlan.category) plan.category = parsedPlan.category;
-      if (parsedPlan.preferredDomain !== undefined) plan.preferredDomain = parsedPlan.preferredDomain;
-      if (parsedPlan.inspectionGoal) plan.inspectionGoal = parsedPlan.inspectionGoal;
+      if (Array.isArray(parsedPlan.steps) && parsedPlan.steps.length > 0) {
+        plan.steps = parsedPlan.steps.slice(0, 8); // Enforce maximum 8 actions
+      }
     } catch (e) {
       console.warn('[Autonomous Planner Fallback]:', e.message);
     }
 
-    console.log(`[Autonomous Mission Plan]: Query="${plan.searchQuery}", Type="${plan.targetType}", Domain="${plan.preferredDomain}", Goal="${plan.inspectionGoal}"`);
+    // Default fallback step if planner failed
+    if (plan.steps.length === 0) {
+      plan.steps = [
+        { action: 'search', query: cleanPrompt, description: `Mencari ${cleanPrompt}` },
+        { action: 'scroll', amount: 400, description: 'Melihat halaman web' }
+      ];
+    }
 
-    // 1. Open Search Engine or Direct Website
-    if (plan.preferredDomain && plan.targetType === 'website') {
-      const directUrl = plan.preferredDomain.startsWith('http') ? plan.preferredDomain : `https://${plan.preferredDomain}`;
-      console.log(`[Autonomous Mission]: 🎯 Navigating directly to requested domain: ${directUrl}`);
-      await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
-      await page.waitForTimeout(3000);
-    } else {
-      console.log(`[Autonomous Mission]: 🔍 Navigating to Google with query: "${plan.searchQuery}"`);
-      await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await page.waitForTimeout(700);
+    const maxSteps = Math.min(plan.steps.length, 8);
+    console.log(`[Autonomous Mission]: ⛓️ Executing Action Chain of ${maxSteps} steps for goal: "${plan.goal}"`);
 
-      // Auto-click consent if present
-      const consentBtn = await page.$('button:has-text("Setuju"), button:has-text("I agree"), button:has-text("Accept all"), #L2AGLb');
-      if (consentBtn) {
-        await consentBtn.click().catch(() => {});
-        await page.waitForTimeout(500);
-      }
+    // ⚡ Execute Action Chain Step-by-Step
+    for (let i = 0; i < maxSteps; i++) {
+      const step = plan.steps[i];
+      console.log(`[Action Chain Step ${i + 1}/${maxSteps}]: ⚡ ${step.action} - ${step.description || ''}`);
 
-      // Visible On-Screen Typing on Google (Human simulation)
-      const searchInput = await page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 8000 }).catch(() => null);
-      if (searchInput) {
-        await searchInput.click();
-        await page.waitForTimeout(200);
-        await page.keyboard.type(plan.searchQuery, { delay: 45 });
-        await page.waitForTimeout(300);
-        await page.keyboard.press('Enter');
-        await page.waitForTimeout(3000);
-      } else {
-        await page.goto(`https://www.google.com/search?q=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await page.waitForTimeout(2500);
-      }
+      updateStreamMeta({
+        title: `🌐 [Aksi ${i + 1}/${maxSteps}] ${step.description || step.action}`,
+        url: page.url(),
+        activeGuild: guildId,
+        mode: 'browse'
+      });
 
-      // Check if Google showed reCAPTCHA / Sorry page (unusual traffic block)
-      const isGoogleBlocked = page.url().includes('google.com/sorry') || await page.evaluate(() => {
-        return document.body.innerText.includes('Saya bukan robot') || document.body.innerText.includes('unusual traffic');
-      }).catch(() => false);
+      try {
+        if (step.action === 'navigate') {
+          let targetUrl = step.url || 'https://www.google.com';
+          if (!targetUrl.startsWith('http')) targetUrl = `https://${targetUrl}`;
+          console.log(`[Action Chain Navigate]: Opening ${targetUrl}...`);
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+          await page.waitForTimeout(2000);
+        } else if (step.action === 'search') {
+          const searchQuery = step.query || plan.goal;
+          console.log(`[Action Chain Search]: Searching for "${searchQuery}"...`);
+          await page.goto(`https://search.yahoo.com/search?p=${encodeURIComponent(searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await page.waitForTimeout(2000);
 
-      if (isGoogleBlocked) {
-        console.log('[Autonomous Mission]: ⚠️ Google triggered bot verification! Seamlessly bypassing to Yahoo search...');
-        updateStreamMeta({ title: '🌐 AZURA: ' + plan.searchQuery.slice(0, 30), url: 'https://search.yahoo.com', activeGuild: guildId, mode: 'browse' });
-        await page.goto(`https://search.yahoo.com/search?p=${encodeURIComponent(plan.searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await page.waitForTimeout(2500);
-      }
+          // Click top organic result strictly
+          const organicLink = await page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll('#web ol > li, .algo, #rso div.g, #search div.g'));
+            const blacklisted = ['yahoo.com', 'google.com', 'bing.com'];
+            for (const it of items) {
+              const a = it.querySelector('h3 a, .compTitle a, a[href*="http"]');
+              if (a) {
+                const href = a.href || '';
+                if (!blacklisted.some(b => href.includes(b)) && href.startsWith('http')) {
+                  return href;
+                }
+              }
+            }
+            return null;
+          });
 
-      // Scroll Search Results so viewers see them
-      await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
-      // Human-like Resolution of Destination Website / Article (Strictly organic results!)
-      console.log(`[Autonomous Mission]: 🖱️ Resolving organic target destination for query: "${plan.searchQuery}" (Category: ${plan.category || 'general'})`);
-
-      const destination = await page.evaluate(({ preferredDomain, category }) => {
-        // Target organic result containers strictly
-        const organicContainers = Array.from(document.querySelectorAll('#web ol > li, .algo, #rso div.g, #search div.g, #rso, #search, #web'));
-        const candidateAnchors = [];
-
-        for (const container of organicContainers) {
-          const links = Array.from(container.querySelectorAll('h3 a, h4 a, .compTitle a, a[href]'));
-          candidateAnchors.push(...links);
-        }
-
-        if (candidateAnchors.length === 0) {
-          candidateAnchors.push(...Array.from(document.querySelectorAll('a[href]')));
-        }
-
-        // Blacklist system navigation, header portals, and search engines
-        const blacklisted = [
-          'about/products', 'accounts.google', 'support.google', 'google.com/search',
-          'google.co.id/search', 'google.com/intl', 'maps.google', 'policies.google',
-          'search.yahoo.com', 'yahoo.com/preferences', 'help.yahoo.com', 'finance.yahoo.com',
-          'news.yahoo.com', 'sports.yahoo.com', 'mail.yahoo.com', 'autos.yahoo.com',
-          'entertainment.yahoo.com', 'lifestyle.yahoo.com', 'consent.yahoo', 'legal.yahoo'
-        ];
-
-        for (const a of candidateAnchors) {
-          const href = a.href || '';
-          const txt = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
-          
-          if (!href.startsWith('http')) continue;
-          if (blacklisted.some(b => href.includes(b))) continue;
-
-          // Case A: Specific domain requested
-          if (preferredDomain) {
-            const domClean = preferredDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
-            if (href.toLowerCase().includes(domClean) || txt.includes(domClean)) {
-              let realUrl = href;
-              const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i);
-              if (urlMatch) realUrl = urlMatch[0];
-              return { title: a.innerText.trim(), url: realUrl };
+          if (organicLink) {
+            console.log(`[Action Chain Search]: Entering top organic result: ${organicLink}`);
+            await page.goto(organicLink, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+            await page.waitForTimeout(2500);
+          }
+        } else if (step.action === 'click') {
+          let clicked = false;
+          if (step.selector) {
+            const el = await page.$(step.selector).catch(() => null);
+            if (el) {
+              await el.click({ timeout: 4000, force: true }).catch(() => {});
+              clicked = true;
             }
           }
-
-          // Case B: Organic results (Google goto redirects or real external domains)
-          const isGoogleGoto = href.includes('google.com/goto?url=') || href.includes('/url?');
-          const isRealOrganic = !href.includes('google.') && !href.includes('yahoo.') && !href.includes('bing.');
-
-          if ((isGoogleGoto || isRealOrganic) && txt.length > 3) {
-            let realUrl = href;
-            if (href.includes('/url?q=')) {
-              const match = href.match(/url\?q=([^&]+)/);
-              if (match) realUrl = decodeURIComponent(match[1]);
+          if (!clicked && step.text) {
+            const btn = await page.$(`button:has-text("${step.text}"), a:has-text("${step.text}"), [aria-label*="${step.text}"]`).catch(() => null);
+            if (btn) {
+              await btn.click({ timeout: 4000, force: true }).catch(() => {});
             }
-            return { title: a.innerText.trim(), url: realUrl };
           }
+          await page.waitForTimeout(1000);
+        } else if (step.action === 'type') {
+          if (step.selector) {
+            const el = await page.$(step.selector).catch(() => null);
+            if (el) {
+              await el.click({ timeout: 4000, force: true }).catch(() => {});
+              await page.waitForTimeout(300);
+            }
+          }
+          await page.keyboard.type(step.text || '', { delay: 40 });
+          await page.waitForTimeout(500);
+        } else if (step.action === 'press_key') {
+          await page.keyboard.press(step.key || 'Enter');
+          await page.waitForTimeout(1000);
+        } else if (step.action === 'scroll') {
+          const amt = step.amount || 400;
+          await page.evaluate((top) => window.scrollBy({ top, behavior: 'smooth' }), amt).catch(() => {});
+          await page.waitForTimeout(1500);
+        } else if (step.action === 'wait') {
+          await page.waitForTimeout(Math.min(step.durationMs || 3000, 10000));
         }
-
-        return null;
-      }, { preferredDomain: plan.preferredDomain, category: plan.category });
-
-      if (destination && destination.url && destination.url.startsWith('http')) {
-        console.log(`[Autonomous Mission]: 🚀 Entering target destination: ${destination.url}`);
-        await page.goto(destination.url, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(err => {
-          console.warn('[Autonomous Mission Navigation Warn]:', err.message);
-        });
-        await page.waitForTimeout(3000);
+      } catch (stepErr) {
+        console.warn(`[Action Chain Step ${i + 1} Warn]:`, stepErr.message);
       }
     }
 
-    // 2. Human-like Scrolling & Exploration (Loads all content, articles, images, and text)
-    console.log('[Autonomous Mission]: 📜 Scrolling to explore page content...');
-    await page.evaluate(() => window.scrollBy({ top: 500, behavior: 'smooth' })).catch(() => {});
-    await page.waitForTimeout(1500);
-    await page.evaluate(() => window.scrollBy({ top: 700, behavior: 'smooth' })).catch(() => {});
-    await page.waitForTimeout(1500);
-
-    // 3. Deep Domain-Level Extraction of Clients, Partners, and Article Text
+    // 2. Deep Domain-Level Extraction of Content, AI Chat Responses, and Article Text
     const siteInspection = await page.evaluate(() => {
-      const rawHtml = document.documentElement.outerHTML;
-      const institutionMatches = rawHtml.match(/course-institutions\/[^"']+/g) || [];
+      // Check for AI / assistant responses (ChatGPT, Claude, Gemini, etc.)
+      const chatReplies = Array.from(document.querySelectorAll('[data-message-author-role="assistant"], div.markdown, [class*="agent-turn"], [class*="message-assistant"], .response, article'))
+        .map(el => el.innerText.trim())
+        .filter(t => t.length > 5 && !t.includes('Search your chat history') && !t.includes('Log in to save conversations'));
+
+      const institutionMatches = document.documentElement.outerHTML.match(/course-institutions\/[^"']+/g) || [];
       const clients = [...new Set(institutionMatches)].map(i => {
         return i.replace('course-institutions/', '').replace(/landing-/, '').replace(/-[a-f0-9]+\.png/, '').replace(/-/g, ' ').toUpperCase();
       });
@@ -233,17 +253,18 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
         .map(i => i.alt.trim())
         .filter(alt => alt.length > 2 && !alt.toLowerCase().includes('logo') && !alt.toLowerCase().includes('icon'));
 
-      const textSnippets = Array.from(document.querySelectorAll('p, span, div, h1, h2, h3, h4'))
+      const textSnippets = Array.from(document.querySelectorAll('h1, h2, h3, p, span'))
         .map(e => e.innerText.trim())
         .filter(t => t.length > 25 && !t.includes('function(') && !t.includes('{'))
         .slice(0, 15);
 
       return {
+        chatReplies,
         clients,
         imgAlts,
         textSnippets
       };
-    }).catch(() => ({ clients: [], imgAlts: [], textSnippets: [] }));
+    }).catch(() => ({ chatReplies: [], clients: [], imgAlts: [], textSnippets: [] }));
 
     const finalTitle = await page.title().catch(() => 'Halaman Web');
     const finalUrl = page.url();
@@ -255,11 +276,13 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
     const screenshotBuffer = await page.screenshot({ type: 'png' }).catch(() => null);
 
     // 4. Dynamic AI Synthesis strictly tailored to user query intent
-    const isClientSearch = /\b(?:klien|client|mitra|partner|perusahaan)\b/i.test(plan.inspectionGoal || cleanPrompt);
+    const isClientSearch = /\b(?:klien|client|mitra|partner|perusahaan)\b/i.test(plan.goal || cleanPrompt);
 
     const structuredEvidence = `
 Website Terkunjungi: "${finalTitle}" (${finalUrl})
-Kutipan Artikel & Konten Penting dari Halaman:
+Tujuan Misi: "${plan.goal || cleanPrompt}"
+${siteInspection.chatReplies.length > 0 ? `\nRespon / Percakapan Langsung di Layar:\n${siteInspection.chatReplies.slice(0, 5).join('\n---\n')}\n` : ''}
+Kutipan Konten Penting dari Halaman:
 ${siteInspection.textSnippets.slice(0, 10).join('\n---\n')}
 
 Ringkasan Halaman:
@@ -267,21 +290,21 @@ ${(summary.bodyText || '').slice(0, 1200)}
 ${isClientSearch && siteInspection.clients.length > 0 ? `\nDaftar Klien/Mitra: ${siteInspection.clients.join(', ')}` : ''}
 `;
 
-    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom ke website/halaman web: "${finalTitle}" (${finalUrl}).
-Tujuan instruksi user: "${plan.inspectionGoal || cleanPrompt}".
+    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom berantai: "${missionPrompt}".
+Situs yang kamu operasikan: "${finalTitle}" (${finalUrl}).
 Kategori topik: ${plan.category || 'general'}.
 
-Berikut fakta dan data riil yang kamu temukan langsung dari halaman website:
+Berikut fakta dan data riil yang kamu temukan/hasilkan di website:
 ---
 ${structuredEvidence}
 ---
 Aturan Khusus (PENTING):
 - Jika halaman di atas KOSONG, terblokir, tidak relevan, atau TIDAK ADA data yang bisa menjawab pertanyaan user sama sekali, awali jawabanmu dengan kata: "[NOT_FOUND]".
-- Jika kamu BERHASIL menemukan informasi relevan, jelaskan secara SANGAT CERDAS, luwes, dan mendalam (jangan kaku!):
-  * Jika tentang LAGU/MUSIK: Jelaskan nama lagu, artis/kreator (misal ANDROMEDA), genre (misal Brazilian Phonk/Funk), jumlah views/popularitas, dan platform tempat lagu dirilis (misal YouTube / Spotify).
-  * Jika tentang BERITA: Rangkum kronologi peristiwa, tanggal, tokoh terkait, dan inti beritanya.
-  * Jika tentang WEBSITE/PERUSAHAAN: Jelaskan apa profilnya, layanannya, serta mitra/klien jika ditanyakan.
-  * Jika tentang TIKET/PRODUK: Jelaskan rekomendasi dan harganya.
+- Jika kamu BERHASIL melakukan aksi (misal mengetik pesan ke ChatGPT, mencari data, dll.):
+  * Jelaskan bahwa kamu sudah membuka situsnya dan mengetikkan pesan sesuai yang diminta.
+  * Sebutkan apa balasan/respon yang diberikan oleh situs/ChatGPT di layar!
+- Jika tentang LAGU/MUSIK: Jelaskan nama lagu, artis/kreator (misal ANDROMEDA), genre, views/popularitas, dan platformnya.
+- Jika tentang BERITA / RISET: Rangkum inti fakta dan poin pentingnya.
 Format: Poin-poin rapi dan ramah khas Azura.`;
 
     const aiReport = await askAzura(

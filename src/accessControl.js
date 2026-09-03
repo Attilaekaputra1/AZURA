@@ -162,6 +162,9 @@ function checkFriendDailyVoiceQuota(userId) {
     }
   }
 
+  const resetAtUnix = resetAt ? Math.floor(resetAt / 1000) : null;
+  const liveCountdown = resetAtUnix ? `<t:${resetAtUnix}:R>` : null;
+
   return {
     allowed: !isExhausted,
     usedSeconds,
@@ -169,6 +172,8 @@ function checkFriendDailyVoiceQuota(userId) {
     maxDailySeconds: MAX_DAILY_VOICE_SECONDS,
     isExhausted,
     resetAt,
+    resetAtUnix,
+    liveCountdown,
     timeLeftStr,
     resetAtStr
   };
@@ -231,7 +236,7 @@ async function recordFriendVoiceUsage(userId, durationSeconds, client = null) {
       friend.quota.warned100Sent = true;
       saveApprovedFriends();
       if (client) {
-        await sendQuota100ExhaustedDM(userId, friend, timeLeftStr, resetTimeStr, client).catch(err => {
+        await sendQuota100ExhaustedDM(userId, friend, timeLeftStr, resetTimeStr, client, resetAt).catch(err => {
           console.error('[Friend Quota DM Error]:', err.message);
         });
       }
@@ -321,10 +326,15 @@ async function sendQuota80WarningDM(userId, friendRecord, usedSeconds, remaining
 /**
  * Send 100% Quota Exhausted DM with realtime countdown
  */
-async function sendQuota100ExhaustedDM(userId, friendRecord, timeLeftStr, resetTimeStr, client) {
+async function sendQuota100ExhaustedDM(userId, friendRecord, timeLeftStr, resetTimeStr, client, resetAt = null) {
   try {
     const user = await client.users.fetch(userId).catch(() => null);
     if (!user) return;
+
+    const targetResetAt = resetAt || (friendRecord.quota?.exhaustedAt ? friendRecord.quota.exhaustedAt + RESET_WINDOW_MS : Date.now() + RESET_WINDOW_MS);
+    const resetAtUnix = Math.floor(targetResetAt / 1000);
+    const resetDate = new Date(targetResetAt);
+    const dateFormatted = resetDate.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
     const embed = new EmbedBuilder()
       .setColor(0xED4245) // Red / Exhausted
@@ -332,11 +342,11 @@ async function sendQuota100ExhaustedDM(userId, friendRecord, timeLeftStr, resetT
       .setDescription(
         `Halo **${friendRecord.customNickname || friendRecord.displayName}**! ✨\n\n` +
         `Kuota voice harian kamu (**2 menit / 120 detik**) bersama Azura telah **100% habis** untuk hari ini.\n\n` +
-        `⏳ **Akses Suara Akan Terbuka Kembali Dalam:**\n` +
-        `👉 **${timeLeftStr}** *(Pukul ${resetTimeStr})*\n\n` +
+        `⏳ **Hitung Mundur Reset 24 Jam (Live Countdown):**\n` +
+        `👉 **<t:${resetAtUnix}:R>** *(Pukul <t:${resetAtUnix}:T> WIB • ${dateFormatted})*\n\n` +
         `*Terima kasih sudah seru-seruan ngobrol di VC hari ini! Sampai ketemu besok bareng Attila yaa!* 🌸💜`
       )
-      .setFooter({ text: 'AZURA Voice Quota Manager • Real-Time Reset' })
+      .setFooter({ text: 'AZURA Voice Quota Manager • Live Dynamic Countdown' })
       .setTimestamp();
 
     await user.send({ embeds: [embed] });
@@ -472,8 +482,10 @@ function getApprovedFriendsList() {
     const isExhausted = (remaining <= EXHAUSTION_THRESHOLD_SECONDS) || (quota.exhaustedAt !== null);
 
     let timeLeftStr = `Sisa ${remaining}s (Belum Countdown 24h)`;
+    let resetAtUnix = null;
     if (isExhausted) {
       const resetAt = (quota.exhaustedAt || now) + RESET_WINDOW_MS;
+      resetAtUnix = Math.floor(resetAt / 1000);
       timeLeftStr = formatCountdown(Math.max(0, resetAt - now));
     }
 
@@ -487,6 +499,7 @@ function getApprovedFriendsList() {
       remainingSeconds: remaining,
       totalSecondsAllTime: Math.round(f.totalVoiceSecondsAllTime || 0),
       timeLeftStr,
+      resetAtUnix,
       isExhausted
     };
   });

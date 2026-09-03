@@ -466,18 +466,21 @@ async function scheduleSleep(client, sleepTimeStr, wakeTimeStr = null, isDaily =
 
   console.log(`[Sleep Scheduler]: ⏰ Scheduled sleep at ${parsed.label} (in ${minsUntil} mins). Drowsy phase starts at ${drowsyLabel}.`);
 
+  const targetEpochUnix = Math.floor(parsed.targetEpochMs / 1000);
+  const drowsyEpochUnix = Math.floor(drowsyDate.getTime() / 1000);
+
   const embed = new EmbedBuilder()
     .setColor(0x9B59B6)
     .setTitle('⏰ Jadwal Tidur & Fase Mengantuk AZURA Diatur!')
     .setDescription(
-      `Jadwal istirahat otomatis telah berhasil diatur:\n\n` +
-      `🌙 **Waktu Tidur (Deep Sleep):** **${parsed.label}** (~${minsUntil} menit lagi)\n` +
-      `🥱 **Fase Mengantuk Dimulai:** **${drowsyLabel}** (1 jam sebelum tidur)\n` +
+      `Jadwal istirahat otomatis telah berhasil diatur dengan **Live Dynamic Countdown**:\n\n` +
+      `🌙 **Waktu Tidur (Deep Sleep):** <t:${targetEpochUnix}:R> *(Pukul <t:${targetEpochUnix}:T> WIB / ${parsed.label})*\n` +
+      `🥱 **Fase Mengantuk Dimulai:** <t:${drowsyEpochUnix}:R> *(Pukul <t:${drowsyEpochUnix}:T> WIB / ${drowsyLabel})*\n` +
       `🔄 **Tipe Jadwal:** ${isDaily ? '🔁 Setiap Hari (Rutin)' : '⏳ Sekali (Hari Ini)'}\n` +
       `☀️ **Rencana Bangun:** ${wakeTimeStr ? `Pukul ${wakeTimeStr} WIB` : 'Manual via `/sleep wake`'}\n\n` +
-      `💡 *Mulai pukul ${drowsyLabel}, Ara akan mulai menunjukkan respon mengantuk alami di chat dan VC ke semua orang!*`
+      `💡 *Mulai <t:${drowsyEpochUnix}:R>, Ara akan mulai menunjukkan respon mengantuk alami di chat dan VC ke semua orang!*`
     )
-    .setFooter({ text: 'AZURA Sleep Scheduler • Procedural Active' })
+    .setFooter({ text: 'AZURA Sleep Scheduler • Live Dynamic Countdown' })
     .setTimestamp();
 
   return {

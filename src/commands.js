@@ -782,8 +782,8 @@ async function handleSlashCommand(interaction, startTime) {
           inline: true
         },
         {
-          name: '⏱️ Uptime Bot',
-          value: `• **Durasi Aktif**: \`${uptimeStr}\`\n• **Node.js**: \`${process.version}\` (\`Online 🟢\`)`,
+          name: '⏱️ Uptime Bot (Live)',
+          value: `• **Aktif Sejak**: <t:${Math.floor(Date.now() / 1000 - process.uptime())}:R> *(<t:${Math.floor(Date.now() / 1000 - process.uptime())}:T> WIB)*\n• **Node.js**: \`${process.version}\` (\`Online 🟢\`)`,
           inline: true
         },
         {
@@ -1549,9 +1549,12 @@ async function handleSlashCommand(interaction, startTime) {
       const formatted = list.map((f, i) => {
         const statusBadge = f.isExhausted ? '⛔ `[KUOTA HABIS HARI INI]`' : '✅ `[AKTIF]`';
         const dateStr = f.approvedAt ? new Date(f.approvedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
+        const resetCountdown = f.isExhausted && f.resetAtUnix
+          ? `<t:${f.resetAtUnix}:R> *(Pukul <t:${f.resetAtUnix}:T> WIB)*`
+          : `*Belum Aktif (Sisa: ${f.remainingSeconds}s)*`;
         return `${i + 1}. **${f.customNickname}** (<@${f.userId}> | \`${f.userId}\`) ${statusBadge}\n` +
                `   • ⏱️ **Penggunaan Hari Ini (Bicara AZURA)**: \`${f.usedSeconds}s / ${MAX_DAILY_VOICE_SECONDS}s\` (Sisa: \`${f.remainingSeconds}s\`)\n` +
-               `   • ⏳ **Status Reset 24h**: \`${f.timeLeftStr}\`\n` +
+               `   • ⏳ **Hitung Mundur Reset 24 Jam (Live)**: ${resetCountdown}\n` +
                `   • 📊 **Total Voice All-Time**: \`${f.totalSecondsAllTime}s\` | 📅 Di-ACC: \`${dateStr}\``;
       }).join('\n\n');
 
@@ -1961,8 +1964,9 @@ async function handleSlashCommand(interaction, startTime) {
       const state = getSleepState();
       const memUsage = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
       const sched = state.scheduledSleep || {};
-      const schedStr = sched.enabled && sched.targetTimeStr
-        ? `⏰ Terjadwal: **${sched.targetTimeStr}** (${sched.isDaily ? 'Setiap Hari' : 'Sekali'})`
+      const schedEpochUnix = sched.targetEpochMs ? Math.floor(sched.targetEpochMs / 1000) : null;
+      const schedStr = sched.enabled && schedEpochUnix
+        ? `<t:${schedEpochUnix}:R> *(Pukul <t:${schedEpochUnix}:T> WIB / ${sched.targetTimeStr}) [${sched.isDaily ? 'Setiap Hari' : 'Sekali'}]*`
         : '❌ Tidak Ada Jadwal Aktif';
 
       const embed = new EmbedBuilder()

@@ -760,9 +760,15 @@ function getPortalHtml(mode = 'browse') {
       <a href="/game" class="mode-tab ${!isBrowse ? 'active' : ''}">🎮 Arena 2048</a>
     </nav>
 
-    <div class="status-badge">
-      <div class="status-dot"></div>
-      <span id="status-text">LIVE 60FPS</span>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div id="live-countdown-hud" style="display: flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">
+        <span style="color: #00FFB2;">⏱️</span>
+        <span id="session-countdown-text">LIVE STANDBY</span>
+      </div>
+      <div class="status-badge">
+        <div class="status-dot"></div>
+        <span id="status-text">LIVE 60FPS</span>
+      </div>
     </div>
   </header>
 
@@ -833,6 +839,26 @@ function getPortalHtml(mode = 'browse') {
     const wsUrl = protocol + '//' + location.host;
     let ws = null;
 
+    let activeSessionExpiresAt = null;
+    function tickLiveCountdown() {
+      const el = document.getElementById('session-countdown-text');
+      if (!el) return;
+      if (!activeSessionExpiresAt || Date.now() >= activeSessionExpiresAt) {
+        const now = new Date();
+        const wibClock = now.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB';
+        el.innerHTML = '<span style="color:#94a3b8;">LIVE</span> ' + wibClock;
+        return;
+      }
+      const diffSec = Math.max(0, Math.floor((activeSessionExpiresAt - Date.now()) / 1000));
+      const m = Math.floor(diffSec / 60);
+      const s = diffSec % 60;
+      const mm = String(m).padStart(2, '0');
+      const ss = String(s).padStart(2, '0');
+      el.innerHTML = '<span style="color:#00FFB2;">SESI AKTIF</span> ' + mm + ':' + ss;
+    }
+    setInterval(tickLiveCountdown, 1000);
+    tickLiveCountdown();
+
     function connectWs() {
       ws = new WebSocket(wsUrl);
       ws.onopen = () => {};
@@ -843,6 +869,9 @@ function getPortalHtml(mode = 'browse') {
             streamImg.src = 'data:image/jpeg;base64,' + msg.data;
             const notice = document.getElementById('standby-notice');
             if (notice) notice.style.display = 'none';
+          }
+          if (msg.meta && msg.meta.sessionExpiresAt) {
+            activeSessionExpiresAt = msg.meta.sessionExpiresAt;
           }
           if (msg.type === 'azura_reply' && msg.text) {
             azuraTextEl.innerText = msg.text;

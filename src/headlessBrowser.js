@@ -96,6 +96,13 @@ function resetSessionTimer(guildId) {
   }
 
   const targetId = session.guildId || guildId;
+  session.expiresAt = Date.now() + IDLE_BROWSER_TIMEOUT_MS;
+
+  // Broadcast session expiration timestamp to live portal stream clients for live countdown
+  try {
+    updateStreamMeta({ sessionExpiresAt: session.expiresAt });
+  } catch (_) {}
+
   session.timer = setTimeout(async () => {
     console.log(`[Headless Browser]: ⏳ Inactivity timeout (10 mins) for guild ${targetId}. Closing browser tab...`);
     await closeBrowserSession(targetId);
@@ -191,7 +198,7 @@ async function closeBrowserSession(guildId) {
   } finally {
     activeBrowserSessions.delete(targetId);
     activeBrowserSessions.delete(guildId);
-    updateStreamMeta({ title: 'AZURA Companion Standby', url: 'about:blank', activeGuild: null });
+    updateStreamMeta({ title: 'AZURA Companion Standby', url: 'about:blank', activeGuild: null, sessionExpiresAt: null });
     console.log(`[Headless Browser]: 🔒 Closed browser session for guild ${targetId}`);
   }
 

@@ -575,6 +575,12 @@ function generateMasterDashboardHtml(initialTodos = [], initialFeedbacks = []) {
         </div>
       </div>
       <div class="header-actions">
+        <div style="display: flex; align-items: center; gap: 8px; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-subtle); padding: 8px 16px; border-radius: 12px; font-size: 13px; font-family: 'JetBrains Mono', monospace;">
+          <span style="color: var(--neon-cyan);">⏱️ LIVE:</span>
+          <span id="dashboard-clock">--:--:-- WIB</span>
+          <span style="opacity: 0.3;">|</span>
+          <span style="color: var(--neon-blue);" id="sync-countdown">Sync: 2.5s</span>
+        </div>
         <button class="btn-action" onclick="openAddModal()">➕ Tambah Tugas</button>
       </div>
     </header>
@@ -974,9 +980,20 @@ function generateMasterDashboardHtml(initialTodos = [], initialFeedbacks = []) {
       } catch (_) {}
     }
 
-    // Initial render & 2.5s real-time auto-polling
+    // Initial render & 2.5s real-time auto-polling with live countdown ticker
     renderItems();
     setInterval(fetchLatestData, 2500);
+
+    let nextSyncMs = 2500;
+    setInterval(() => {
+      const clockEl = document.getElementById('dashboard-clock');
+      const syncEl = document.getElementById('sync-countdown');
+      const now = new Date();
+      if (clockEl) clockEl.textContent = now.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB';
+      nextSyncMs -= 100;
+      if (nextSyncMs <= 0) nextSyncMs = 2500;
+      if (syncEl) syncEl.textContent = 'Sync: ' + (nextSyncMs / 1000).toFixed(1) + 's';
+    }, 100);
   </script>
 </body>
 </html>`;

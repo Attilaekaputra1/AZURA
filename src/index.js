@@ -1156,7 +1156,8 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'btn_replay_2048') {
       const { launchAutonomousBrowserGame } = require('./browserGameAgent');
       await interaction.deferUpdate().catch(() => {});
-      return launchAutonomousBrowserGame(interaction.message, '2048');
+      const clickerName = interaction.member?.displayName || interaction.user?.displayName || interaction.user?.username || 'Attila';
+      return launchAutonomousBrowserGame(interaction.message, clickerName);
     }
     if (interaction.customId === 'btn_stop_game') {
       const { stopAutonomousBrowserGame } = require('./browserGameAgent');

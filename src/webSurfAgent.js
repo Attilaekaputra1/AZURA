@@ -15,12 +15,12 @@
  */
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
-const { getBrowser, getOrCreateSession, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, resetSessionTimer, activeBrowserSessions } = require('./headlessBrowser');
-const { broadcastFrame, updateStreamMeta, broadcastAzuraReply, STREAM_URL } = require('./livePortal');
+const { getBrowser, getOrCreateSession, getBrowserSessionStatus, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpage, typeIntoWebpage, closeBrowserSession, resetSessionTimer, activeBrowserSessions } = require('./headlessBrowser');
+const { broadcastFrame, updateStreamMeta, broadcastAzuraReply, STREAM_URL, BROWSE_STREAM_URL } = require('./livePortal');
 const { askAzura } = require('./azura');
 const config = require('./config');
 
-const BROWSE_URL = 'http://203.175.10.163:7860/browse';
+const BROWSE_URL = BROWSE_STREAM_URL || 'http://203.175.10.163:7860/browse';
 
 /**
  * MODE 1: Autonomous Goal-Oriented Browsing Mission
@@ -427,8 +427,9 @@ Buat KESIMPULAN HASIL AKSI (Conclusion) yang jelas, padat (2-4 kalimat), dan nat
     }
 
     // 5. Short, cost-efficient closing announcement in VC (Fixed short sentence, saves ElevenLabs quota)
-    const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';
-    await speakInVC(guildId, completionVoiceText, discordClient, userName);
+    const displayName = userName || 'Attila';
+    const completionVoiceText = `${displayName} aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.`;
+    await speakInVC(guildId, completionVoiceText, discordClient, displayName);
 
     // 🟢 KEEP SESSION OPEN FOR CHAINED COMMANDS (DO NOT AUTO-CLOSE!)
     console.log(`[Web Surf Agent]: 🟢 Browser session kept active on "${finalTitle}" for continued actions.`);
@@ -439,9 +440,16 @@ Buat KESIMPULAN HASIL AKSI (Conclusion) yang jelas, padat (2-4 kalimat), dan nat
   } catch (err) {
     console.error('[Autonomous Mission Error]:', err.message);
     const errMsg = `Misi browsing gagal: ${err.message}`;
-    await speakInVC(guildId, errMsg, client, userName);
+    await speakInVC(guildId, errMsg, client, userName || 'Attila');
     if (textChannel) textChannel.send(`❌ ${errMsg}`).catch(() => {});
-    setTimeout(() => closeBrowserSession(guildId), 5000);
+
+    // Only auto-close if session was not marked as persistent (Mode 2)
+    const session = activeBrowserSessions?.get(guildId);
+    if (session && !session.isPersistent) {
+      setTimeout(() => closeBrowserSession(guildId), 5000);
+    } else if (session) {
+      resetSessionTimer(guildId);
+    }
     return { success: false, error: err.message };
   }
 }
@@ -457,12 +465,12 @@ Buat KESIMPULAN HASIL AKSI (Conclusion) yang jelas, padat (2-4 kalimat), dan nat
 async function startPersistentInteractiveBrowsing(guildId, userName, textChannel, client) {
   console.log(`[Web Surf Agent]: 🕹️ Starting Persistent Manual Browsing for ${guildId}`);
 
-  // Exact opening dialogue requested by user:
-  const announceText = 'Siap Attila, aku bukain browser nya sekarang ya.';
-  await speakInVC(guildId, announceText, client, userName || 'Attila');
+  const displayName = userName || 'Attila';
+  const announceText = `Siap ${displayName}, aku bukain browser nya sekarang ya.`;
+  await speakInVC(guildId, announceText, client, displayName);
 
   if (textChannel) {
-    textChannel.send(`✨ **Siap Attila, aku bukain browser nya sekarang ya.**\nPantau layarnya secara live di: ${BROWSE_URL}`).catch(() => {});
+    textChannel.send(`✨ **Siap ${displayName}, aku bukain browser nya sekarang ya.**\nPantau layarnya secara live di: ${BROWSE_URL}`).catch(() => {});
   }
 
   const res = await openWebpage(guildId, 'https://www.google.com');

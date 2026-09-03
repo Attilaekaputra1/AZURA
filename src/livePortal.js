@@ -15,6 +15,8 @@ const config = require('./config');
 const PORT = process.env.STREAM_PORT || 7860;
 const VPS_PUBLIC_IP = process.env.VPS_IP || '203.175.10.163';
 const STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/live`;
+const BROWSE_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/browse`;
+const GAME_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/game`;
 
 let server = null;
 let wss = null;
@@ -1003,5 +1005,9 @@ module.exports = {
   updateStreamMeta,
   broadcastAzuraReply,
   hasActiveViewers,
-  STREAM_URL
+  STREAM_URL,
+  BROWSE_STREAM_URL,
+  GAME_STREAM_URL,
+  VPS_PUBLIC_IP,
+  PORT
 };

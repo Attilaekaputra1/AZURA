@@ -870,10 +870,30 @@ async function scrapeWebWithBrowser(targetUrl, timeoutMs = 20000) {
   }
 }
 
+/**
+ * Get current browser session status for a guild
+ * @param {string} guildId 
+ * @returns {{ active: boolean, url?: string, title?: string, mode?: string, isPersistent?: boolean }}
+ */
+function getBrowserSessionStatus(guildId) {
+  const session = getActiveSession(guildId);
+  if (!session || !session.page || session.page.isClosed()) {
+    return { active: false };
+  }
+  return {
+    active: true,
+    url: session.currentUrl || 'about:blank',
+    title: session.currentTitle || 'Browser Standby',
+    mode: session.mode || 'autonomous',
+    isPersistent: !!session.isPersistent
+  };
+}
+
 module.exports = {
   getBrowser,
   getActiveSession,
   getOrCreateSession,
+  getBrowserSessionStatus,
   activeBrowserSessions,
   openWebpage,
   browseYouTube,

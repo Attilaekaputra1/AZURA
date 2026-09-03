@@ -9,11 +9,26 @@
 
 const { AttachmentBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getBrowser } = require('./headlessBrowser');
-const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
+const { broadcastFrame, updateStreamMeta, STREAM_URL, GAME_STREAM_URL } = require('./livePortal');
 const config = require('./config');
 
 // Active game sessions: guildId -> session object
 const activeGameSessions = new Map();
+const IDLE_GAME_TIMEOUT_MS = 10 * 60 * 1000; // 10 mins inactivity timeout
+
+/**
+ * Reset inactivity timer for a game session
+ * @param {string} guildId 
+ */
+function resetGameSessionTimer(guildId) {
+  const session = findActiveGameSession(guildId);
+  if (!session) return;
+  if (session.timer) clearTimeout(session.timer);
+  session.timer = setTimeout(async () => {
+    console.log(`[Browser Game Agent]: ⏳ Inactivity timeout (10 mins) for guild ${session.guildId || guildId}. Stopping game...`);
+    await stopAutonomousBrowserGame(session.guildId || guildId);
+  }, IDLE_GAME_TIMEOUT_MS);
+}
 
 /**
  * Built-in Modern HTML5 2048 Game Engine with GameOver Detection
@@ -245,10 +260,10 @@ initGame();
 </html>`;
 
 const CORNER_WEIGHTS = [
-  [4096, 1024, 256, 64],
-  [16,   32,   64,  128],
-  [8,    4,    2,   1],
-  [0.5,  0.2,  0.1, 0]
+  [4096, 1024, 256, 128],
+  [8,    16,   32,  64],
+  [4,    2,    1,   0.5],
+  [0.03, 0.06, 0.12, 0.25]
 ];
 
 function evaluateBoard(board) {
@@ -342,8 +357,16 @@ function getBest2048Move(board) {
  * @param {string} [guildId='global'] 
  */
 function findActiveGameSession(guildId = 'global') {
-  if (guildId && activeGameSessions.has(guildId)) {
-    const s = activeGameSessions.get(guildId);
+  if (guildId && guildId !== 'global') {
+    if (activeGameSessions.has(guildId)) {
+      const s = activeGameSessions.get(guildId);
+      if (s && s.page && !s.page.isClosed()) return s;
+    }
+    return null;
+  }
+  // Global / web portal lookup
+  if (activeGameSessions.has('global')) {
+    const s = activeGameSessions.get('global');
     if (s && s.page && !s.page.isClosed()) return s;
   }
   for (const session of activeGameSessions.values()) {
@@ -364,6 +387,7 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
     if (message?.member?.displayName || message?.author?.username) {
       session.userName = message.member?.displayName || message.author.displayName || message.author.username;
     }
+    resetGameSessionTimer(guildId);
     return session;
   }
 
@@ -395,9 +419,11 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
     } catch (_) {}
   });
 
+  const streamGameUrl = GAME_STREAM_URL || 'http://203.175.10.163:7860/game';
+
   updateStreamMeta({
     title: '🌸 AZURA & ATTILA 2048 Co-Op Arena',
-    url: 'http://203.175.10.163:7860/game',
+    url: streamGameUrl,
     activeGuild: guildId,
     mode: 'game'
   });
@@ -414,10 +440,12 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
     channel: message?.channel || null,
     userName: message?.member?.displayName || message?.author?.displayName || message?.author?.username || 'Attila',
     statusMsg: null,
-    client: message?.client || null
+    client: message?.client || null,
+    timer: null
   };
 
   activeGameSessions.set(guildId, session);
+  resetGameSessionTimer(guildId);
   return session;
 }
 
@@ -500,7 +528,12 @@ Instruksi respons:
  * @returns {Promise<{ success: boolean, response: string, state: object }>}
  */
 async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId = 'global') {
-  const cleanCmd = (rawCommand || '').toLowerCase().trim();
+  const cleanCmd = (rawCommand || '')
+    .toLowerCase()
+    .trim()
+    .replace(/^(?:ara|azura|kak\s*ara|kak\s*azura)\s+/i, '')
+    .trim();
+
   const session = await getOrCreateGameSession(guildId);
 
   if (!session || session.page.isClosed()) {
@@ -516,68 +549,89 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
 
   if (direction) {
     const indonesianDirs = { up: 'ATAS', down: 'BAWAH', left: 'KIRI', right: 'KANAN' };
-    const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
-      dir: direction,
-      thoughtText: `Geser ${indonesianDirs[direction]} (Skor: ${session.score.toLocaleString()})`
-    });
+    try {
+      const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
+        dir: direction,
+        thoughtText: `Geser ${indonesianDirs[direction]} (Skor: ${session.score.toLocaleString()})`
+      });
 
-    session.score = res.score;
-    session.highestTile = res.highestTile;
-    session.moves = res.moves;
+      if (res) {
+        session.score = res.score;
+        session.highestTile = res.highestTile;
+        session.moves = res.moves;
+        resetGameSessionTimer(session.guildId || guildId);
 
-    if (res.gameOver) {
-      setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1200);
+        if (res.gameOver) {
+          setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1200);
+        }
+
+        return {
+          success: true,
+          response: `Bidak digeser ke ${indonesianDirs[direction]} (Skor: ${res.score.toLocaleString()} | Tile Tertinggi: ${res.highestTile})`,
+          state: res
+        };
+      }
+    } catch (evalErr) {
+      console.error('[Browser Game Move Error]:', evalErr.message);
+      return { success: false, response: 'Gagal mengeksekusi gerakan di browser game.', state: null };
     }
-
-    return {
-      success: true,
-      response: `Bidak digeser ke ${indonesianDirs[direction]} (Skor: ${res.score.toLocaleString()} | Tile Tertinggi: ${res.highestTile})`,
-      state: res
-    };
   }
 
   // 2. Reset Board
   if (/^(?:reset|ulang|restart|baru|mulai\s*lagi)$/i.test(cleanCmd)) {
-    const newState = await session.page.evaluate(() => window.resetGame());
-    session.score = newState.score;
-    session.moves = newState.moves;
-    session.highestTile = newState.highestTile;
-    const resp = `Papan 2048 sudah di-reset! Yuk kita susun lagi dari awal.`;
-    return { success: true, response: resp, state: newState };
+    try {
+      const newState = await session.page.evaluate(() => window.resetGame());
+      session.score = newState.score;
+      session.moves = newState.moves;
+      session.highestTile = newState.highestTile;
+      resetGameSessionTimer(session.guildId || guildId);
+      const resp = `Papan 2048 sudah di-reset! Yuk kita susun lagi dari awal.`;
+      return { success: true, response: resp, state: newState };
+    } catch (resetErr) {
+      console.error('[Browser Game Reset Error]:', resetErr.message);
+      return { success: false, response: 'Gagal me-reset papan 2048.', state: null };
+    }
   }
 
   // 3. Autonomous Play Loop (Azura plays 10 steps autonomously and smoothly)
   if (/\b(?:auto|otonom|mainkan|mainin|jalan\s*sendiri|bot|bantu\s*main)\b/i.test(cleanCmd)) {
     let stepsDone = 0;
-    for (let s = 0; s < 10; s++) {
-      const currentState = await session.page.evaluate(() => window.getGameState());
-      if (!currentState || currentState.gameOver) break;
-      const bestMove = getBest2048Move(currentState.board);
-      const thought = `Auto-Play langkah ${s + 1}/10: geser ${bestMove.toUpperCase()}...`;
-      const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
-        dir: bestMove,
-        thoughtText: thought
-      });
-      if (!res.changed) break;
-      stepsDone++;
-      session.score = res.score;
-      session.highestTile = res.highestTile;
-      session.moves = res.moves;
-      await session.page.waitForTimeout(160);
-      if (res.gameOver) {
-        setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1200);
-        break;
+    try {
+      for (let s = 0; s < 10; s++) {
+        const currentState = await session.page.evaluate(() => window.getGameState());
+        if (!currentState || currentState.gameOver) break;
+        const bestMove = getBest2048Move(currentState.board);
+        const thought = `Auto-Play langkah ${s + 1}/10: geser ${bestMove.toUpperCase()}...`;
+        const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
+          dir: bestMove,
+          thoughtText: thought
+        });
+        if (!res.changed) break;
+        stepsDone++;
+        session.score = res.score;
+        session.highestTile = res.highestTile;
+        session.moves = res.moves;
+        resetGameSessionTimer(session.guildId || guildId);
+        await session.page.waitForTimeout(160);
+        if (res.gameOver) {
+          setTimeout(() => stopAutonomousBrowserGame(session.guildId), 1200);
+          break;
+        }
       }
+      const finalState = await session.page.evaluate(() => window.getGameState());
+      return {
+        success: true,
+        response: `Azura mengeksekusi ${stepsDone} langkah otonom. Skor sekarang: ${finalState.score.toLocaleString()} (Tile ${finalState.highestTile})`,
+        state: finalState
+      };
+    } catch (loopErr) {
+      console.error('[Browser Game AutoLoop Error]:', loopErr.message);
+      return { success: false, response: 'Terjadi kendala saat auto-play.', state: null };
     }
-    const finalState = await session.page.evaluate(() => window.getGameState());
-    return {
-      success: true,
-      response: `Azura mengeksekusi ${stepsDone} langkah otonom. Skor sekarang: ${finalState.score.toLocaleString()} (Tile ${finalState.highestTile})`,
-      state: finalState
-    };
   }
 
   // 4. Open-Ended Strategic Discussion / Tactical Q&A / Banter with Live Board Awareness!
+  resetGameSessionTimer(session.guildId || guildId);
   const discussionAnswer = await discussGameWithAzura(rawCommand, userName, session);
   return {
     success: true,
@@ -589,17 +643,19 @@ async function executeInteractiveMove(rawCommand, userName = 'Attila', guildId =
 /**
  * Launch Interactive Co-Op Game from Discord
  * @param {import('discord.js').Message} message 
+ * @param {string} [customUserName=null]
  */
-async function launchAutonomousBrowserGame(message) {
-  const guildId = message.guild?.id || 'dm_' + message.author.id;
-  const userName = message.member?.displayName || message.author.displayName || message.author.username;
+async function launchAutonomousBrowserGame(message, customUserName = null) {
+  const guildId = message.guild?.id || (message.user ? 'dm_' + message.user.id : 'dm_' + message.author?.id);
+  const userName = customUserName || message.member?.displayName || message.author?.displayName || message.author?.username || (message.user ? message.user.displayName || message.user.username : 'Attila');
 
-  const gameUrl = 'http://203.175.10.163:7860/game';
+  const gameUrl = GAME_STREAM_URL || 'http://203.175.10.163:7860/game';
 
   const session = await getOrCreateGameSession(guildId, message);
   session.userName = userName;
   session.channel = message.channel;
   session.client = message.client;
+  resetGameSessionTimer(guildId);
 
   const startEmbed = new EmbedBuilder()
     .setColor(0x00AE89) // Emerald
@@ -643,6 +699,11 @@ async function launchAutonomousBrowserGame(message) {
 async function stopAutonomousBrowserGame(guildId = 'global') {
   const session = findActiveGameSession(guildId);
   if (!session) return false;
+
+  if (session.timer) {
+    clearTimeout(session.timer);
+    session.timer = null;
+  }
 
   try {
     session.isRunning = false;
@@ -761,11 +822,13 @@ async function handleBrowserGameCommands(message) {
 
   // 3. Move or discussion commands from Discord chat while game session is active
   if (activeGameSessions.has(guildId)) {
-    const isDirection = /^(?:geser\s*)?(?:kiri|kanan|atas|bawah|left|right|up|down|auto|reset)$/i.test(cleanText);
+    const strippedText = cleanText.replace(/^(?:ara|azura|kak\s*ara|kak\s*azura)\s+/i, '').trim();
+    const isDirection = /^(?:geser\s*(?:ke\s*)?|arah\s*|ke\s*)?(?:kiri|kanan|atas|bawah|left|right|up|down|naik|turun)$/i.test(strippedText) ||
+                        /^(?:auto|otonom|jalan\s*sendiri|bot|bantu\s*main|reset|ulang|restart)$/i.test(strippedText);
     const isDiscussion = /\b(?:menurutmu|kenapa|gimana|saran|taktik|bisa\s*menang|mikirin\s*apa|bingung|strategi)\b/i.test(cleanText);
 
     if (isDirection || isDiscussion) {
-      const res = await executeInteractiveMove(cleanText, userName, guildId);
+      const res = await executeInteractiveMove(isDirection ? strippedText : cleanText, userName, guildId);
       if (res.response) {
         await message.reply(res.response);
       }

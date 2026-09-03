@@ -99,11 +99,11 @@ function initLivePortal() {
             await takeScreenshotOnDemand('global');
             responseText = 'Tangkapan layar browser terbaru telah diambil!';
           } else if (/^refresh$/i.test(cleanCmd)) {
-            const { activeBrowserSessions } = require('./headlessBrowser');
-            const sess = activeBrowserSessions.get('global');
+            const { getActiveSession } = require('./headlessBrowser');
+            const sess = getActiveSession('global');
             if (sess && sess.page) await sess.page.reload().catch(() => {});
             responseText = ''; // Diam aja!
-          } else if (/^tutup$|^close$|^stop$/i.test(cleanCmd)) {
+          } else if (/^tutup$|^close$|^stop$|^akhiri$|^reset$/i.test(cleanCmd)) {
             await closeBrowserSession('global');
             responseText = 'Sesi browser telah ditutup dan memori dibebaskan!';
           } else if (/^tanya\s*azura|^baca\s*layar|^jelaskan\s*layar/i.test(cleanCmd)) {
@@ -123,34 +123,20 @@ function initLivePortal() {
               true
             );
             responseText = typeof reply === 'string' ? reply.replace(/<[^>]+>/g, '').trim() : 'Aku sedang melihat tampilan halaman web saat ini.';
-          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i.test(rawCmd)) {
-            const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i);
-            const textToType = match[1].trim();
-            await typeIntoWebpage('global', textToType);
-            responseText = ''; // Diam aja!
-          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i.test(rawCmd)) {
-            const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i);
-            const targetToClick = match[1].trim();
-            await clickOnWebpage('global', targetToClick);
-            responseText = ''; // Diam aja!
-          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?browsing\s+(.+)/i.test(rawCmd) || /terus\s+(?:masuk|cari|pilih|klik)/i.test(rawCmd)) {
-            // Explicit Autonomous Mission
-            responseText = `Memulai misi browsing otonom: "${rawCmd}"...`;
+          } else if (/^(?:https?:\/\/|www\.)[^\s]+/i.test(cleanCmd)) {
+            // Direct URL navigation
+            await openWebpage('global', rawCmd).catch(() => {});
+            responseText = `Membuka tautan: ${rawCmd}`;
+          } else {
+            // 🧠 FULL INTELLIGENT STEP EXECUTOR (Understands context, chains actions on active page, generates conclusion)
+            responseText = `Memproses perintah: "${rawCmd}"...`;
             executeAutonomousBrowsingMission('global', rawCmd, payload.userName || 'Attila', null, null)
               .then(res => {
-                const finishMsg = JSON.stringify({
-                  type: 'azura_reply',
-                  text: res.success ? `✅ Misi Selesai: ${res.title}` : `⚠️ ${res.error || 'Misi selesai'}`
-                });
-                for (const client of connectedClients) {
-                  if (client.readyState === WebSocket.OPEN) client.send(finishMsg);
+                if (res.conclusion && typeof broadcastAzuraReply === 'function') {
+                  broadcastAzuraReply(`💬 ${res.conclusion}`);
                 }
               })
-              .catch(() => {});
-          } else {
-            // Manual silent navigation/search ("diam aja")
-            await openWebpage('global', rawCmd).catch(() => {});
-            responseText = ''; // Diam aja!
+              .catch(err => console.error('[Live Portal HTTP Command Error]:', err.message));
           }
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -247,11 +233,11 @@ function initLivePortal() {
             await takeScreenshotOnDemand('global');
             replyText = 'Tangkapan layar browser terbaru telah diperbarui!';
           } else if (/^refresh$/i.test(cleanCmd)) {
-            const { activeBrowserSessions } = require('./headlessBrowser');
-            const sess = activeBrowserSessions.get('global');
+            const { getActiveSession } = require('./headlessBrowser');
+            const sess = getActiveSession('global');
             if (sess && sess.page) await sess.page.reload().catch(() => {});
             replyText = ''; // Diam aja!
-          } else if (/^tutup$|^close$|^stop$/i.test(cleanCmd)) {
+          } else if (/^tutup$|^close$|^stop$|^akhiri$|^reset$/i.test(cleanCmd)) {
             await closeBrowserSession('global');
             replyText = 'Sesi browser telah ditutup dan memori dibebaskan!';
           } else if (/^tanya\s*azura|^baca\s*layar|^jelaskan\s*layar/i.test(cleanCmd)) {
@@ -271,34 +257,20 @@ function initLivePortal() {
               true
             );
             replyText = typeof reply === 'string' ? reply.replace(/<[^>]+>/g, '').trim() : 'Aku sedang melihat tampilan halaman web saat ini.';
-          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i.test(rawCmd)) {
-            const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i);
-            const textToType = match[1].trim();
-            await typeIntoWebpage('global', textToType);
-            replyText = ''; // Diam aja!
-          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i.test(rawCmd)) {
-            const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i);
-            const targetToClick = match[1].trim();
-            await clickOnWebpage('global', targetToClick);
-            replyText = ''; // Diam aja!
-          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?browsing\s+(.+)/i.test(rawCmd) || /terus\s+(?:masuk|cari|pilih|klik)/i.test(rawCmd)) {
-            // Explicit Autonomous Mission
-            replyText = `Memulai misi browsing otonom: "${rawCmd}"...`;
+          } else if (/^(?:https?:\/\/|www\.)[^\s]+/i.test(cleanCmd)) {
+            // Direct URL navigation
+            await openWebpage('global', rawCmd).catch(() => {});
+            replyText = `Membuka tautan: ${rawCmd}`;
+          } else {
+            // 🧠 FULL INTELLIGENT STEP EXECUTOR (Understands context, chains actions on active page, generates conclusion)
+            replyText = `Memproses perintah: "${rawCmd}"...`;
             executeAutonomousBrowsingMission('global', rawCmd, msg.userName || 'Attila', null, null)
               .then(res => {
-                const finishMsg = JSON.stringify({
-                  type: 'azura_reply',
-                  text: res.success ? `✅ Misi Selesai: ${res.title}` : `⚠️ ${res.error || 'Misi selesai'}`
-                });
-                for (const client of connectedClients) {
-                  if (client.readyState === WebSocket.OPEN) client.send(finishMsg);
+                if (res.conclusion && typeof broadcastAzuraReply === 'function') {
+                  broadcastAzuraReply(`💬 ${res.conclusion}`);
                 }
               })
-              .catch(() => {});
-          } else {
-            // Manual silent navigation/search ("diam aja")
-            await openWebpage('global', rawCmd).catch(() => {});
-            replyText = ''; // Diam aja!
+              .catch(err => console.error('[Live Portal WS Command Error]:', err.message));
           }
 
           if (replyText) {

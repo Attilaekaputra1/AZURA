@@ -315,132 +315,95 @@ Format Keluaran JSON WAJIB:
     const summary = await getWebpageSummary(guildId);
     const screenshotBuffer = await page.screenshot({ type: 'png' }).catch(() => null);
 
-    // 4. Dynamic AI Synthesis strictly tailored to user query intent
-    const isClientSearch = /\b(?:klien|client|mitra|partner|perusahaan)\b/i.test(plan.goal || cleanPrompt);
+    // 4. Fast & Intelligent Step Conclusion Generation (Under 1s with gpt-4o-mini)
+    let conclusion = '';
+    try {
+      const { OpenAI } = require('openai');
+      const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+      const conclusionRes = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `Kamu adalah Azura, asisten web companion yang cerdas, tanggap, dan ramah.
+Pengguna memberikan perintah/instruksi: "${missionPrompt}".
+Situs yang sedang kamu operasikan: "${finalTitle}" (${finalUrl}).
 
-    const structuredEvidence = `
-Website Terkunjungi: "${finalTitle}" (${finalUrl})
-Tujuan Misi: "${plan.goal || cleanPrompt}"
-${siteInspection.chatReplies.length > 0 ? `\nRespon / Percakapan Langsung di Layar:\n${siteInspection.chatReplies.slice(0, 5).join('\n---\n')}\n` : ''}
-Kutipan Konten Penting dari Halaman:
-${siteInspection.textSnippets.slice(0, 10).join('\n---\n')}
+Data & Kejadian Nyata di Layar:
+${siteInspection.chatReplies.length > 0 ? `Respon/Balasan langsung di situs:\n${siteInspection.chatReplies.slice(0, 4).join('\n---\n')}\n` : ''}
+Kutipan teks di halaman:
+${siteInspection.textSnippets.slice(0, 6).join('\n')}
+Ringkasan isi halaman:
+${(summary.bodyText || '').slice(0, 800)}
 
-Ringkasan Halaman:
-${(summary.bodyText || '').slice(0, 1200)}
-${isClientSearch && siteInspection.clients.length > 0 ? `\nDaftar Klien/Mitra: ${siteInspection.clients.join(', ')}` : ''}
-`;
-
-    const reportPrompt = `Kamu (Azura) baru saja menyelesaikan misi browsing otonom berantai: "${missionPrompt}".
-Situs yang kamu operasikan: "${finalTitle}" (${finalUrl}).
-Kategori topik: ${plan.category || 'general'}.
-
-Berikut fakta dan data riil yang kamu temukan/hasilkan di website:
----
-${structuredEvidence}
----
-Aturan Khusus (PENTING):
-- Jika halaman di atas KOSONG, terblokir, tidak relevan, atau TIDAK ADA data yang bisa menjawab pertanyaan user sama sekali, awali jawabanmu dengan kata: "[NOT_FOUND]".
-- Jika kamu BERHASIL melakukan aksi (misal mengetik pesan ke ChatGPT, mencari data, dll.):
-  * Jelaskan bahwa kamu sudah membuka situsnya dan mengetikkan pesan sesuai yang diminta.
-  * Sebutkan apa balasan/respon yang diberikan oleh situs/ChatGPT di layar!
-- Jika tentang LAGU/MUSIK: Jelaskan nama lagu, artis/kreator (misal ANDROMEDA), genre, views/popularitas, dan platformnya.
-- Jika tentang BERITA / RISET: Rangkum inti fakta dan poin pentingnya.
-Format: Poin-poin rapi dan ramah khas Azura.`;
-
-    const aiReport = await askAzura(
-      config.OWNER_DISCORD_ID || 'mission_user',
-      reportPrompt,
-      userName,
-      [],
-      false,
-      textChannel?.id || null,
-      guildId,
-      true
-    );
-
-    const rawReport = typeof aiReport === 'string' ? aiReport : '';
-    const isNotFound = rawReport.includes('[NOT_FOUND]') || 
-                       /belum berhasil menemukan|tidak ada data yang berhasil|halaman kosong|tidak menemukan informasi apa-apa/i.test(rawReport);
-
-    if (isNotFound) {
-      console.log(`[Autonomous Mission]: ⚠️ No relevant information found on web for: "${plan.goal}"`);
-      if (typeof broadcastAzuraReply === 'function') {
-        broadcastAzuraReply('⚠️ Maaf Attila, aku belum berhasil menemukan informasi yang sesuai.');
-      }
-
-      // 1. Apologize briefly in VC
-      const apologyVoiceText = 'Maaf Attila, aku belum berhasil nemuin informasi yang kamu minta di web.';
-      await speakInVC(guildId, apologyVoiceText, client, 'Attila');
-
-      // 2. Short apology in Discord text chat (no detailed embed!)
-      if (textChannel) {
-        await textChannel.send('⚠️ **Maaf Attila**, aku belum berhasil menemukan informasi yang sesuai dengan pencarianmu di web kali ini. Coba berikan kata kunci yang lebih spesifik ya!').catch(() => {});
-      }
-    } else {
-      const cleanReport = rawReport.replace(/\[NOT_FOUND\]/g, '').replace(/<[^>]+>/g, '').trim();
-
-      if (typeof broadcastAzuraReply === 'function') {
-        broadcastAzuraReply(`✅ Selesai: ${cleanReport.slice(0, 200)}...`);
-      }
-
-      // 1. Speak in VC first (Exact phrase requested by user)
-      const completionVoiceText = 'Attila aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.';
-      await speakInVC(guildId, completionVoiceText, client, 'Attila');
-
-      // 2. Send detailed findings to Discord with a short, clean, direct active blue link
-      if (textChannel) {
-        const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
-        const validUrl = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
-        
-        // Clean and shorten URL for direct, beautiful display
-        let cleanDirectUrl = validUrl;
-        let shortLabel = 'Buka Halaman';
-
-        try {
-          const parsed = new URL(validUrl);
-          shortLabel = parsed.hostname.replace(/^www\./, '');
-
-          if (parsed.hostname.includes('google.') && parsed.pathname.includes('/search')) {
-            const q = parsed.searchParams.get('q') || plan.searchQuery;
-            cleanDirectUrl = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
-            shortLabel = `google.com/search?q=${q.slice(0, 25)}`;
-          } else if (parsed.pathname && parsed.pathname !== '/') {
-            const pathSnippet = parsed.pathname.length > 25 ? parsed.pathname.slice(0, 25) + '...' : parsed.pathname;
-            shortLabel += pathSnippet;
+TUGASMU:
+Buat KESIMPULAN HASIL AKSI (Conclusion) yang jelas, padat (2-4 kalimat), dan natural khas Azura.
+- Jelaskan aksi apa yang sudah kamu lakukan di situs tersebut (misal: "Aku sudah membuka ChatGPT dan mengetikkan pesan sapaan kamu...").
+- Sebutkan apa respon/balasan atau informasi penting yang muncul di layar setelah aksi tersebut.
+- Jangan mengulang perintah user plek-ketiplek; sampaikan kesimpulannya secara cerdas!`
           }
-        } catch (_) {
-          shortLabel = finalTitle.slice(0, 30);
-        }
-
-        const embed = new EmbedBuilder()
-          .setColor(0x00F2FE)
-          .setTitle(`🌐 Misi Browsing Selesai: ${finalTitle.slice(0, 60)}`)
-          .setDescription(
-            `🎯 **Misi:** *${missionPrompt}*\n\n` +
-            `📝 **Detail Temuan:**\n${cleanReport}\n\n` +
-            `🔗 **Website:** [👉 ${shortLabel}](${cleanDirectUrl})\n\n` +
-            `*💡 Sesi browser tetap aktif di halaman ini. Kamu bisa lanjut memberi perintah seperti "ketik ...", "klik ...", atau "tutup browser" untuk mengakhiri.*`
-          )
-          .setFooter({ text: 'AZURA Autonomous Web Mission' })
-          .setTimestamp();
-
-        if (attachment) {
-          embed.setImage('attachment://mission_destination.png');
-        }
-
-        await textChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
-      }
+        ]
+      });
+      conclusion = conclusionRes.choices[0].message.content.trim();
+    } catch (conclErr) {
+      console.warn('[Conclusion Generation Fallback]:', conclErr.message);
+      conclusion = siteInspection.chatReplies.length > 0
+        ? `Aku sudah mengeksekusi aksimu di ${finalTitle}. Balasan di layar: "${siteInspection.chatReplies[0].slice(0, 150)}..."`
+        : `Aku sudah menyelesaikan aksimu di ${finalTitle}. Halaman saat ini menampilkan informasi terkait ${cleanPrompt}.`;
     }
 
-    // 7. AUTO-CLOSE AFTER AUTONOMOUS MISSION (Saves RAM/CPU as established)
-    setTimeout(async () => {
-      try {
-        console.log(`[Web Surf Agent]: 🔒 Autonomous mission completed. Auto-closing browser session for ${guildId}...`);
-        await closeBrowserSession(guildId);
-      } catch (_) {}
-    }, 12000);
+    // Broadcast conclusion to web live portal stream
+    if (typeof broadcastAzuraReply === 'function') {
+      broadcastAzuraReply(`💬 ${conclusion}`);
+    }
 
-    return { success: true, title: finalTitle, url: finalUrl };
+    // Send visual card and conclusion to Discord text channel if present
+    if (textChannel) {
+      const attachment = screenshotBuffer ? new AttachmentBuilder(screenshotBuffer, { name: 'mission_destination.png' }) : null;
+      const validUrl = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
+      
+      let cleanDirectUrl = validUrl;
+      let shortLabel = 'Buka Halaman';
+
+      try {
+        const parsed = new URL(validUrl);
+        shortLabel = parsed.hostname.replace(/^www\./, '');
+        if (parsed.pathname && parsed.pathname !== '/') {
+          const pathSnippet = parsed.pathname.length > 25 ? parsed.pathname.slice(0, 25) + '...' : parsed.pathname;
+          shortLabel += pathSnippet;
+        }
+      } catch (_) {
+        shortLabel = finalTitle.slice(0, 30);
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00F2FE)
+        .setTitle(`🌐 ${finalTitle.slice(0, 60)}`)
+        .setDescription(
+          `🎯 **Perintah:** *${missionPrompt}*\n\n` +
+          `📝 **Kesimpulan:**\n${conclusion}\n\n` +
+          `🔗 **Website:** [👉 ${shortLabel}](${cleanDirectUrl})\n\n` +
+          `*💡 Sesi browser tetap aktif. Kamu bisa lanjut memberi perintah berikutnya seperti "ketik ...", "klik ...", atau "tutup browser".*`
+        )
+        .setFooter({ text: 'AZURA Web Companion' })
+        .setTimestamp();
+
+      if (attachment) {
+        embed.setImage('attachment://mission_destination.png');
+      }
+
+      await textChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
+    }
+
+    // Speak brief conclusion in VC if connected
+    const spokenConclusion = conclusion.length > 150 ? conclusion.slice(0, 150) + '...' : conclusion;
+    await speakInVC(guildId, spokenConclusion, client, userName);
+
+    // 🟢 KEEP SESSION OPEN FOR CHAINED COMMANDS (DO NOT AUTO-CLOSE!)
+    console.log(`[Web Surf Agent]: 🟢 Browser session kept active on "${finalTitle}" for continued actions.`);
+    resetSessionTimer(guildId);
+
+    return { success: true, title: finalTitle, url: finalUrl, conclusion };
 
   } catch (err) {
     console.error('[Autonomous Mission Error]:', err.message);

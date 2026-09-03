@@ -66,20 +66,39 @@ async function getBrowser() {
 }
 
 /**
- * Reset or set idle session timer
+ * Resolves an active browser session. If guildId is 'global' or not found,
+ * falls back to any currently open session so the web portal controls the user's active session.
+ * @param {string} guildId 
+ */
+function getActiveSession(guildId) {
+  let session = activeBrowserSessions.get(guildId);
+  if (session && session.page && !session.page.isClosed()) return session;
+
+  // Fallback: If guildId is 'global' or not found, check other open sessions
+  for (const [gid, s] of activeBrowserSessions.entries()) {
+    if (s && s.page && !s.page.isClosed()) {
+      return s;
+    }
+  }
+  return null;
+}
+
+/**
+ * Reset idle timer for a guild browser session
  * @param {string} guildId 
  */
 function resetSessionTimer(guildId) {
-  const session = activeBrowserSessions.get(guildId);
+  const session = getActiveSession(guildId);
   if (!session) return;
 
   if (session.timer) {
     clearTimeout(session.timer);
   }
 
+  const targetId = session.guildId || guildId;
   session.timer = setTimeout(async () => {
-    console.log(`[Headless Browser]: ⏳ Inactivity timeout (5 mins) for guild ${guildId}. Closing browser tab...`);
-    await closeBrowserSession(guildId);
+    console.log(`[Headless Browser]: ⏳ Inactivity timeout (10 mins) for guild ${targetId}. Closing browser tab...`);
+    await closeBrowserSession(targetId);
   }, IDLE_BROWSER_TIMEOUT_MS);
 }
 
@@ -87,10 +106,10 @@ function resetSessionTimer(guildId) {
  * Get or create an active browser page session for a guild with live CDP Screencasting
  * @param {string} guildId 
  */
-async function getOrCreateSession(guildId) {
-  let session = activeBrowserSessions.get(guildId);
+async function getOrCreateSession(guildId = 'global') {
+  let session = getActiveSession(guildId);
   if (session && !session.page.isClosed()) {
-    resetSessionTimer(guildId);
+    resetSessionTimer(session.guildId || guildId);
     return session;
   }
 
@@ -155,8 +174,9 @@ async function getOrCreateSession(guildId) {
  * @param {string} guildId 
  */
 async function closeBrowserSession(guildId) {
-  const session = activeBrowserSessions.get(guildId);
+  const session = getActiveSession(guildId);
   if (!session) return { success: true, message: 'Tidak ada sesi browser yang aktif.' };
+  const targetId = session.guildId || guildId;
 
   try {
     if (session.timer) clearTimeout(session.timer);
@@ -169,9 +189,10 @@ async function closeBrowserSession(guildId) {
   } catch (err) {
     console.error('[Headless Browser Close Error]:', err.message);
   } finally {
+    activeBrowserSessions.delete(targetId);
     activeBrowserSessions.delete(guildId);
     updateStreamMeta({ title: 'AZURA Companion Standby', url: 'about:blank', activeGuild: null });
-    console.log(`[Headless Browser]: 🔒 Closed browser session for guild ${guildId}`);
+    console.log(`[Headless Browser]: 🔒 Closed browser session for guild ${targetId}`);
   }
 
   return { success: true, message: 'Sesi browser berhasil ditutup dan memori dibebaskan.' };
@@ -356,7 +377,7 @@ async function browseYouTube(guildId, query, client, voiceChannel, textChannel) 
  * @param {'down'|'up'} direction 
  */
 async function scrollWebpage(guildId, direction = 'down') {
-  const session = activeBrowserSessions.get(guildId);
+  const session = getActiveSession(guildId);
   if (!session || session.page.isClosed()) {
     return { success: false, error: 'Tidak ada browser yang aktif.' };
   }
@@ -368,7 +389,7 @@ async function scrollWebpage(guildId, direction = 'down') {
     await page.waitForTimeout(800);
 
     const screenshot = await page.screenshot({ type: 'png' });
-    resetSessionTimer(guildId);
+    resetSessionTimer(session.guildId || guildId);
 
     return {
       success: true,
@@ -388,7 +409,7 @@ async function scrollWebpage(guildId, direction = 'down') {
  * @param {string} textToType 
  */
 async function typeIntoWebpage(guildId, textToType) {
-  const session = activeBrowserSessions.get(guildId);
+  const session = getActiveSession(guildId);
   if (!session || session.page.isClosed()) {
     return { success: false, error: 'Tidak ada browser yang aktif. Buka halaman dulu yaa!' };
   }
@@ -427,7 +448,7 @@ async function typeIntoWebpage(guildId, textToType) {
     updateStreamMeta({ title, url });
 
     const screenshot = await page.screenshot({ type: 'png' });
-    resetSessionTimer(guildId);
+    resetSessionTimer(session.guildId || guildId);
 
     return {
       success: true,
@@ -448,7 +469,7 @@ async function typeIntoWebpage(guildId, textToType) {
  * @param {string} targetTextOrSelector 
  */
 async function clickOnWebpage(guildId, targetTextOrSelector) {
-  const session = activeBrowserSessions.get(guildId);
+  const session = getActiveSession(guildId);
   if (!session || session.page.isClosed()) {
     return { success: false, error: 'Tidak ada browser yang aktif. Buka halaman dulu yaa!' };
   }
@@ -483,7 +504,7 @@ async function clickOnWebpage(guildId, targetTextOrSelector) {
     updateStreamMeta({ title, url });
 
     const screenshot = await page.screenshot({ type: 'png' });
-    resetSessionTimer(guildId);
+    resetSessionTimer(session.guildId || guildId);
 
     return {
       success: true,
@@ -503,7 +524,7 @@ async function clickOnWebpage(guildId, targetTextOrSelector) {
  * @param {string} guildId 
  */
 async function getWebpageSummary(guildId) {
-  const session = activeBrowserSessions.get(guildId);
+  const session = getActiveSession(guildId);
   if (!session || session.page.isClosed()) {
     return { success: false, error: 'Tidak ada browser yang aktif.' };
   }
@@ -538,7 +559,7 @@ async function getWebpageSummary(guildId) {
  * @param {string} guildId 
  */
 async function takeScreenshotOnDemand(guildId) {
-  const session = activeBrowserSessions.get(guildId);
+  const session = getActiveSession(guildId);
   if (!session || session.page.isClosed()) {
     return { success: false, error: 'Tidak ada browser yang sedang aktif di guild ini.' };
   }
@@ -844,6 +865,7 @@ async function scrapeWebWithBrowser(targetUrl, timeoutMs = 20000) {
 
 module.exports = {
   getBrowser,
+  getActiveSession,
   getOrCreateSession,
   activeBrowserSessions,
   openWebpage,

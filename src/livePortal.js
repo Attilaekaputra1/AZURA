@@ -233,7 +233,7 @@ function initLivePortal() {
         if (msg.type === 'browser_command') {
           const rawCmd = (msg.command || '').trim();
           const cleanCmd = rawCmd.toLowerCase();
-          const { scrollWebpage, takeScreenshotOnDemand, closeBrowserSession, typeIntoWebpage, clickOnWebpage } = require('./headlessBrowser');
+          const { scrollWebpage, takeScreenshotOnDemand, closeBrowserSession, typeIntoWebpage, clickOnWebpage, openWebpage, getWebpageSummary } = require('./headlessBrowser');
           const { executeAutonomousBrowsingMission } = require('./webSurfAgent');
           let replyText = '';
 
@@ -883,23 +883,27 @@ function getPortalHtml(mode = 'browse') {
 
     connectWs();
 
-    function sendCommand() {
+    function sendCommand(isVoice = false) {
       const text = cmdInput.value.trim();
       if (!text) return;
       cmdInput.value = '';
 
-      azuraTextEl.innerText = 'Mendengar aba-aba: "' + text + '"... mengeksekusi ke layar!';
+      if (isVoice) {
+        azuraTextEl.innerText = 'Mendengar perintah: "' + text + '"... mengeksekusi ke layar!';
+      } else {
+        azuraTextEl.innerText = 'Membaca perintah: "' + text + '"... mengeksekusi ke layar!';
+      }
 
       const msgType = currentMode === 'browse' ? 'browser_command' : 'game_command';
       const apiUrl = currentMode === 'browse' ? '/api/browser/command' : '/api/game/command';
 
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: msgType, command: text, userName: 'Attila' }));
+        ws.send(JSON.stringify({ type: msgType, command: text, isVoice, userName: 'Attila' }));
       } else {
         fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: text, userName: 'Attila' })
+          body: JSON.stringify({ command: text, isVoice, userName: 'Attila' })
         })
         .then(res => res.json())
         .then(data => {
@@ -912,7 +916,7 @@ function getPortalHtml(mode = 'browse') {
 
     function sendAction(act) {
       cmdInput.value = act;
-      sendCommand();
+      sendCommand(false);
     }
 
     // ── KEYBOARD CONTROLS ──
@@ -952,7 +956,7 @@ function getPortalHtml(mode = 'browse') {
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         cmdInput.value = transcript;
-        sendCommand();
+        sendCommand(true);
       };
 
       recognition.onerror = () => stopVoiceInput();

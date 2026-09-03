@@ -39,7 +39,7 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
   await speakInVC(guildId, announceText, client, userName);
 
   if (textChannel) {
-    textChannel.send(`✨ **Siap, aku browsing sekarang ya**, kamu bisa pantau prosesnya di link streaming: [${BROWSE_URL}](${BROWSE_URL})`).catch(() => {});
+    textChannel.send(`✨ **Siap, aku browsing sekarang ya!**\nPantau layarnya secara live di: ${BROWSE_URL}`).catch(() => {});
   }
 
   const session = await getOrCreateSession(guildId);
@@ -58,48 +58,45 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       mode: 'browse'
     });
 
-    // Baseline heuristic
-    let rawTarget = cleanPrompt
-      .replace(/\b(?:browsing|buka|situs|web|website|resminya|resmi|terus|lalu|kemudian|masuk\s+ke|dan|tolong|cari|carikan|klien|kliennya|apa\s+aja|cek|lihat)\b/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
+    // 🧠 Ultra-Intelligent AI Mission Planner (Direct LLM Reasoning)
     let plan = {
-      searchQuery: rawTarget.split(' ')[0] || 'learnext',
-      clickKeyword: rawTarget.split(' ')[0] || 'learnext',
+      searchQuery: cleanPrompt,
+      targetType: 'general',
+      preferredDomain: null,
       inspectionGoal: cleanPrompt
     };
 
-    // AI Semantic Planner: intelligently analyzes user prompt intent
     try {
-      const plannerPrompt = `Ekstrak kata kunci penting dari instruksi user berikut:
-"${cleanPrompt}"
-
-Tugas:
-1. "searchQuery": Kata kunci pencarian Google paling ringkas dan tepat (contoh: "learnext" atau "tiket pesawat jakarta bali")
-2. "clickKeyword": Nama brand/website utama (contoh: "learnext")
-3. "inspectionGoal": Apa informasi spesifik yang ingin dicari di website? (contoh: "daftar nama klien atau partner perusahaan")
-
-Balas HANYA JSON valid berikut:
+      const { OpenAI } = require('openai');
+      const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+      const aiPlannerRes = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: `Kamu adalah asisten otonom web browsing berintelektual tinggi. Tugasmu menganalisis instruksi user dan menghasilkan JSON rencana aksi browsing:
 {
-  "searchQuery": "kata kunci Google",
-  "clickKeyword": "kata kunci website",
-  "inspectionGoal": "tujuan informasi"
-}`;
-      const rawPlan = await askAzura(config.OWNER_DISCORD_ID || 'planner', plannerPrompt, userName, [], false, null, guildId, true);
-      const planText = typeof rawPlan === 'string' ? rawPlan : (rawPlan?.content || '');
-      const jsonMatch = planText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.searchQuery && parsed.searchQuery.length < 50) plan.searchQuery = parsed.searchQuery;
-        if (parsed.clickKeyword) plan.clickKeyword = parsed.clickKeyword;
-        if (parsed.inspectionGoal) plan.inspectionGoal = parsed.inspectionGoal;
-      }
+  "searchQuery": "kata kunci Google paling akurat, efektif, dan alami untuk diketik di search box (contoh untuk 'ara browsing berita tentang lagu akon right now deh' -> 'Akon Right Now lagu', untuk 'browsing situs learnext terus masuk ke website resminya' -> 'learnext')",
+  "targetType": "news" | "website" | "general",
+  "preferredDomain": "nama domain jika user spesifik menyebut website tertentu (contoh: 'learnext.ai'), atau null jika mencari berita/informasi/artikel umum",
+  "inspectionGoal": "apa inti informasi yang harus dicari dan dirangkum untuk user"
+}`
+          },
+          { role: 'user', content: cleanPrompt }
+        ]
+      });
+
+      const parsedPlan = JSON.parse(aiPlannerRes.choices[0].message.content);
+      if (parsedPlan.searchQuery) plan.searchQuery = parsedPlan.searchQuery;
+      if (parsedPlan.targetType) plan.targetType = parsedPlan.targetType;
+      if (parsedPlan.preferredDomain !== undefined) plan.preferredDomain = parsedPlan.preferredDomain;
+      if (parsedPlan.inspectionGoal) plan.inspectionGoal = parsedPlan.inspectionGoal;
     } catch (e) {
       console.warn('[Autonomous Planner Fallback]:', e.message);
     }
 
-    console.log(`[Autonomous Mission Plan]: Query="${plan.searchQuery}", Target="${plan.clickKeyword}", Goal="${plan.inspectionGoal}"`);
+    console.log(`[Autonomous Mission Plan]: Query="${plan.searchQuery}", Type="${plan.targetType}", Domain="${plan.preferredDomain}", Goal="${plan.inspectionGoal}"`);
 
     // 1. Open Google Homepage
     console.log(`[Autonomous Mission]: 🔍 Navigating to Google with query: "${plan.searchQuery}"`);
@@ -131,70 +128,71 @@ Balas HANYA JSON valid berikut:
     await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
     await page.waitForTimeout(1200);
 
-    // 4. Human-like Resolution of Official Website
-    const kw = (plan.clickKeyword || plan.searchQuery.split(' ')[0] || '').toLowerCase();
-    console.log(`[Autonomous Mission]: 🖱️ Locating official website for: "${kw}"`);
+    // 4. Human-like Resolution of Destination Website / Article
+    console.log(`[Autonomous Mission]: 🖱️ Resolving target destination for query: "${plan.searchQuery}"`);
 
-    const destinationUrl = await page.evaluate((targetKw) => {
-      const allA = Array.from(document.querySelectorAll('a[href]'));
+    const destination = await page.evaluate(({ preferredDomain, targetType }) => {
+      const allA = Array.from(document.querySelectorAll('#rso a[href], #search a[href], a[href]'));
+      
       for (const a of allA) {
         const href = a.href || '';
-        const txt = (a.innerText || '').toLowerCase();
+        const txt = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
         
-        if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('google.com/search')) {
+        // Skip Google system navigation
+        if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('google.com/search') || href.includes('google.co.id/intl') || href.includes('maps.google')) {
           continue;
         }
 
-        const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i) || txt.match(/([a-z0-9-]+\.(?:ai|com|id|co\.id|org|io|net|edu))/i);
-        if (urlMatch) {
-          let url = urlMatch[0];
-          if (!url.startsWith('http')) url = 'https://' + url;
-          if (!url.includes('google.') && (targetKw ? url.toLowerCase().includes(targetKw) || txt.includes(targetKw) : true)) {
-            return url;
+        // Case A: Specific website domain requested (e.g. learnext.ai)
+        if (preferredDomain) {
+          const domClean = preferredDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+          if (href.toLowerCase().includes(domClean) || txt.includes(domClean)) {
+            let realUrl = href;
+            const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i);
+            if (urlMatch) realUrl = urlMatch[0];
+            return { title: a.innerText.trim(), url: realUrl };
           }
         }
 
-        if (href.startsWith('http') && !href.includes('google.') && !href.includes('gstatic.')) {
-          if (!targetKw || href.toLowerCase().includes(targetKw) || txt.includes(targetKw)) {
-            return href;
-          }
+        // Case B: General or News query -> pick top organic article / result
+        const isOrganic = href.includes('/goto?url=') || href.includes('/url?') || a.closest('#rso') || a.querySelector('h3');
+        if (isOrganic && txt.length > 5) {
+          let realUrl = href;
+          const urlMatch = txt.match(/https?:\/\/[^\s\n"']+/i);
+          if (urlMatch) realUrl = urlMatch[0];
+          return { title: a.innerText.trim(), url: realUrl };
         }
       }
 
-      // Check text for domain patterns (e.g. "learnext.ai")
-      const bodyText = document.body.innerText;
-      if (targetKw) {
-        const domainRegex = new RegExp(`https?:\\/\\/[a-z0-9.-]*${targetKw}[a-z0-9.-]*\\.[a-z]{2,}`, 'i');
-        const match = bodyText.match(domainRegex);
-        if (match) return match[0];
-
-        const shortDomainRegex = new RegExp(`(?:www\\.)?(${targetKw}\\.(?:ai|com|id|co\\.id|org|io|net))`, 'i');
-        const shortMatch = bodyText.match(shortDomainRegex);
-        if (shortMatch) return 'https://' + shortMatch[1];
+      // Fallback for specific domain
+      if (preferredDomain) {
+        const domClean = preferredDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+        const match = document.body.innerText.match(new RegExp(`https?:\\/\\/[a-z0-9.-]*${domClean}[a-z0-9.-]*`, 'i'));
+        if (match) return { title: preferredDomain, url: match[0] };
       }
 
       return null;
-    }, kw);
+    }, { preferredDomain: plan.preferredDomain, targetType: plan.targetType });
 
-    const targetUrl = destinationUrl || (kw.includes('.') ? `https://${kw}` : `https://www.${kw}.ai`);
-    console.log(`[Autonomous Mission]: 🚀 Entering official website: ${targetUrl}`);
-    
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(err => {
-      console.warn('[Autonomous Mission Navigation Warn]:', err.message);
-    });
-    await page.waitForTimeout(3000);
+    if (destination && destination.url) {
+      console.log(`[Autonomous Mission]: 🚀 Entering target destination: ${destination.url}`);
+      await page.goto(destination.url, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(err => {
+        console.warn('[Autonomous Mission Navigation Warn]:', err.message);
+      });
+      await page.waitForTimeout(3000);
+    }
 
-    // 5. Human-like Scrolling & Exploration (Loads all client logos, testimonials, and dynamic content)
-    console.log('[Autonomous Mission]: 📜 Scrolling to discover client logos and content...');
+    // 5. Human-like Scrolling & Exploration (Loads all content, articles, images, and text)
+    console.log('[Autonomous Mission]: 📜 Scrolling to explore page content...');
     await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' })).catch(() => {});
     await page.waitForTimeout(1500);
     await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' })).catch(() => {});
     await page.waitForTimeout(1500);
 
-    // 6. Deep Domain-Level Extraction of Clients, Partners, and Content
+    // 6. Deep Domain-Level Extraction of Clients, Partners, and Article Text
     const siteInspection = await page.evaluate(() => {
       const rawHtml = document.documentElement.outerHTML;
-      // Extract institution / client logo names from URLs like course-institutions/landing-injourney-b5f7e710.png
+      // Extract institution / client logo names
       const institutionMatches = rawHtml.match(/course-institutions\/[^"']+/g) || [];
       const clients = [...new Set(institutionMatches)].map(i => {
         return i.replace('course-institutions/', '').replace(/landing-/, '').replace(/-[a-f0-9]+\.png/, '').replace(/-/g, ' ').toUpperCase();
@@ -205,11 +203,11 @@ Balas HANYA JSON valid berikut:
         .map(i => i.alt.trim())
         .filter(alt => alt.length > 2 && !alt.toLowerCase().includes('logo') && !alt.toLowerCase().includes('icon'));
 
-      // Extract testimonial / partner snippets
-      const textSnippets = Array.from(document.querySelectorAll('p, span, div, h2, h3, h4'))
+      // Extract text snippets
+      const textSnippets = Array.from(document.querySelectorAll('p, span, div, h1, h2, h3, h4'))
         .map(e => e.innerText.trim())
-        .filter(t => /injourney|bluebird|blue\s*bird|herdy|antariksa|klien|partner|mitra|dipercaya|perusahaan/i.test(t))
-        .slice(0, 8);
+        .filter(t => t.length > 20)
+        .slice(0, 10);
 
       return {
         clients,

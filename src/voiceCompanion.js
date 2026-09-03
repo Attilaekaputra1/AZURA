@@ -1522,10 +1522,12 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     // This prevents conflict with Tavily research in regular text chat.
     // Sub-commands (ketik, klik, scroll, baca, tutup) only work when a browsing session is already active.
     if (hasWake) {
-      // 1. Persistent Standby Session: "ara aku mau browsing-browsing nih bantuin dong", "ara buka browser standby"
-      const persistentVoicePattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:aku\s+)?(?:mau|pengen|yuk|bantu|temenin)\s+browsing\b/i;
-      if (persistentVoicePattern.test(transcript) || persistentVoicePattern.test(cleanTranscript)) {
-        console.log(`[Voice Pipeline]: 🌐 Persistent Browsing Standby triggered via VC`);
+      // 1. Manual Standby Session: "ara buka browser", "ara bukain browser", "ara aku mau browsing"
+      const persistentVoicePattern = /\b(?:azura|ara|zura|ajur|ajura)\s+(?:tolong\s+)?(?:buka|bukain)\s+(?:browser|chrome|web)\s*(?:standby)?$/i.test(cleanTranscript) ||
+                                     /\b(?:azura|ara|zura|ajur|ajura)\s+(?:aku\s+)?(?:mau|pengen|yuk|bantu|temenin)\s+browsing\b/i.test(cleanTranscript) ||
+                                     /^buka\s+browser\s*(?:standby)?$/i.test(cleanTranscript);
+      if (persistentVoicePattern) {
+        console.log(`[Voice Pipeline]: 🌐 Manual Browsing Standby triggered via VC`);
         const { startPersistentInteractiveBrowsing } = require('./webSurfAgent');
         startPersistentInteractiveBrowsing(guildId, speakerName || 'Attila', textChannel, client).catch(e => {
           console.error('[Voice Pipeline Persistent Browsing Error]:', e.message);
@@ -1533,10 +1535,10 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // 2. Goal-Oriented Autonomous Mission & Chained Follow-ups: "ara tolong browsing ...", "ara buka chat gpt", "ara ketik ..."
+      // 2. Goal-Oriented Autonomous Mission & Chained Follow-ups: "ara tolong browsing ...", "ara buka chat gpt terus ketik..."
       const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+situs|buka\s+web|buka|ketik|klik|tekan)\s+(.+)/i;
       const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger);
-      if (browsingMatch && browsingMatch[1]) {
+      if (browsingMatch && browsingMatch[1] && !/^(?:browser|chrome|web)\s*(?:standby)?$/i.test(browsingMatch[1].trim())) {
         const query = browsingMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
         if (query.length > 2) {
           console.log(`[Voice Pipeline]: 🌐 Autonomous Browsing Action triggered via VC -> "${transcript}"`);

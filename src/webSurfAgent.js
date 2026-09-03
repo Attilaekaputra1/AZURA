@@ -432,9 +432,13 @@ Format: Poin-poin rapi dan ramah khas Azura.`;
       }
     }
 
-    // 7. KEEP SESSION OPEN FOR CHAINED COMMANDS (Reset 10-minute inactivity timer)
-    console.log(`[Web Surf Agent]: 🟢 Browser session kept active on "${finalTitle}" for chained commands.`);
-    resetSessionTimer(guildId);
+    // 7. AUTO-CLOSE AFTER AUTONOMOUS MISSION (Saves RAM/CPU as established)
+    setTimeout(async () => {
+      try {
+        console.log(`[Web Surf Agent]: 🔒 Autonomous mission completed. Auto-closing browser session for ${guildId}...`);
+        await closeBrowserSession(guildId);
+      } catch (_) {}
+    }, 12000);
 
     return { success: true, title: finalTitle, url: finalUrl };
 
@@ -449,46 +453,29 @@ Format: Poin-poin rapi dan ramah khas Azura.`;
 }
 
 /**
- * MODE 2: Persistent Interactive Step-by-Step Browsing (Mabar Standby)
- * Opens browser and stays permanently active waiting for user commands until explicitly closed.
+ * MODE 2: Persistent Manual Standby Browsing ("ara buka browser")
+ * Opens browser and stays permanently active waiting for manual commands until explicitly closed.
  * @param {string} guildId 
  * @param {string} userName 
  * @param {import('discord.js').TextChannel} textChannel 
  * @param {import('discord.js').Client} client 
  */
 async function startPersistentInteractiveBrowsing(guildId, userName, textChannel, client) {
-  console.log(`[Web Surf Agent]: 🕹️ Starting Persistent Interactive Browsing for ${guildId}`);
+  console.log(`[Web Surf Agent]: 🕹️ Starting Persistent Manual Browsing for ${guildId}`);
 
-  const announceText = `Siap ${userName}! Aku buka browser dan standby di live stream yaa. Kamu bisa suruh aku ketik, klik, atau scroll secara realtime!`;
-  await speakInVC(guildId, announceText, client, userName);
-
-  const res = await openWebpage(guildId, 'https://www.bing.com');
-  const session = activeBrowserSessions?.get(guildId);
-  if (session) {
-    session.isPersistent = true; // Prevents idle auto-close!
-  }
+  // Exact opening dialogue requested by user:
+  const announceText = 'Siap Attila, aku bukain browser nya sekarang ya.';
+  await speakInVC(guildId, announceText, client, userName || 'Attila');
 
   if (textChannel) {
-    const embed = new EmbedBuilder()
-      .setColor(0x38BDF8)
-      .setTitle(`🌐 Sesi Browsing Interaktif Standby (Mode Mabar)`)
-      .setDescription(
-        `Halo **${userName}**! Browser sudah dibuka dan siap menemani kamu browsing! 🌸✨\n\n` +
-        `📺 **Tonton Layar Live 60 FPS:**\n` +
-        `👉 **[KLIK DI SINI: PORTAL BROWSER LIVE](${BROWSE_URL})**\n\n` +
-        `🕹️ **Perintah Step-by-Step yang Bisa Kamu Berikan:**\n` +
-        `• Ketik teks: \`ara ketik [kata kunci]\`\n` +
-        `• Klik link/tombol: \`ara klik [nama link]\`\n` +
-        `• Gulir layar: \`ara scroll bawah\` atau \`ara scroll atas\`\n` +
-        `• Buka situs: \`ara buka [url atau pencarian]\`\n` +
-        `• Baca layar: \`ara jelaskan halaman ini\`\n` +
-        `• Tutup browser: \`ara tutup browser\`\n\n` +
-        `*🔒 Sesi ini akan tetap aktif dan TIDAK akan ditutup otomatis sampai kamu minta tutup!*`
-      )
-      .setFooter({ text: 'AZURA Persistent Interactive Web Companion' })
-      .setTimestamp();
+    textChannel.send(`✨ **Siap Attila, aku bukain browser nya sekarang ya.**\nPantau layarnya secara live di: ${BROWSE_URL}`).catch(() => {});
+  }
 
-    await textChannel.send({ embeds: [embed] }).catch(() => {});
+  const res = await openWebpage(guildId, 'https://www.google.com');
+  const session = activeBrowserSessions?.get(guildId);
+  if (session) {
+    session.isPersistent = true;
+    session.mode = 'manual'; // Manual mode: silent typing/clicking, no auto-reports
   }
 
   return { success: true };

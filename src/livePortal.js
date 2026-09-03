@@ -85,34 +85,56 @@ function initLivePortal() {
           const payload = JSON.parse(body || '{}');
           const rawCmd = (payload.command || '').trim();
           const cleanCmd = rawCmd.toLowerCase();
-          const { scrollWebpage, takeScreenshotOnDemand, closeBrowserSession, typeIntoWebpage, clickOnWebpage } = require('./headlessBrowser');
+          const { scrollWebpage, takeScreenshotOnDemand, closeBrowserSession, typeIntoWebpage, clickOnWebpage, getWebpageSummary, openWebpage } = require('./headlessBrowser');
           const { executeAutonomousBrowsingMission } = require('./webSurfAgent');
           
           let responseText = '';
           if (/^scroll\s*(?:ke\s*)?bawah|^down$/i.test(cleanCmd)) {
             await scrollWebpage('global', 'down');
-            responseText = 'Halaman digulir ke bawah ⬇️';
+            responseText = ''; // Diam aja!
           } else if (/^scroll\s*(?:ke\s*)?atas|^up$/i.test(cleanCmd)) {
             await scrollWebpage('global', 'up');
-            responseText = 'Halaman digulir ke atas ⬆️';
+            responseText = ''; // Diam aja!
           } else if (/^screenshot$|^ss$|^tangkapan\s*layar$/i.test(cleanCmd)) {
             await takeScreenshotOnDemand('global');
             responseText = 'Tangkapan layar browser terbaru telah diambil!';
+          } else if (/^refresh$/i.test(cleanCmd)) {
+            const { activeBrowserSessions } = require('./headlessBrowser');
+            const sess = activeBrowserSessions.get('global');
+            if (sess && sess.page) await sess.page.reload().catch(() => {});
+            responseText = ''; // Diam aja!
           } else if (/^tutup$|^close$|^stop$/i.test(cleanCmd)) {
             await closeBrowserSession('global');
             responseText = 'Sesi browser telah ditutup dan memori dibebaskan!';
+          } else if (/^tanya\s*azura|^baca\s*layar|^jelaskan\s*layar/i.test(cleanCmd)) {
+            // Tanya Azura on Demand
+            const summary = await getWebpageSummary('global');
+            const text = summary.success ? (summary.bodyText || summary.headings) : 'Halaman kosong.';
+            const { askAzura } = require('./azura');
+            const config = require('./config');
+            const reply = await askAzura(
+              config.OWNER_DISCORD_ID || 'manual_user',
+              `Jelaskan secara ramah, informatif, dan padat apa yang sedang terbuka di layar browser saat ini: ${text.slice(0, 1000)}`,
+              payload.userName || 'Attila',
+              [],
+              false,
+              null,
+              'global',
+              true
+            );
+            responseText = typeof reply === 'string' ? reply.replace(/<[^>]+>/g, '').trim() : 'Aku sedang melihat tampilan halaman web saat ini.';
           } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i.test(rawCmd)) {
             const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i);
             const textToType = match[1].trim();
             await typeIntoWebpage('global', textToType);
-            responseText = `Berhasil mengetik: "${textToType}"`;
+            responseText = ''; // Diam aja!
           } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i.test(rawCmd)) {
             const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i);
             const targetToClick = match[1].trim();
             await clickOnWebpage('global', targetToClick);
-            responseText = `Berhasil mengklik: "${targetToClick}"`;
-          } else {
-            // 🧠 FULL AUTONOMOUS ACTION CHAIN ENGINE (Exact alignment with Discord & Voice)
+            responseText = ''; // Diam aja!
+          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?browsing\s+(.+)/i.test(rawCmd) || /terus\s+(?:masuk|cari|pilih|klik)/i.test(rawCmd)) {
+            // Explicit Autonomous Mission
             responseText = `Memulai misi browsing otonom: "${rawCmd}"...`;
             executeAutonomousBrowsingMission('global', rawCmd, payload.userName || 'Attila', null, null)
               .then(res => {
@@ -124,9 +146,11 @@ function initLivePortal() {
                   if (client.readyState === WebSocket.OPEN) client.send(finishMsg);
                 }
               })
-              .catch(err => {
-                console.error('[Web Portal Autonomous Mission Error]:', err.message);
-              });
+              .catch(() => {});
+          } else {
+            // Manual silent navigation/search ("diam aja")
+            await openWebpage('global', rawCmd).catch(() => {});
+            responseText = ''; // Diam aja!
           }
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -215,28 +239,50 @@ function initLivePortal() {
 
           if (/^scroll\s*(?:ke\s*)?bawah|^down$/i.test(cleanCmd)) {
             await scrollWebpage('global', 'down');
-            replyText = 'Halaman digulir ke bawah ⬇️';
+            replyText = ''; // Diam aja!
           } else if (/^scroll\s*(?:ke\s*)?atas|^up$/i.test(cleanCmd)) {
             await scrollWebpage('global', 'up');
-            replyText = 'Halaman digulir ke atas ⬆️';
+            replyText = ''; // Diam aja!
           } else if (/^screenshot$|^ss$/i.test(cleanCmd)) {
             await takeScreenshotOnDemand('global');
             replyText = 'Tangkapan layar browser terbaru telah diperbarui!';
+          } else if (/^refresh$/i.test(cleanCmd)) {
+            const { activeBrowserSessions } = require('./headlessBrowser');
+            const sess = activeBrowserSessions.get('global');
+            if (sess && sess.page) await sess.page.reload().catch(() => {});
+            replyText = ''; // Diam aja!
           } else if (/^tutup$|^close$|^stop$/i.test(cleanCmd)) {
             await closeBrowserSession('global');
-            replyText = 'Sesi browser telah ditutup!';
+            replyText = 'Sesi browser telah ditutup dan memori dibebaskan!';
+          } else if (/^tanya\s*azura|^baca\s*layar|^jelaskan\s*layar/i.test(cleanCmd)) {
+            // Tanya Azura on Demand
+            const summary = await getWebpageSummary('global');
+            const text = summary.success ? (summary.bodyText || summary.headings) : 'Halaman kosong.';
+            const { askAzura } = require('./azura');
+            const config = require('./config');
+            const reply = await askAzura(
+              config.OWNER_DISCORD_ID || 'manual_user',
+              `Jelaskan secara ramah, informatif, dan padat apa yang sedang terbuka di layar browser saat ini: ${text.slice(0, 1000)}`,
+              msg.userName || 'Attila',
+              [],
+              false,
+              null,
+              'global',
+              true
+            );
+            replyText = typeof reply === 'string' ? reply.replace(/<[^>]+>/g, '').trim() : 'Aku sedang melihat tampilan halaman web saat ini.';
           } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i.test(rawCmd)) {
             const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?ketik\s+(.+)/i);
             const textToType = match[1].trim();
             await typeIntoWebpage('global', textToType);
-            replyText = `Berhasil mengetik: "${textToType}"`;
+            replyText = ''; // Diam aja!
           } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i.test(rawCmd)) {
             const match = rawCmd.match(/^(?:ara\s+|azura\s+)?(?:tolong\s+)?klik\s+(.+)/i);
             const targetToClick = match[1].trim();
             await clickOnWebpage('global', targetToClick);
-            replyText = `Berhasil mengklik: "${targetToClick}"`;
-          } else {
-            // 🧠 FULL AUTONOMOUS ACTION CHAIN ENGINE (Exact alignment with Discord & Voice)
+            replyText = ''; // Diam aja!
+          } else if (/^(?:ara\s+|azura\s+)?(?:tolong\s+)?browsing\s+(.+)/i.test(rawCmd) || /terus\s+(?:masuk|cari|pilih|klik)/i.test(rawCmd)) {
+            // Explicit Autonomous Mission
             replyText = `Memulai misi browsing otonom: "${rawCmd}"...`;
             executeAutonomousBrowsingMission('global', rawCmd, msg.userName || 'Attila', null, null)
               .then(res => {
@@ -248,18 +294,22 @@ function initLivePortal() {
                   if (client.readyState === WebSocket.OPEN) client.send(finishMsg);
                 }
               })
-              .catch(err => {
-                console.error('[Web Portal WS Mission Error]:', err.message);
-              });
+              .catch(() => {});
+          } else {
+            // Manual silent navigation/search ("diam aja")
+            await openWebpage('global', rawCmd).catch(() => {});
+            replyText = ''; // Diam aja!
           }
 
-          const respPayload = JSON.stringify({
-            type: 'azura_reply',
-            text: replyText,
-            userName: msg.userName || 'Attila'
-          });
-          for (const client of connectedClients) {
-            if (client.readyState === WebSocket.OPEN) client.send(respPayload);
+          if (replyText) {
+            const respPayload = JSON.stringify({
+              type: 'azura_reply',
+              text: replyText,
+              userName: msg.userName || 'Attila'
+            });
+            for (const client of connectedClients) {
+              if (client.readyState === WebSocket.OPEN) client.send(respPayload);
+            }
           }
         }
       } catch (err) {
@@ -782,8 +832,8 @@ function getPortalHtml(mode = 'browse') {
         ${isBrowse ? `
           <button class="action-btn" onclick="sendAction('scroll bawah')">📜 Scroll Bawah</button>
           <button class="action-btn" onclick="sendAction('scroll atas')">📜 Scroll Atas</button>
-          <button class="action-btn" onclick="sendAction('screenshot')">📸 Ambil Screenshot</button>
-          <button class="action-btn" onclick="sendAction('refresh')">🔄 Refresh Halaman</button>
+          <button class="action-btn" onclick="sendAction('screenshot')">📸 Screenshot</button>
+          <button class="action-btn" onclick="sendAction('tanya azura')">💬 Tanya Azura</button>
           <button class="action-btn danger" onclick="sendAction('tutup')">🛑 Tutup Browser</button>
         ` : `
           <button class="action-btn" onclick="sendAction('atas')">⬆️ Ke Atas</button>

@@ -14,6 +14,8 @@ const { getBrowser, getWebpageSummary, openWebpage, scrollWebpage, clickOnWebpag
 const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
 const config = require('./config');
 
+const BROWSE_URL = 'http://203.175.10.163:7860/browse';
+
 // ─── Active Research Sessions ───
 const activeResearchSessions = new Map(); // guildId -> { topic, steps[], channel, userName, client }
 
@@ -44,52 +46,53 @@ async function performLiveResearch(guildId, researchQuery, userName, textChannel
     const announceText = `Siap ${userName}! Aku mulai riset tentang "${researchQuery}" di browser sekarang ya. Kamu bisa pantau layarnya secara live di portal web!`;
     await speakInVC(guildId, announceText, client, userName);
 
-    // Step 2: Open search engine with the query
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(researchQuery)}`;
-    const searchResult = await openWebpage(guildId, searchUrl);
+    // Step 2: Open search engine and visibly type the query on screen
+    const searchResult = await openWebpage(guildId, researchQuery);
 
     if (!searchResult.success) {
-      const errMsg = `Maaf ${userName}, gagal membuka halaman pencarian: ${searchResult.error}`;
+      const errMsg = `Maaf ${userName}, gagal melakukan pencarian: ${searchResult.error}`;
       await speakInVC(guildId, errMsg, client, userName);
       return { success: false, summary: errMsg };
     }
 
-    session.steps.push({ action: 'search', url: searchUrl, title: searchResult.title });
+    session.steps.push({ action: 'search', url: searchResult.url, title: searchResult.title });
 
-    // Step 3: Wait for results to render
-    await new Promise(r => setTimeout(r, 1500));
-
-    // Step 4: Read search results page
+    // Step 3: Read search results
+    await new Promise(r => setTimeout(r, 1200));
     const pageSummary = await getWebpageSummary(guildId);
-    let findings = '';
-    if (pageSummary.success) {
-      findings = pageSummary.bodyText || pageSummary.headings || '';
-    }
+    let findings = pageSummary.success ? (pageSummary.bodyText || pageSummary.headings || '') : '';
 
-    // Step 5: Try to click on the first relevant result for deeper reading
-    const deepResult = await clickOnWebpage(guildId, researchQuery.split(' ')[0]);
-    await new Promise(r => setTimeout(r, 2000));
+    // Step 4: Try clicking the first organic result link to dive deeper
+    try {
+      const { activeBrowserSessions } = require('./headlessBrowser');
+      const curSession = activeBrowserSessions?.get(guildId);
+      if (curSession?.page && !curSession.page.isClosed()) {
+        const firstLink = await curSession.page.$('#b_results .b_algo h2 a, h2 a, a[href*="http"]:not([href*="bing.com"]):not([href*="microsoft"])');
+        if (firstLink) {
+          console.log('[Web Surf Agent]: 🖱️ Clicking first result link to inspect...');
+          await firstLink.click({ timeout: 4000 }).catch(() => {});
+          await curSession.page.waitForTimeout(2000);
+          await curSession.page.evaluate(() => window.scrollBy({ top: 300, behavior: 'smooth' })).catch(() => {});
+          const deepSummary = await getWebpageSummary(guildId);
+          if (deepSummary.success) {
+            findings += '\n\n' + (deepSummary.bodyText || deepSummary.headings || '');
+            session.steps.push({ action: 'deep_read', url: deepSummary.url, title: deepSummary.title });
+          }
+        }
+      }
+    } catch (_) {}
 
-    const deepSummary = await getWebpageSummary(guildId);
-    let deepFindings = '';
-    if (deepSummary.success) {
-      deepFindings = deepSummary.bodyText || deepSummary.headings || '';
-      session.steps.push({ action: 'deep_read', url: deepSummary.url, title: deepSummary.title });
-    }
-
-    // Step 6: Compose intelligent summary using Azura's brain
-    const combinedContent = `${findings}\n\n${deepFindings}`.slice(0, 3000);
+    // Step 5: Compose concise summary (Singkat, Padat, Langsung ke Inti)
+    const combinedContent = findings.slice(0, 2500);
     const { askAzura } = require('./azura');
     const aiSummary = await askAzura(
       config.OWNER_DISCORD_ID || 'research_user',
       `Kamu baru saja melakukan riset di browser tentang: "${researchQuery}".
-Berikut isi konten yang kamu temukan di halaman web:
+Berikut konten yang kamu temukan di halaman web:
 ---
 ${combinedContent}
 ---
-Buatlah ringkasan temuan riset ini untuk ${userName} secara natural, informatif, dan ringkas.
-Sertakan poin-poin penting, harga jika ada, dan rekomendasi kalau relevan.
-Jawab sebagai Azura yang cerdas dan helpful, jangan terlalu panjang — max 3-4 paragraf.`,
+Buatlah ringkasan temuan riset ini untuk ${userName} secara SINGKAT, PADAT, dan LANGSUNG KE INTI INFORMASI (maksimal 2 paragraf pendek saja atau 3 poin bullet ringkas). Jangan bertele-tele atau membuat penjelasan panjang!`,
       userName,
       [],
       false,
@@ -100,10 +103,10 @@ Jawab sebagai Azura yang cerdas dan helpful, jangan terlalu panjang — max 3-4 
 
     const cleanSummary = typeof aiSummary === 'string'
       ? aiSummary.replace(/<[^>]+>/g, '').replace(/\*\*/g, '').replace(/[*_~`#>]/g, '').trim()
-      : (aiSummary?.content || 'Maaf, aku tidak berhasil merangkum temuannya.');
+      : (aiSummary?.content || 'Pencarian selesai dilakukan.');
 
-    // Step 7: Narrate findings in Discord VC
-    const narrationText = cleanSummary.length > 600 ? cleanSummary.slice(0, 600) : cleanSummary;
+    // Step 6: Narrate findings in Discord VC (Short & Sweet)
+    const narrationText = cleanSummary.length > 250 ? cleanSummary.slice(0, 250) : cleanSummary;
     await speakInVC(guildId, narrationText, client, userName);
 
     // Step 8: Post recap card in text channel
@@ -115,16 +118,16 @@ Jawab sebagai Azura yang cerdas dan helpful, jangan terlalu panjang — max 3-4 
         .addFields(
           { name: '📊 Sumber Ditelusuri', value: `\`${session.steps.length} halaman web\``, inline: true },
           { name: '⏱️ Durasi Riset', value: `\`${Math.round((Date.now() - session.startedAt) / 1000)} detik\``, inline: true },
-          { name: '📺 Live Stream', value: `[Tonton Live](${STREAM_URL})`, inline: true }
+          { name: '📺 Live Stream', value: `[Buka Halaman Browser](${BROWSE_URL})`, inline: true }
         )
         .setFooter({ text: `AZURA Web Surf Agent • Riset untuk ${userName}` })
         .setTimestamp();
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setLabel('📺 Lihat Layar Browser Live')
+          .setLabel('🌐 Buka Halaman Headless Browser')
           .setStyle(ButtonStyle.Link)
-          .setURL(STREAM_URL)
+          .setURL(BROWSE_URL)
       );
 
       await textChannel.send({ embeds: [embed], components: [row] }).catch(() => {});
@@ -415,7 +418,7 @@ async function handleWebSurfCommands(message, client) {
       .replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '')
       .trim();
     if (query.length > 2) {
-      await message.reply(`🌐 **[AZURA Live Browsing]** Membuka browser & browsing: **"${query}"**...\nPantau live di: 👉 ${STREAM_URL}`);
+      await message.reply(`🌐 **[AZURA Live Browsing]** Membuka browser & browsing: **"${query}"**...\nPantau live di: 👉 ${BROWSE_URL}`);
       await performLiveResearch(guildId, query, userName, textChannel, client);
       return true;
     }

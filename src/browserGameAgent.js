@@ -397,8 +397,9 @@ async function getOrCreateGameSession(guildId = 'global', message = null) {
 
   updateStreamMeta({
     title: '🌸 AZURA & ATTILA 2048 Co-Op Arena',
-    url: 'http://203.175.10.163:7860/live',
-    activeGuild: guildId
+    url: 'http://203.175.10.163:7860/game',
+    activeGuild: guildId,
+    mode: 'game'
   });
 
   session = {
@@ -593,7 +594,7 @@ async function launchAutonomousBrowserGame(message) {
   const guildId = message.guild?.id || 'dm_' + message.author.id;
   const userName = message.member?.displayName || message.author.displayName || message.author.username;
 
-  const streamUrl = STREAM_URL || 'http://203.175.10.163:7860/live';
+  const gameUrl = 'http://203.175.10.163:7860/game';
 
   const session = await getOrCreateGameSession(guildId, message);
   session.userName = userName;
@@ -605,15 +606,15 @@ async function launchAutonomousBrowserGame(message) {
     .setTitle('🎮 Arena 2048 Otonom & Diskusi Terbuka Azura!')
     .setDescription(
       `Halo **${userName}**! Papan **2048 live stream** sudah dibuka! 🌸✨\n\n` +
-      `🕹️ **Azura bermain secara otonom & kamu bisa berdiskusi taktik secara terbuka kapanpun!**\n\n` +
-      `📺 **Buka Portal Web Live Stream untuk Menonton & Diskusi:**\n` +
-      `👉 **[KLIK DI SINI UNTUK BUKA PORTAL INTERAKTIF](${streamUrl})**\n\n` +
+      `🕹️ **Azura bermain secara otonom & kamu bisa main sendiri atau berdiskusi taktik kapanpun!**\n\n` +
+      `📺 **Buka Halaman Game Arena 2048:**\n` +
+      `👉 **[KLIK DI SINI UNTUK BUKA GAME ARENA](${gameUrl})**\n\n` +
       `💡 **Fitur:**\n` +
-      `• **Gameplay Mulus & Tenang:** Gerakan bidak geser cepat tanpa suara berisik per tombol.\n` +
-      `• **Diskusi Terbuka & Tanya Jawab Suara di VC:** Kamu bisa tanya strategi (*"Menurutmu gimana?"*, *"Kenapa geser atas?"*, *"Saran taktik dong"*), dan Azura akan menjawab taktis & hidup lewat suara VC Discord!`
+      `• **Mode Otonom & Manual:** Bisa main sendiri pakai panah keyboard/swipe HP, atau biarkan Azura bermain!\n` +
+      `• **Diskusi Terbuka di VC:** Tanya strategi (*"Menurutmu gimana?"*, *"Saran dong"*), Azura akan menjawab lewat suara VC!`
     )
     .addFields(
-      { name: '🌐 Portal Live Stream', value: `[\`${streamUrl}\`](${streamUrl})`, inline: false },
+      { name: '🎮 Halaman Game 2048', value: `[\`${gameUrl}\`](${gameUrl})`, inline: false },
       { name: '💬 Diskusi Taktis', value: '`Voice VC • Chat Diskusi • Analisis Papan Realtime`', inline: true },
       { name: '⚡ Streaming', value: '`Playwright Chromium 60fps HD`', inline: true }
     )
@@ -622,9 +623,9 @@ async function launchAutonomousBrowserGame(message) {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setLabel('🌐 Buka Portal Web Interaktif (60 FPS)')
+      .setLabel('🎮 Buka Halaman Game Arena 2048')
       .setStyle(ButtonStyle.Link)
-      .setURL(streamUrl),
+      .setURL(gameUrl),
     new ButtonBuilder()
       .setCustomId('btn_stop_game')
       .setLabel('🛑 Selesai & Lapor Skor Akhir')

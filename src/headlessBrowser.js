@@ -45,7 +45,7 @@ async function getBrowser() {
     return globalBrowser;
   }
 
-  console.log('[Headless Browser]: 🚀 Launching lightweight Chromium engine...');
+  console.log('[Headless Browser]: 🚀 Launching lightweight Stealth Chromium engine...');
   globalBrowser = await chromium.launch({
     headless: true,
     args: [
@@ -54,6 +54,8 @@ async function getBrowser() {
       '--disable-dev-shm-usage',
       '--disable-gpu',
       '--disable-accelerated-2d-canvas',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
       '--no-first-run',
       '--no-zygote',
       '--mute-audio'
@@ -95,11 +97,21 @@ async function getOrCreateSession(guildId) {
   const browser = await getBrowser();
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 AZURA-Assistant/3.0',
-    deviceScaleFactor: 1
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    deviceScaleFactor: 1,
+    locale: 'id-ID',
+    timezoneId: 'Asia/Jakarta'
   });
 
   const page = await context.newPage();
+
+  // Stealth script: mask automation fingerprints & bypass bot checks
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    window.chrome = { runtime: {} };
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['id-ID', 'id', 'en-US', 'en'] });
+  });
 
   // Attach Chrome DevTools Protocol (CDP) for high-speed 60fps screencasting
   let cdp = null;
@@ -196,35 +208,70 @@ function formatToUrl(input) {
  */
 async function openWebpage(guildId, targetInput) {
   try {
-    const url = formatToUrl(targetInput);
-
-    if (!isSafeUrl(url)) {
-      return {
-        success: false,
-        error: 'Situs web tersebut diblokir oleh protokol keamanan AZURA (terdeteksi domain tidak aman/perjudian).'
-      };
-    }
-
-    console.log(`[Headless Browser]: 🌐 Navigating guild ${guildId} to: ${url}`);
+    const isDirect = /^https?:\/\//i.test(targetInput.trim()) || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/.*)?$/i.test(targetInput.trim());
     const session = await getOrCreateSession(guildId);
     const { page } = session;
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForTimeout(1000); // Allow brief rendering
+    let targetUrl = '';
+    let pageTitle = 'Halaman Web';
 
-    const title = await page.title().catch(() => 'Halaman Web');
-    session.currentUrl = url;
-    session.currentTitle = title;
+    if (isDirect) {
+      targetUrl = targetInput.trim().startsWith('http') ? targetInput.trim() : `https://${targetInput.trim()}`;
+      if (!isSafeUrl(targetUrl)) {
+        return { success: false, error: 'Situs web tersebut diblokir oleh protokol keamanan AZURA.' };
+      }
+      console.log(`[Headless Browser]: 🌐 Direct navigate guild ${guildId} to: ${targetUrl}`);
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+      await page.waitForTimeout(1200);
+    } else {
+      // Human-like search with real-time on-screen typing (bypasses bot detection)
+      console.log(`[Headless Browser]: 🔍 Performing human-like search for: "${targetInput}"`);
+      await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.waitForTimeout(700);
 
-    updateStreamMeta({ title, url });
+      // Focus search input
+      const searchInput = await page.$('input[name="q"], textarea[name="q"], #sb_form_q');
+      if (searchInput) {
+        await searchInput.click();
+        await page.waitForTimeout(200);
+        // Type visibly on stream key-by-key
+        await page.keyboard.type(targetInput.trim(), { delay: 45 });
+        await page.waitForTimeout(300);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(2500);
+        // Smooth scroll to show results
+        await page.evaluate(() => window.scrollBy({ top: 380, behavior: 'smooth' })).catch(() => {});
+        await page.waitForTimeout(1000);
+      }
+      targetUrl = page.url();
+    }
+
+    // Auto-detect and attempt click on captcha / Cloudflare checkbox
+    try {
+      const captchaEl = await page.$('iframe[src*="recaptcha"], iframe[src*="turnstile"], #turnstile-wrapper, .cf-turnstile, input[type="checkbox"][name*="robot"]');
+      if (captchaEl) {
+        const box = await captchaEl.boundingBox();
+        if (box) {
+          console.log('[Headless Browser]: 🛡️ Attempting auto-click on verification checkbox...');
+          await page.mouse.click(box.x + 25, box.y + box.height / 2);
+          await page.waitForTimeout(2000);
+        }
+      }
+    } catch (_) {}
+
+    pageTitle = await page.title().catch(() => 'Halaman Web');
+    session.currentUrl = targetUrl;
+    session.currentTitle = pageTitle;
+
+    updateStreamMeta({ title: pageTitle, url: targetUrl, activeGuild: guildId, mode: 'browse' });
 
     const screenshot = await page.screenshot({ type: 'png' });
     resetSessionTimer(guildId);
 
     return {
       success: true,
-      title,
-      url,
+      title: pageTitle,
+      url: targetUrl,
       screenshot
     };
   } catch (err) {

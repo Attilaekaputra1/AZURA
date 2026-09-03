@@ -815,6 +815,55 @@ function getPortalHtml() {
       micLabel.innerText = 'Bicara ke Azura';
     }
 
+    // ── KEYBOARD ARROW CONTROLS & SPACEBAR AUTO-PLAY ──
+    window.addEventListener('keydown', (e) => {
+      if (document.activeElement === cmdInput) return; // Typing in chat input
+
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        sendDirectMove('kiri');
+      } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        sendDirectMove('kanan');
+      } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+        e.preventDefault();
+        sendDirectMove('atas');
+      } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        sendDirectMove('bawah');
+      } else if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        sendDirectMove('auto');
+      }
+    });
+
+    // ── MOBILE TOUCH SWIPE CONTROLS ──
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    const streamBox = document.getElementById('stream-box');
+    streamBox.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+      touchStartY = e.changedTouches[0].screenY;
+    }, { passive: true });
+
+    streamBox.addEventListener('touchend', (e) => {
+      const touchEndX = e.changedTouches[0].screenX;
+      const touchEndY = e.changedTouches[0].screenY;
+      const dx = touchEndX - touchStartX;
+      const dy = touchEndY - touchStartY;
+
+      if (Math.abs(dx) > 35 || Math.abs(dy) > 35) {
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (dx > 0) sendDirectMove('kanan');
+          else sendDirectMove('kiri');
+        } else {
+          if (dy > 0) sendDirectMove('bawah');
+          else sendDirectMove('atas');
+        }
+      }
+    }, { passive: true });
+
     function toggleFullscreen() {
       const box = document.getElementById('stream-box');
       if (!document.fullscreenElement) {

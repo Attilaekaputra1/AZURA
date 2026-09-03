@@ -34,8 +34,13 @@ const BROWSE_URL = 'http://203.175.10.163:7860/browse';
 async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName, textChannel, client) {
   console.log(`[Web Surf Agent]: 🚀 Executing Autonomous Mission: "${missionPrompt}" for ${userName}`);
 
-  const announceText = `Siap ${userName}! Aku jalankan misi di Google browser: "${missionPrompt}". Pantau layarnya di live stream ya!`;
+  // Exact opening dialogue requested by user
+  const announceText = `Siap ${userName}, aku browsing sekarang ya, kamu bisa pantau prosesnya di link streaming.`;
   await speakInVC(guildId, announceText, client, userName);
+
+  if (textChannel) {
+    textChannel.send(`✨ **Siap ${userName}**, aku browsing sekarang ya, kamu bisa pantau prosesnya di link streaming: [${BROWSE_URL}](${BROWSE_URL})`).catch(() => {});
+  }
 
   const session = await getOrCreateSession(guildId);
   const { page } = session;
@@ -53,16 +58,48 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
       mode: 'browse'
     });
 
-    // Smart heuristic baseline: extracts the core target (e.g. "learnext")
-    const targetBrand = cleanPrompt
-      .replace(/\b(?:browsing|buka|situs|web|website|resminya|resmi|terus|lalu|kemudian|masuk\s+ke|dan|tolong|cari|carikan|klien|kliennya|apa\s+aja)\b/gi, ' ')
+    // Heuristic extraction as instantaneous baseline
+    let rawTarget = cleanPrompt
+      .replace(/\b(?:browsing|buka|situs|web|website|resminya|resmi|terus|lalu|kemudian|masuk\s+ke|dan|tolong|cari|carikan|klien|kliennya|apa\s+aja|cek|lihat)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
     let plan = {
-      searchQuery: targetBrand || cleanPrompt,
-      clickKeyword: targetBrand.split(' ')[0] || cleanPrompt.split(' ')[0] || ''
+      searchQuery: rawTarget.split(' ')[0] || cleanPrompt.split(' ')[0] || 'learnext',
+      clickKeyword: rawTarget.split(' ')[0] || cleanPrompt.split(' ')[0] || 'learnext',
+      inspectionGoal: cleanPrompt
     };
+
+    // AI Semantic Planner: intelligently extracts search keywords and inspection goal from any complex prompt
+    try {
+      const plannerPrompt = `Ekstrak kata kunci penting dari instruksi user berikut:
+"${cleanPrompt}"
+
+Tugas:
+1. "searchQuery": Kata kunci pencarian Google paling ringkas dan tepat sasaran (contoh: "learnext" atau "tiket pesawat jakarta bali")
+2. "clickKeyword": Kata kunci nama website/brand yang harus diklik dari hasil Google (contoh: "learnext")
+3. "inspectionGoal": Apa tujuan atau informasi spesifik yang ingin dicari setelah masuk ke website? (contoh: "daftar nama klien atau partner perusahaan")
+
+Balas HANYA JSON valid berikut tanpa penjelasan lain:
+{
+  "searchQuery": "kata kunci Google",
+  "clickKeyword": "kata kunci website",
+  "inspectionGoal": "tujuan informasi"
+}`;
+      const rawPlan = await askAzura(config.OWNER_DISCORD_ID || 'planner', plannerPrompt, userName, [], false, null, guildId, true);
+      const planText = typeof rawPlan === 'string' ? rawPlan : (rawPlan?.content || '');
+      const jsonMatch = planText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.searchQuery && parsed.searchQuery.length < 50) plan.searchQuery = parsed.searchQuery;
+        if (parsed.clickKeyword) plan.clickKeyword = parsed.clickKeyword;
+        if (parsed.inspectionGoal) plan.inspectionGoal = parsed.inspectionGoal;
+      }
+    } catch (e) {
+      console.warn('[Autonomous Planner Fallback]:', e.message);
+    }
+
+    console.log(`[Autonomous Mission Plan]: Query="${plan.searchQuery}", Target="${plan.clickKeyword}", Goal="${plan.inspectionGoal}"`);
 
     // 1. Open Google (Clean homepage)
     console.log(`[Autonomous Mission]: 🔍 Navigating to Google with query: "${plan.searchQuery}"`);
@@ -94,33 +131,48 @@ async function executeAutonomousBrowsingMission(guildId, missionPrompt, userName
     await page.evaluate(() => window.scrollBy({ top: 350, behavior: 'smooth' })).catch(() => {});
     await page.waitForTimeout(1200);
 
-    // 4. Click Destination Official Website Link
+    // 4. Click Destination Official Website Link (Filtered for Google search results)
     const kw = (plan.clickKeyword || plan.searchQuery.split(' ')[0] || '').toLowerCase();
     console.log(`[Autonomous Mission]: 🖱️ Locating official website link on Google matching: "${kw}"`);
 
     const linkTarget = await page.evaluate((targetKw) => {
-      const all = Array.from(document.querySelectorAll('#search a, #rso a, h3 a, a[href*="http"]'));
-      for (const a of all) {
-        const href = (a.href || '').toLowerCase();
-        const txt = (a.innerText || '').toLowerCase();
-        if (href.includes('google.com') || href.includes('gstatic.com') || href.includes('javascript') || !href.startsWith('http')) continue;
-        if (!targetKw || txt.includes(targetKw) || href.includes(targetKw)) {
-          return { text: a.innerText.trim() || href, href: a.href };
+      const allA = Array.from(document.querySelectorAll('a[href]'));
+      for (const a of allA) {
+        const text = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
+        const href = a.href || '';
+        
+        const isSearchResult = href.includes('/goto?url=') || href.includes('/url?') || a.closest('#rso') || a.closest('#search');
+        
+        // Exclude internal Google navigation buttons / products / tabs
+        if (href.includes('about/products') || href.includes('accounts.google') || href.includes('support.google') || href.includes('travel/flights') || href.includes('google.co.id/intl') || href.includes('google.com/search')) {
+          continue;
+        }
+
+        if (isSearchResult && text.length > 2) {
+          if (!targetKw || text.includes(targetKw)) {
+            a.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            a.click();
+            return { text: a.innerText.trim(), href: a.href };
+          }
         }
       }
-      for (const a of all) {
-        const href = (a.href || '').toLowerCase();
-        if (!href.includes('google.com') && href.startsWith('http')) {
-          return { text: a.innerText.trim() || href, href: a.href };
+
+      // Fallback: click first organic search result
+      for (const a of allA) {
+        const text = (a.innerText || '').toLowerCase().replace(/\s+/g, ' ');
+        const href = a.href || '';
+        const isSearchResult = href.includes('/goto?url=') || href.includes('/url?') || a.closest('#rso');
+        if (isSearchResult && !href.includes('about/products') && !href.includes('google.com/search') && text.length > 3) {
+          a.click();
+          return { text: a.innerText.trim(), href: a.href };
         }
       }
       return null;
     }, kw);
 
-    if (linkTarget && linkTarget.href) {
-      console.log(`[Autonomous Mission]: ✅ Entering official website: "${linkTarget.text}" (${linkTarget.href})`);
-      await page.goto(linkTarget.href, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
-      await page.waitForTimeout(3000);
+    if (linkTarget) {
+      console.log(`[Autonomous Mission]: ✅ Clicked target search link: "${linkTarget.text}"`);
+      await page.waitForTimeout(3500);
       // Smooth scroll the official website so viewers see the actual page content & client logos
       await page.evaluate(() => window.scrollBy({ top: 450, behavior: 'smooth' })).catch(() => {});
       await page.waitForTimeout(1500);

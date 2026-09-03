@@ -1034,11 +1034,17 @@ client.on('interactionCreate', async (interaction) => {
       return handleTriviaButton(interaction);
     }
 
-    // Handle Autonomous Browser Game Replay Button
+    // Handle Autonomous Browser Game Buttons (Replay & Stop)
     if (interaction.customId === 'btn_replay_2048') {
       const { launchAutonomousBrowserGame } = require('./browserGameAgent');
       await interaction.deferUpdate().catch(() => {});
       return launchAutonomousBrowserGame(interaction.message, '2048');
+    }
+    if (interaction.customId === 'btn_stop_game') {
+      const { stopAutonomousBrowserGame } = require('./browserGameAgent');
+      const gid = interaction.guild?.id || 'dm_' + interaction.user.id;
+      await stopAutonomousBrowserGame(gid);
+      return interaction.reply({ content: '🛑 Permainan game browser otonom sudah dihentikan ya!', flags: 64 });
     }
 
     // Handle Direct Music Streaming control buttons

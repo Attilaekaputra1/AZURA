@@ -1,18 +1,21 @@
 /**
  * AZURA Autonomous Headless Browser Game Player
- * Plays web/canvas games (2048, Dino Runner, Snake) autonomously using Playwright Chromium.
- * 100% Isolated module with zero side effects on other Azura features.
+ * Plays web/canvas games (2048, Dino Runner) autonomously using Playwright Chromium.
+ * - Streams live 60fps video directly to http://203.175.10.163:7860/live (Zero Discord spam).
+ * - Dynamic, lively persona commentary & thinking monologues.
+ * - Reports ONLY the clean Final Scorecard to Discord.
  */
 
 const { AttachmentBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getBrowser } = require('./headlessBrowser');
+const { broadcastFrame, updateStreamMeta, STREAM_URL } = require('./livePortal');
 const config = require('./config');
 
-// Active game sessions: guildId -> { browser, context, page, gameType, isRunning, score, highestTile, moves, interval }
+// Active game sessions: guildId -> session object
 const activeGameSessions = new Map();
 
 /**
- * Built-in Lightweight HTML5 2048 Game Engine for 100% reliable local rendering without external network flakiness
+ * Built-in Modern HTML5 2048 Game Engine for 100% reliable local rendering
  */
 const HTML_2048_PAGE = `<!DOCTYPE html>
 <html>
@@ -21,71 +24,55 @@ const HTML_2048_PAGE = `<!DOCTYPE html>
 <title>2048 AI Arena - AZURA</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-  body { background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
+  body { background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
   .header { text-align: center; margin-bottom: 20px; }
-  .title { font-size: 42px; font-weight: 800; color: #38bdf8; text-shadow: 0 0 20px rgba(56,189,248,0.5); }
-  .subtitle { font-size: 16px; color: #94a3b8; margin-top: 4px; }
-  .stats-bar { display: flex; gap: 20px; margin: 15px 0; }
-  .stat-box { background: #1e293b; border: 1px solid #334155; padding: 10px 24px; border-radius: 12px; text-align: center; min-width: 130px; }
-  .stat-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
-  .stat-value { font-size: 26px; font-weight: 700; color: #f1f5f9; }
-  .grid-container { background: #1e293b; border: 2px solid #38bdf8; border-radius: 16px; padding: 15px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); position: relative; }
-  .grid { display: grid; grid-template-columns: repeat(4, 90px); grid-template-rows: repeat(4, 90px); gap: 12px; }
-  .cell { background: rgba(51, 65, 85, 0.5); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; transition: all 0.15s ease-in-out; }
+  .title { font-size: 38px; font-weight: 800; color: #38bdf8; text-shadow: 0 0 25px rgba(56,189,248,0.6); }
+  .subtitle { font-size: 15px; color: #94a3b8; margin-top: 4px; }
+  .stats-bar { display: flex; gap: 16px; margin: 15px 0; }
+  .stat-box { background: #1e293b; border: 1px solid #334155; padding: 8px 20px; border-radius: 12px; text-align: center; min-width: 120px; }
+  .stat-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+  .stat-value { font-size: 24px; font-weight: 700; color: #f1f5f9; }
+  .grid-container { background: #1e293b; border: 2px solid #38bdf8; border-radius: 16px; padding: 14px; box-shadow: 0 20px 45px rgba(0,0,0,0.7); }
+  .grid { display: grid; grid-template-columns: repeat(4, 85px); grid-template-rows: repeat(4, 85px); gap: 10px; }
+  .cell { background: rgba(51, 65, 85, 0.4); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 800; transition: all 0.12s ease-in-out; }
   .tile-2 { background: #eee4da; color: #776e65; }
   .tile-4 { background: #ede0c8; color: #776e65; }
   .tile-8 { background: #f2b179; color: #f9f6f2; }
   .tile-16 { background: #f59563; color: #f9f6f2; }
   .tile-32 { background: #f67c5f; color: #f9f6f2; }
   .tile-64 { background: #f65e3b; color: #f9f6f2; }
-  .tile-128 { background: #edcf72; color: #f9f6f2; font-size: 28px; box-shadow: 0 0 15px rgba(237,207,114,0.5); }
-  .tile-256 { background: #edcc61; color: #f9f6f2; font-size: 28px; box-shadow: 0 0 20px rgba(237,204,97,0.6); }
-  .tile-512 { background: #edc850; color: #f9f6f2; font-size: 28px; box-shadow: 0 0 25px rgba(237,200,80,0.7); }
-  .tile-1024 { background: #edc53f; color: #f9f6f2; font-size: 22px; box-shadow: 0 0 30px rgba(237,197,63,0.8); }
-  .tile-2048 { background: #38bdf8; color: #ffffff; font-size: 22px; box-shadow: 0 0 35px rgba(56,189,248,0.9); }
-  .footer { margin-top: 20px; font-size: 13px; color: #64748b; }
+  .tile-128 { background: #edcf72; color: #f9f6f2; font-size: 26px; box-shadow: 0 0 15px rgba(237,207,114,0.5); }
+  .tile-256 { background: #edcc61; color: #f9f6f2; font-size: 26px; box-shadow: 0 0 20px rgba(237,204,97,0.6); }
+  .tile-512 { background: #edc850; color: #f9f6f2; font-size: 26px; box-shadow: 0 0 25px rgba(237,200,80,0.7); }
+  .tile-1024 { background: #edc53f; color: #f9f6f2; font-size: 20px; box-shadow: 0 0 30px rgba(237,197,63,0.8); }
+  .tile-2048 { background: #38bdf8; color: #ffffff; font-size: 20px; box-shadow: 0 0 35px rgba(56,189,248,0.9); }
+  .thought-bubble { margin-top: 15px; font-size: 14px; color: #38bdf8; font-style: italic; background: rgba(56,189,248,0.1); border: 1px dashed rgba(56,189,248,0.3); padding: 6px 16px; border-radius: 20px; }
 </style>
 </head>
 <body>
   <div class="header">
     <div class="title">🌸 AZURA 2048 AI ARENA</div>
-    <div class="subtitle">Autonomous Neural-Heuristic Player • Real-Time Playwright Engine</div>
+    <div class="subtitle">Live Headless Stream • Real-Time Heuristic Engine</div>
     <div class="stats-bar">
-      <div class="stat-box">
-        <div class="stat-label">Score</div>
-        <div id="score" class="stat-value">0</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Highest Tile</div>
-        <div id="highest-tile" class="stat-value">2</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Moves</div>
-        <div id="move-count" class="stat-value">0</div>
-      </div>
+      <div class="stat-box"><div class="stat-label">Score</div><div id="score" class="stat-value">0</div></div>
+      <div class="stat-box"><div class="stat-label">Highest Tile</div><div id="highest-tile" class="stat-value">2</div></div>
+      <div class="stat-box"><div class="stat-label">Moves</div><div id="move-count" class="stat-value">0</div></div>
     </div>
   </div>
   <div class="grid-container">
     <div id="grid" class="grid"></div>
   </div>
-  <div class="footer">AZURA Autonomous Web Game System 2026</div>
+  <div id="thought" class="thought-bubble">Azura sedang menganalisis papan...</div>
 
 <script>
-let board = [
-  [0, 0, 0, 0],
-  [0, 0, 0, 0],
-  [0, 0, 0, 0],
-  [0, 0, 0, 0]
-];
+let board = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
 let score = 0;
 let moves = 0;
-let gameOver = false;
 
 function initGame() {
   board = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
   score = 0;
   moves = 0;
-  gameOver = false;
   addRandomTile();
   addRandomTile();
   render();
@@ -186,7 +173,7 @@ function moveDown() {
   return changed;
 }
 
-window.executeMove = function(direction) {
+window.executeMove = function(direction, thoughtText) {
   let changed = false;
   if (direction === 'left') changed = moveLeft();
   else if (direction === 'right') changed = moveRight();
@@ -197,6 +184,9 @@ window.executeMove = function(direction) {
     moves++;
     addRandomTile();
     render();
+  }
+  if (thoughtText) {
+    document.getElementById('thought').textContent = thoughtText;
   }
   return {
     changed,
@@ -212,8 +202,7 @@ window.getGameState = function() {
     score,
     moves,
     highestTile: parseInt(document.getElementById('highest-tile').textContent, 10),
-    board,
-    gameOver
+    board
   };
 };
 
@@ -223,8 +212,7 @@ initGame();
 </html>`;
 
 /**
- * AI Decision Engine: Expectimax Corner-Weight Heuristic for 2048
- * Prioritizes locking high-value tiles to the top-left corner
+ * Corner-Lock Heuristic Matrix for 2048
  */
 const CORNER_WEIGHTS = [
   [4096, 1024, 256, 64],
@@ -240,26 +228,12 @@ function evaluateBoard(board) {
   for (let r = 0; r < 4; r++) {
     for (let c = 0; c < 4; c++) {
       const val = board[r][c];
-      if (val === 0) {
-        emptyCells++;
-      } else {
-        score += val * CORNER_WEIGHTS[r][c];
-      }
+      if (val === 0) emptyCells++;
+      else score += val * CORNER_WEIGHTS[r][c];
     }
   }
 
-  // Bonus for empty cells (mobility)
-  score += emptyCells * 500;
-
-  // Penalty for non-monotonic rows
-  for (let r = 0; r < 4; r++) {
-    for (let c = 0; c < 3; c++) {
-      if (board[r][c] >= board[r][c + 1]) {
-        score += 80;
-      }
-    }
-  }
-
+  score += emptyCells * 600;
   return score;
 }
 
@@ -336,11 +310,34 @@ function getBest2048Move(board) {
 }
 
 /**
- * Launch autonomous 2048 Game Player for Discord
- * @param {import('discord.js').Message} message 
- * @param {string} [gameMode='2048'] 
+ * Generate lively, natural thinking phrases based on game state
  */
-async function launchAutonomousBrowserGame(message, gameMode = '2048') {
+function getThinkingMonologue(step, highestTile, direction) {
+  const thinkingThoughts = [
+    `Hmm, susunan bawah agak padat nih... geser ${direction.toUpperCase()} dulu biar rapi [thinking]...`,
+    `Tahan dulu jangan panik, amankan tile ${highestTile} di pojok kiri atas!`,
+    `Hmm mending ${direction.toUpperCase()} ya, supaya gak ngerusak rantai angka...`,
+    `Oke langkah ke-${step}, fokus jaga mobilitas sel kosong...`,
+    `Nice! Corner lock masih solid, geser ${direction.toUpperCase()}...`,
+    `Hmm... mikir bentar [scratches head], oke ambil jalur ${direction.toUpperCase()}!`,
+    `Papan mulai seru! Jaga ritme, jangan sampe kejebak di tengah.`
+  ];
+
+  if (highestTile >= 512 && step % 15 === 0) {
+    return `Wah udah tile ${highestTile}! Dikit lagi tembus 1024 nih gais!`;
+  }
+  if (highestTile >= 1024 && step % 15 === 0) {
+    return `Gokil tile 1024 udah jadi! Menuju 2048 dengan strategi corner-lock!`;
+  }
+
+  return thinkingThoughts[step % thinkingThoughts.length];
+}
+
+/**
+ * Launch Autonomous 2048 Game Player with Live WebRTC Screencast
+ * @param {import('discord.js').Message} message 
+ */
+async function launchAutonomousBrowserGame(message) {
   const guildId = message.guild?.id || 'dm_' + message.author.id;
   const userName = message.member?.displayName || message.author.displayName || message.author.username;
 
@@ -349,37 +346,82 @@ async function launchAutonomousBrowserGame(message, gameMode = '2048') {
     await stopAutonomousBrowserGame(guildId);
   }
 
-  const initialEmbed = new EmbedBuilder()
-    .setColor(0x00AE89) // Emerald
-    .setTitle('🎮 Memulai Arena Game Browser Otonom Azura...')
-    .setDescription(`Menyiapkan **Chromium Headless Game Engine** untuk memainkan game **${gameMode.toUpperCase()}** secara otonom untuk **${userName}**...`)
-    .setFooter({ text: 'AZURA Autonomous Web Agent • Playwright Chromium Engine' })
+  const streamUrl = STREAM_URL || 'http://203.175.10.163:7860/live';
+
+  const startEmbed = new EmbedBuilder()
+    .setColor(0x00AE89) // Emerald Green
+    .setTitle('🎮 Azura Memulai Game 2048 Otonom!')
+    .setDescription(
+      `Aku lagi main **2048** nih untuk **${userName}**! 🌸✨\n\n` +
+      `📺 **Kamu dan teman-teman bisa menonton langsung jalannya permainan secara live 60 FPS di portal web:**\n` +
+      `👉 **[KLIK DI SINI UNTUK NONTON LIVE STREAMING](${streamUrl})**\n\n` +
+      `*💡 Catatan: Supaya chat Discord tidak spam, proses langkah per langkah disiarkan live di web. Nanti hasil akhir skor, tile tertinggi, dan fotonya akan langsung aku laporkan di sini!*`
+    )
+    .addFields(
+      { name: '🌐 Live Stream Web', value: `[\`${streamUrl}\`](${streamUrl})`, inline: false },
+      { name: '🧠 Mode AI', value: '`Expectimax Corner-Lock Heuristic`', inline: true },
+      { name: '⚡ Engine', value: '`Playwright Chromium Headless`', inline: true }
+    )
+    .setFooter({ text: 'AZURA Autonomous Web Agent • Real-Time Webcast 2026' })
     .setTimestamp();
 
-  const statusMsg = await message.reply({ embeds: [initialEmbed] });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setLabel('🌐 Nonton Live Stream (60 FPS)')
+      .setStyle(ButtonStyle.Link)
+      .setURL(streamUrl),
+    new ButtonBuilder()
+      .setCustomId('btn_stop_game')
+      .setLabel('🛑 Hentikan Game')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  const statusMsg = await message.reply({ embeds: [startEmbed], components: [row] });
 
   try {
     const browser = await getBrowser();
     const context = await browser.newContext({
-      viewport: { width: 900, height: 750 },
-      deviceScaleFactor: 1.5
+      viewport: { width: 850, height: 720 },
+      deviceScaleFactor: 1.25
     });
     const page = await context.newPage();
 
     // Set HTML5 Game Content
     await page.setContent(HTML_2048_PAGE);
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(500);
+
+    // Attach Chrome DevTools Protocol (CDP) Screencast for 60fps Live Streaming on http://203.175.10.163:7860/live
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 80,
+      maxWidth: 850,
+      maxHeight: 720,
+      everyNthFrame: 1
+    });
+
+    cdp.on('Page.screencastFrame', async ({ data, sessionId }) => {
+      try {
+        await cdp.send('Page.screencastFrameAck', { sessionId });
+        broadcastFrame(data);
+      } catch (_) {}
+    });
+
+    updateStreamMeta({
+      title: '🌸 AZURA 2048 Autonomous AI Arena',
+      url: 'about:2048-ai',
+      activeGuild: guildId
+    });
 
     const session = {
       guildId,
       context,
       page,
-      gameType: '2048',
+      cdp,
       isRunning: true,
       score: 0,
       highestTile: 2,
       moves: 0,
-      startTime: Date.now(),
       statusMsg,
       channel: message.channel,
       userName
@@ -387,7 +429,7 @@ async function launchAutonomousBrowserGame(message, gameMode = '2048') {
 
     activeGameSessions.set(guildId, session);
 
-    // Run the game loop in background (50 steps per session)
+    // Run the game loop in background
     run2048GameLoop(session);
 
   } catch (err) {
@@ -398,24 +440,24 @@ async function launchAutonomousBrowserGame(message, gameMode = '2048') {
           .setColor(0xED4245)
           .setTitle('❌ Gagal Memulai Game Browser')
           .setDescription(`Terjadi kendala saat meluncurkan Playwright Chromium: \`${err.message}\``)
-      ]
+      ],
+      components: []
     });
   }
 }
 
 /**
- * Background loop executing moves and taking visual snapshot cards
+ * Background loop executing AI moves and streaming live
  * @param {object} session 
  */
 async function run2048GameLoop(session) {
   let consecutiveNoMoves = 0;
-  const maxSteps = 120; // 120 AI moves per session
+  const maxSteps = 150; // AI moves
 
   for (let i = 0; i < maxSteps; i++) {
     if (!session.isRunning || session.page.isClosed()) break;
 
     try {
-      // 1. Get current board state from Chromium
       const gameState = await session.page.evaluate(() => window.getGameState());
       if (!gameState || !gameState.board) break;
 
@@ -423,11 +465,15 @@ async function run2048GameLoop(session) {
       session.highestTile = gameState.highestTile;
       session.moves = gameState.moves;
 
-      // 2. Decide next optimal move via AI Heuristic
+      // Decide next move
       const nextMove = getBest2048Move(gameState.board);
+      const thought = getThinkingMonologue(i + 1, session.highestTile, nextMove);
 
-      // 3. Execute move inside browser
-      const res = await session.page.evaluate((dir) => window.executeMove(dir), nextMove);
+      // Execute move inside browser canvas
+      const res = await session.page.evaluate(({ dir, thoughtText }) => window.executeMove(dir, thoughtText), {
+        dir: nextMove,
+        thoughtText: thought
+      });
 
       if (!res.changed) {
         consecutiveNoMoves++;
@@ -439,8 +485,8 @@ async function run2048GameLoop(session) {
         consecutiveNoMoves = 0;
       }
 
-      // Small delay for smooth realistic animation
-      await session.page.waitForTimeout(80);
+      // Smooth realistic human pacing (180ms delay) so viewers on live stream can follow every move
+      await session.page.waitForTimeout(180);
 
     } catch (err) {
       console.error('[2048 Loop Error]:', err.message);
@@ -448,22 +494,22 @@ async function run2048GameLoop(session) {
     }
   }
 
-  // After run completion: Take high-res visual snapshot and post results
+  // Finalize Game: Post single clean scorecard with final screenshot
   try {
     if (!session.page.isClosed()) {
       const screenshotBuffer = await session.page.screenshot({ type: 'png' });
-      const attachment = new AttachmentBuilder(screenshotBuffer, { name: 'azura_2048_gameplay.png' });
+      const attachment = new AttachmentBuilder(screenshotBuffer, { name: 'azura_2048_final.png' });
 
-      let commentary = `Attila liat nih! Aku berhasil dapet tile **${session.highestTile}** dengan total score **${session.score.toLocaleString()}** dalam **${session.moves}** langkah! Keren kan mekanik AI-ku? 💅✨`;
+      let commentary = `Attila dan semuanya, permainannya selesai! Aku berhasil mengumpulkan skor **${session.score.toLocaleString()}** dengan tile tertinggi **Tile ${session.highestTile}** dalam **${session.moves}** langkah! Keren kan? 💅✨`;
       if (session.highestTile >= 1024) {
-        commentary = `Gokil! Aku tembus tile **${session.highestTile}**! Tinggal satu kali gabung lagi menuju 2048! Strategi corner-lock ku bener-bener gacor! 🏆🔥`;
+        commentary = `Gokil! Aku tembus **Tile ${session.highestTile}** dengan skor **${session.score.toLocaleString()}**! Strategi corner-lock ku bener-bener solid! Tinggal sedikit lagi menuju 2048! 🏆🔥`;
       } else if (session.highestTile >= 512) {
-        commentary = `Berhasil dapet tile **${session.highestTile}**! Permainannya rapi banget, score akhir **${session.score.toLocaleString()}**! 🌸🎮`;
+        commentary = `Berhasil dapet **Tile ${session.highestTile}**! Papan permainannya rapi banget, total skor akhir **${session.score.toLocaleString()}** dalam ${session.moves} gerakan! 🌸🎮`;
       }
 
       const resultEmbed = new EmbedBuilder()
-        .setColor(session.highestTile >= 512 ? 0xF1C40F : 0x3498DB)
-        .setTitle('🎮 Pertandingan 2048 Otonom Selesai!')
+        .setColor(session.highestTile >= 512 ? 0xF1C40F : 0x38BDF8)
+        .setTitle('🏆 HASIL AKHIR PERTANDINGAN 2048 AZURA')
         .setDescription(commentary)
         .addFields(
           { name: '🏆 Skor Akhir', value: `\`${session.score.toLocaleString()} Pts\``, inline: true },
@@ -471,8 +517,8 @@ async function run2048GameLoop(session) {
           { name: '🕹️ Total Langkah AI', value: `\`${session.moves} Langkah\``, inline: true },
           { name: '⚡ Engine', value: '`Playwright Chromium • Neural Heuristic`', inline: false }
         )
-        .setImage('attachment://azura_2048_gameplay.png')
-        .setFooter({ text: 'AZURA Autonomous Web Game Engine • Real-Time Headless Browser' })
+        .setImage('attachment://azura_2048_final.png')
+        .setFooter({ text: 'AZURA Autonomous Web Game Engine • Selesai' })
         .setTimestamp();
 
       const row = new ActionRowBuilder().addComponents(
@@ -481,9 +527,9 @@ async function run2048GameLoop(session) {
           .setLabel('🔄 Mainkan Lagi')
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
-          .setLabel('🌐 Pantau Live Stream Web')
+          .setLabel('🌐 Buka Portal Live Stream')
           .setStyle(ButtonStyle.Link)
-          .setURL('http://203.175.10.163:7860/live')
+          .setURL(STREAM_URL || 'http://203.175.10.163:7860/live')
       );
 
       await session.channel.send({
@@ -493,6 +539,7 @@ async function run2048GameLoop(session) {
       });
 
       // Cleanup
+      if (session.cdp) await session.cdp.detach().catch(() => {});
       await session.context.close().catch(() => {});
       activeGameSessions.delete(session.guildId);
     }
@@ -509,9 +556,8 @@ async function stopAutonomousBrowserGame(guildId) {
   const session = activeGameSessions.get(guildId);
   if (session) {
     session.isRunning = false;
-    if (session.context) {
-      await session.context.close().catch(() => {});
-    }
+    if (session.cdp) await session.cdp.detach().catch(() => {});
+    if (session.context) await session.context.close().catch(() => {});
     activeGameSessions.delete(guildId);
     return true;
   }
@@ -537,7 +583,7 @@ async function handleBrowserGameCommands(message) {
 
   if (isStartGame) {
     console.log(`[Browser Game Agent]: Triggered autonomous game for user: ${message.author.username}`);
-    await launchAutonomousBrowserGame(message, '2048');
+    await launchAutonomousBrowserGame(message);
     return true;
   }
 

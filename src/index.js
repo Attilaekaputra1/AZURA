@@ -439,6 +439,11 @@ async function handleIncomingMessage(message, isEdit = false) {
   const browserHandled = await handleTextBrowserCommands(message, client);
   if (browserHandled) return;
 
+  // Handle Web Surf Agent: live research, autonomous tasks, dashboard monitoring
+  const { handleWebSurfCommands } = require('./webSurfAgent');
+  const webSurfHandled = await handleWebSurfCommands(message, client);
+  if (webSurfHandled) return;
+
   // Handle autonomous browser game commands ("ara main game 2048", "ara main 2048", "ara stop game")
   const { handleBrowserGameCommands } = require('./browserGameAgent');
   const gameHandled = await handleBrowserGameCommands(message);

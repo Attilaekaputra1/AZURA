@@ -1517,7 +1517,53 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
       }
     }
 
-    // ── 4. HEADLESS BROWSING COMMANDS (Strict Wake-Word Locked) ──
+    // ── 4. WEB SURF AGENT: LIVE RESEARCH, AUTONOMOUS TASKS, DASHBOARD MONITORING (Voice-Triggered) ──
+    if (hasWake) {
+      // 4a. Live Web Research via Voice: "Ara, carikan tiket pesawat termurah", "Ara riset berita X"
+      const researchVoicePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:carikan|cari(?:n|kan)?|riset|telusuri|investigasi|research|analisis)\s+(.+)/i;
+      const researchVoiceMatch = transcript.match(researchVoicePattern) || cleanTranscript.match(researchVoicePattern);
+      if (researchVoiceMatch && researchVoiceMatch[1]) {
+        const query = researchVoiceMatch[1].replace(/\b(?:dong|ya|yuk|plis|please|di\s+web|di\s+internet|di\s+browser)\b/gi, '').trim();
+        if (query.length > 3) {
+          console.log(`[Voice Pipeline]: 🔍 Web Surf Agent Research triggered -> "${query}"`);
+          const { performLiveResearch } = require('./webSurfAgent');
+          performLiveResearch(guildId, query, speakerName || 'Attila', textChannel, client).catch(e => {
+            console.error('[Voice Pipeline Web Research Error]:', e.message);
+          });
+          return;
+        }
+      }
+
+      // 4b. Autonomous Task via Voice: "Ara, tolong isi form di ...", "Ara booking tiket ...", "Ara checkout ..."
+      const taskVoicePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:isi\s+form|booking|pesan|checkout|order|daftar|login|masuk\s+ke|unduh\s+laporan|download\s+report)\s+(.+)/i;
+      const taskVoiceMatch = transcript.match(taskVoicePattern) || cleanTranscript.match(taskVoicePattern);
+      if (taskVoiceMatch && taskVoiceMatch[1]) {
+        const task = taskVoiceMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
+        if (task.length > 3) {
+          console.log(`[Voice Pipeline]: 🤖 Web Surf Agent Task triggered -> "${task}"`);
+          const { executeAutonomousWebTask } = require('./webSurfAgent');
+          executeAutonomousWebTask(guildId, task, speakerName || 'Attila', textChannel, client).catch(e => {
+            console.error('[Voice Pipeline Web Task Error]:', e.message);
+          });
+          return;
+        }
+      }
+
+      // 4c. Dashboard Monitoring via Voice: "Ara, pantau dashboard ...", "Ara cek analytics ..."
+      const dashVoicePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:cek|buka|pantau|monitor)\s+(?:dashboard|analitik|analytics|statistik)\s+(https?:\/\/[^\s]+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)/i;
+      const dashVoiceMatch = transcript.match(dashVoicePattern) || cleanTranscript.match(dashVoicePattern);
+      if (dashVoiceMatch && dashVoiceMatch[1]) {
+        const dashUrl = dashVoiceMatch[1].startsWith('http') ? dashVoiceMatch[1] : `https://${dashVoiceMatch[1]}`;
+        console.log(`[Voice Pipeline]: 📊 Web Surf Agent Dashboard triggered -> "${dashUrl}"`);
+        const { monitorDashboard } = require('./webSurfAgent');
+        monitorDashboard(guildId, dashUrl, speakerName || 'Attila', textChannel, client).catch(e => {
+          console.error('[Voice Pipeline Dashboard Error]:', e.message);
+        });
+        return;
+      }
+    }
+
+    // ── 5. HEADLESS BROWSING COMMANDS (Strict Wake-Word Locked) ──
     if (hasWake) {
       // A. Buka Chrome / Browser Standby
       const openChromePattern = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:buka|bukain|buka\s+aplikasi|jalankan)\s+(?:chrome|browser|google\s+chrome)\b/i;

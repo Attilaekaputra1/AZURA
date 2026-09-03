@@ -513,7 +513,7 @@ async function handleIncomingMessage(message, isEdit = false) {
   }
 
   // 2. Natural Mini-Game Triggers (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard)
-  const naturalGame = parseNaturalGameRequest(rawPrompt || message.content);
+  const naturalGame = parseNaturalGameRequest(message.content);
   if (naturalGame) {
     if (naturalGame.game === 'tictactoe') {
       const res = startTicTacToeGame(message.author.id, userName, message.channel, naturalGame.difficulty);

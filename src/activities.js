@@ -127,16 +127,20 @@ function isActivityRequest(prompt) {
   if (!prompt) return false;
   const lower = prompt.toLowerCase();
   
-  // Explicit VC Activity queries
-  const isVcWordle = /\b(?:wordle|letter\s*league|spellcast|tebak\s*kata)\b.*\b(?:vc|voice|channel)\b/i.test(lower) ||
-                     /\b(?:buka|main|start|setel)\s+(?:wordle|letter\s*league|spellcast)\s+(?:di\s+)?(?:vc|voice)/i.test(lower);
+  // Wordle / Letter League Activity
+  const isWordle = /\b(?:wordle|letter\s*league|spellcast)\b/i.test(lower) ||
+                   /\b(?:main|buka|start|mulai)\s+(?:wordle|letter\s*league|spellcast|tebak\s*kata)\b/i.test(lower);
   
-  const isVcYoutube = /\b(?:youtube|watch\s*together|nobar|yt)\b.*\b(?:together|vc|voice|channel)\b/i.test(lower) ||
-                      /\b(?:setel|buka|puter|play|mulai)\s+(?:youtube|watch\s*together|nobar)\s*(?:di\s+)?(?:vc|voice)?/i.test(lower);
+  // YouTube Watch Together / Nobar Activity
+  const isYoutube = /\b(?:watch\s*together|youtube\s*together|nobar\s*youtube|nobar|yt\s*together)\b/i.test(lower) ||
+                    /\b(?:setel|buka|puter|play|mulai|start|launch)\s+(?:watch\s*together|youtube\s*together|nobar)\b/i.test(lower) ||
+                    /\b(?:youtube|nobar)\b.*\b(?:together|vc|voice)\b/i.test(lower);
 
-  const isGeneralVcGame = /\b(?:main|buka|launch|start)\s+(?:catur|chess|sketch|gartic|poker|golf|game|activity|aktivitas)\s+(?:di\s+)?(?:vc|voice)/i.test(lower);
+  // Other VC Activities (Chess, Poker, Sketch Heads, Golf)
+  const isGeneralVcGame = /\b(?:main|buka|launch|start)\s+(?:catur|chess|sketch|gartic|poker|golf|putt\s*party)\s+(?:di\s+)?(?:vc|voice)/i.test(lower) ||
+                          /\b(?:activity|aktivitas)\s+(?:di\s+)?(?:vc|voice)/i.test(lower);
 
-  return isVcWordle || isVcYoutube || isGeneralVcGame;
+  return isWordle || isYoutube || isGeneralVcGame;
 }
 
 /**

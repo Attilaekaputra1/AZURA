@@ -693,8 +693,8 @@ async function handleTextBrowserCommands(message, client) {
     return true;
   }
 
-  // 5. YouTube Browse
-  const ytMatch = content.match(/\b(?:buka|putar|tonton)\s+youtube\s*(?:cari|video)?\s*(.+)/i);
+  // 5. YouTube Browse (Ignore Watch Together activities)
+  const ytMatch = !/\b(?:watch\s*together|together|nobar)\b/i.test(lower) ? content.match(/\b(?:buka|putar|tonton)\s+youtube\s*(?:cari|video)?\s*(.+)/i) : null;
   if (ytMatch && ytMatch[1]) {
     const query = ytMatch[1].trim();
     const voiceChannel = message.member?.voice?.channel;

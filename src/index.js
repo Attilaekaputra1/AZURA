@@ -393,8 +393,13 @@ async function handleIncomingMessage(message, isEdit = false) {
     /^(?:stop|jeda|pause|lanjutkan|lanjutin)\s+(?:lagu|musik)/i.test(message.content)
   );
 
+  // Mini-Games & Voice Activities Natural Intent Detection
+  const { isActivityRequest, parseActivityType, launchVoiceActivity } = require('./activities');
+  const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+  const isGameOrActivity = isActivityRequest(message.content) || parseNaturalGameRequest(message.content) != null;
+
   // If user used 3rd-person phrasing (e.g. "Si Azura", "Si Ara"), it is NEVER a direct call, even if replying or mentioning!
-  const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || endsWithName || vocativeName || isOwnerDirectCommand);
+  const isDirectCall = !isThirdPersonReference && (isDM || isMentioned || isReplyToBot || startsWithName || endsWithName || vocativeName || isOwnerDirectCommand || isGameOrActivity);
   const isPassiveMention = isThirdPersonReference || (!isDirectCall && calledByName);
 
   if (isDirectCall && !isDM) {
@@ -487,6 +492,44 @@ async function handleIncomingMessage(message, isEdit = false) {
     return;
   }
 
+  // 1. Natural Voice Activities & YouTube Watch Together Trigger
+  if (isActivityRequest(message.content)) {
+    let voiceChannel = message.member?.voice?.channel;
+    if (!voiceChannel && message.guild) {
+      const freshMember = await message.guild.members.fetch(message.author.id).catch(() => null);
+      voiceChannel = freshMember?.voice?.channel;
+    }
+    if (voiceChannel) {
+      const actType = parseActivityType(message.content);
+      const actResult = await launchVoiceActivity(voiceChannel, actType, userName);
+      if (actResult.success) {
+        return message.reply({ embeds: actResult.embeds, components: actResult.components });
+      } else {
+        return message.reply(actResult.message);
+      }
+    } else {
+      return message.reply('⚠️ Kamu harus masuk ke Voice Channel terlebih dahulu yaa untuk nobar YouTube / main game bersama! ✨');
+    }
+  }
+
+  // 2. Natural Mini-Game Triggers (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard)
+  const naturalGame = parseNaturalGameRequest(rawPrompt || message.content);
+  if (naturalGame) {
+    if (naturalGame.game === 'tictactoe') {
+      const res = startTicTacToeGame(message.author.id, userName, message.channel, naturalGame.difficulty);
+      return message.reply({ embeds: res.embeds, components: res.components });
+    } else if (naturalGame.game === 'sambungkata') {
+      const res = startWordChainGame(message.author.id, userName, message.channel);
+      return message.reply({ embeds: res.embeds });
+    } else if (naturalGame.game === 'trivia') {
+      const res = startTriviaGame(message.author.id, userName, message.channel, naturalGame.difficulty);
+      return message.reply({ embeds: res.embeds, components: res.components });
+    } else if (naturalGame.game === 'leaderboard') {
+      const embed = getLeaderboardEmbed();
+      return message.reply({ embeds: [embed] });
+    }
+  }
+
   // Handle direct headless browser text commands for Owner (Attila)
   const { handleTextBrowserCommands } = require('./headlessBrowser');
   const browserHandled = await handleTextBrowserCommands(message, client);
@@ -574,26 +617,7 @@ async function handleIncomingMessage(message, isEdit = false) {
     }
   }
 
-  // Handle Natural Voice Activities & YouTube Watch Together Trigger (Evaluated first for VC queries)
-  const { isActivityRequest, parseActivityType, launchVoiceActivity } = require('./activities');
-  if (isActivityRequest(message.content)) {
-    let voiceChannel = message.member?.voice?.channel;
-    if (!voiceChannel && message.guild) {
-      const freshMember = await message.guild.members.fetch(message.author.id).catch(() => null);
-      voiceChannel = freshMember?.voice?.channel;
-    }
-    if (voiceChannel) {
-      const actType = parseActivityType(message.content);
-      const actResult = await launchVoiceActivity(voiceChannel, actType, userName);
-      if (actResult.success) {
-        return message.reply({ embeds: actResult.embeds, components: actResult.components });
-      } else {
-        return message.reply(actResult.message);
-      }
-    } else {
-      return message.reply('⚠️ Kamu harus masuk ke Voice Channel terlebih dahulu yaa untuk nobar YouTube / main game bersama! ✨');
-    }
-  }
+
 
   // Handle Natural Advice & Report Feedback Trigger (Server or DM) - Completely Confidential
   const { parseNaturalFeedback, submitFeedback } = require('./feedback');
@@ -631,24 +655,7 @@ async function handleIncomingMessage(message, isEdit = false) {
   }
 }
 
-// Handle Natural Mini-Game Triggers (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard)
-const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
-const naturalGame = parseNaturalGameRequest(rawPrompt || message.content);
-if (naturalGame) {
-  if (naturalGame.game === 'tictactoe') {
-    const res = startTicTacToeGame(message.author.id, userName, message.channel, naturalGame.difficulty);
-    return message.reply({ embeds: res.embeds, components: res.components });
-  } else if (naturalGame.game === 'sambungkata') {
-    const res = startWordChainGame(message.author.id, userName, message.channel);
-    return message.reply({ embeds: res.embeds });
-  } else if (naturalGame.game === 'trivia') {
-    const res = startTriviaGame(message.author.id, userName, message.channel, naturalGame.difficulty);
-    return message.reply({ embeds: res.embeds, components: res.components });
-  } else if (naturalGame.game === 'leaderboard') {
-    const embed = getLeaderboardEmbed();
-    return message.reply({ embeds: [embed] });
-  }
-}
+
 
 // ── NATURAL VOICE NOTE (VN) ENGINE ──
 const { parseVoiceNoteRequest, executeVoiceNote } = require('./voiceNote');

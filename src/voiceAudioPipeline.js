@@ -52,6 +52,21 @@ const WHISPER_HALLUCINATIONS = new Set([
   'suara angin',
   'suara musik',
   'suara nafas',
+  'suara napas',
+  'hembusan angin',
+  'desir angin',
+  'angin',
+  'tiupan angin',
+  'tiupan',
+  'angin kencang',
+  'desah',
+  'desahan',
+  'kresek',
+  'kresek-kresek',
+  'noise',
+  'shhh',
+  'fshhh',
+  'pffft',
   'he-he',
   'ha-ha'
 ]);
@@ -65,7 +80,9 @@ const WHISPER_HALLUCINATION_PATTERNS = [
   /transcribed?\s+by/i,
   /translated?\s+by/i,
   /sampai\s+jumpa\s+(?:lagi|di\s+video)/i,
-  /video\s+selanjutnya/i
+  /video\s+selanjutnya/i,
+  /^(?:suara\s+)?(?:angin|nafas|napas|hembusan|desir|tiupan|kresek|noise|static|desah)\b/i,
+  /^(?:\[|\()(?:suara\s+)?(?:angin|musik|nafas|napas|hening|noise|desir)(?:\]|\))$/i
 ];
 
 function isWhisperHallucination(transcript) {
@@ -102,9 +119,12 @@ function pcmToWav(pcmBuffer, sampleRate = 48000, channels = 2, bitDepth = 16) {
 }
 
 /**
- * Calculate RMS energy and Peak Amplitude of PCM buffer
+ * Calculate RMS energy, Peak Amplitude, and Crest Factor of PCM buffer.
+ * Crest Factor = Peak / RMS.
+ * Steady background noise (wind, PC fan, AC hum) has a flat crest factor (< 2.2).
+ * Human speech has dynamic transient syllabic bursts (crest factor >= 2.6).
  */
-function calculateRmsAndPeak(pcmBuffer) {
+function calculateCrestFactorAndRms(pcmBuffer) {
   const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
   let sumSquares = 0;
   let peak = 0;
@@ -114,7 +134,12 @@ function calculateRmsAndPeak(pcmBuffer) {
     sumSquares += samples[i] * samples[i];
   }
   const rms = Math.sqrt(sumSquares / samples.length);
-  return { rms, peak };
+  const crestFactor = rms > 0 ? (peak / rms) : 0;
+  return { rms, peak, crestFactor };
+}
+
+function calculateRmsAndPeak(pcmBuffer) {
+  return calculateCrestFactorAndRms(pcmBuffer);
 }
 
 let groqInstance = null;
@@ -149,7 +174,7 @@ function getOpenAI() {
 async function transcribeVoice(wavBuffer) {
   const prompt = 'Azura, Ara, Zura, Attila, Putra, Att, halo, apa kabar, tolong, dong, setel, lagu, putar, nyanyi, buka, tutup, kamera, kamu dengar aku, tes';
 
-  // ── PASS 1: Turbo Fast-Track via Groq LPU (whisper-large-v3) ──
+  // ── PASS 1: Turbo Fast-Track via Groq LPU (whisper-large-v3-turbo) ──
   const groq = getGroq();
   if (groq) {
     try {
@@ -157,17 +182,35 @@ async function transcribeVoice(wavBuffer) {
       const file = await toFile(wavBuffer, 'voice_input.wav', { type: 'audio/wav' });
       const response = await groq.audio.transcriptions.create({
         file,
-        model: 'whisper-large-v3',
+        model: 'whisper-large-v3-turbo',
         language: 'id',
         prompt
       });
       const elapsed = Date.now() - t0;
       if (response && response.text && response.text.trim()) {
-        console.log(`[Groq STT Turbo]: ⚡ Transcribed in ${elapsed}ms (whisper-large-v3) | "${response.text.trim()}"`);
+        console.log(`[Groq STT Turbo]: ⚡ Transcribed in ${elapsed}ms (whisper-large-v3-turbo) | "${response.text.trim()}"`);
         return response.text.trim();
       }
-    } catch (groqErr) {
-      console.warn(`[Groq STT Warning]: Groq failed (${groqErr.message}), seamlessly falling back to OpenAI Whisper...`);
+    } catch (turboErr) {
+      console.warn(`[Groq STT Turbo Warning]: Turbo failed (${turboErr.message}), trying whisper-large-v3 fallback...`);
+      // Pass 1.5: whisper-large-v3 standard fallback on Groq
+      try {
+        const t0 = Date.now();
+        const file = await toFile(wavBuffer, 'voice_input.wav', { type: 'audio/wav' });
+        const response = await groq.audio.transcriptions.create({
+          file,
+          model: 'whisper-large-v3',
+          language: 'id',
+          prompt
+        });
+        const elapsed = Date.now() - t0;
+        if (response && response.text && response.text.trim()) {
+          console.log(`[Groq STT Fallback]: 🛡️ Transcribed in ${elapsed}ms (whisper-large-v3) | "${response.text.trim()}"`);
+          return response.text.trim();
+        }
+      } catch (groqErr) {
+        console.warn(`[Groq STT Warning]: Groq failed (${groqErr.message}), seamlessly falling back to OpenAI Whisper...`);
+      }
     }
   }
 
@@ -204,5 +247,6 @@ module.exports = {
   isWhisperHallucination,
   pcmToWav,
   calculateRmsAndPeak,
+  calculateCrestFactorAndRms,
   transcribeVoice
 };

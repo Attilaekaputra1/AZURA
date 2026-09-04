@@ -426,9 +426,11 @@ Buat KESIMPULAN HASIL AKSI (Conclusion) yang jelas, padat (2-4 kalimat), dan nat
       await targetDiscordChannel.send({ embeds: [embed], files: attachment ? [attachment] : [] }).catch(() => {});
     }
 
-    // 5. Short, cost-efficient closing announcement in VC (Fixed short sentence, saves ElevenLabs quota)
+    // 5. Dynamic closing announcement in VC with summarized finding
     const displayName = userName || 'Attila';
-    const completionVoiceText = `${displayName} aku udah menemukan informasi websitenya sesuai yang kamu minta nih, aku kirimin detail informasinya ya.`;
+    const cleanConclusionVoice = conclusion.replace(/[*_#`~]+/g, '').replace(/https?:\/\/\S+/g, '').trim();
+    const shortVoiceConclusion = cleanConclusionVoice.length > 180 ? cleanConclusionVoice.slice(0, 180) + '...' : cleanConclusionVoice;
+    const completionVoiceText = `${displayName}, ${shortVoiceConclusion}`;
     await speakInVC(guildId, completionVoiceText, discordClient, displayName);
 
     // 🟢 KEEP SESSION OPEN FOR CHAINED COMMANDS (DO NOT AUTO-CLOSE!)

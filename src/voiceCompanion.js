@@ -1289,6 +1289,13 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     });
   } catch (_) {}
 
+  // Get speaker identity & alias early for all direct voice command handlers
+  let speakerName = isOwner ? 'Attila' : 'Teman';
+  try {
+    const { getUserCallingName } = require('./vault');
+    speakerName = getUserCallingName(userId, isOwner ? 'Attila' : 'Teman');
+  } catch (_) {}
+
   // Clean transcript for intent matching
   const cleanTranscript = transcript.replace(/\b(?:azura|ara|zura|ajur|ajura|asura|asurah|zurah|arah|jura|juraa|zuraa|kak azura|kak ara|kak ajur)\b/gi, '').trim();
 
@@ -1470,35 +1477,34 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream - Strict Full Sentence Sentences) ──
+      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream) ──
       const isOpenCam =
-        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)\b/i.test(normalizedVoiceTranscript) ||
-        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:on\s*cam|open\s*cam)\b/i.test(normalizedVoiceTranscript) ||
-        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript) ||
-        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:on\s*cam|open\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript) ||
-        /\b(?:azura|ara|zura)\s+(?:mana\s+kamera\s+kamu|kameranya\s+mana)\b/i.test(normalizedVoiceTranscript);
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan|open|start)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya|cam|webcam)\b/i.test(normalizedVoiceTranscript) ||
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:kamu\s+)?(?:on\s*cam|open\s*cam|start\s*cam|buka\s*cam)\b/i.test(normalizedVoiceTranscript) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:buka|nyalakan|nyalain|aktifkan|hidupkan|open|start)\s+(?:kamera(?:\s+kamu)?|kameranya|video(?:\s+kamu)?|videonya|cam|webcam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript) ||
+        /^(?:tolong\s+|coba\s+|bisa\s+)?(?:on\s*cam|open\s*cam|start\s*cam|buka\s*cam)(?:\s+(?:dong|yaa?|dulu|sekarang|azura|ara|ra|gak|kan))*$/i.test(normalizedVoiceTranscript) ||
+        /\b(?:mana\s+kamera\s+kamu|kameranya\s+mana)\b/i.test(normalizedVoiceTranscript);
 
       if (isOpenCam) {
         console.log('[Voice Pipeline]: 🎥 Open Camera command detected.');
         const targetChannelId = voiceChannel?.id || activeConnections.get(guildId)?.joinConfig?.channelId;
         const { startCameraStream, isVideoIntroPlaying } = require('./videoStreamer');
+
+        // Immediate spoken feedback so user in VC never experiences silence or delays
+        const spokenAck = `Siap ${speakerName}, kamera video aku langsung dinyalakan sekarang yaa!`;
+        recordSessionEntry(guildId, 'AZURA', spokenAck);
+        const ackResource = await textToAudioResource(spokenAck, client);
+        if (ackResource) await playInVC(guildId, ackResource);
+
         const res = await startCameraStream(guildId, targetChannelId, textChannel, speakerName || 'Attila');
         if (textChannel && res.message) {
           textChannel.send(res.message).catch(() => {});
         }
 
-        if (res.success) {
-          if (!isVideoIntroPlaying(guildId)) {
-            const spoken = 'Siap Attila sayang, kamera video aku sudah menyala yaa!';
-            recordSessionEntry(guildId, 'AZURA', spoken);
-            const audioResource = await textToAudioResource(spoken, client);
-            if (audioResource) await playInVC(guildId, audioResource);
-          }
-        } else {
-          // If files missing or streamer error, tell Attila immediately by voice
-          const spoken = 'Waduh Attila, kamera belum bisa menyala nih karena file videonya belum ada di server. Upload file cam_intro.mp4 dan cam_loop.mp4 dulu yaa!';
-          recordSessionEntry(guildId, 'AZURA', spoken);
-          const audioResource = await textToAudioResource(spoken, client);
+        if (!res.success) {
+          const spokenErr = `Waduh ${speakerName}, kamera belum bisa menyala nih: ${res.message}`;
+          recordSessionEntry(guildId, 'AZURA', spokenErr);
+          const audioResource = await textToAudioResource(spokenErr, client);
           if (audioResource) await playInVC(guildId, audioResource);
         }
         return;
@@ -1569,13 +1575,28 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         return;
       }
 
-      // 2. Goal-Oriented Autonomous Mission & Chained Follow-ups: "ara tolong browsing ...", "ara buka chat gpt terus ketik..."
-      const browsingTrigger = /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara|kak\s+ajur)\s+(?:tolong\s+)?(?:browsing|carikan\s+(?:di\s+web\s+)?|cariin\s+(?:di\s+web\s+)?|buka\s+(?:situs|web|website|halaman|link)|ketik|klik|tekan)\s+(.+)/i;
-      const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger);
-      if (browsingMatch && browsingMatch[1] && !/\b(?:kamera|cam|camera|webcam|video)\b/i.test(transcript) && !/^(?:browser|chrome|web)\s*(?:standby)?$/i.test(browsingMatch[1].trim())) {
+      // 2. Goal-Oriented Autonomous Mission & Chained Follow-ups: "ara tolong browsing ...", "ara buka website ...", "ara buka google"
+      const browsingTrigger =
+        /\b(?:azura|ara|zura|ajur|ajura|kak\s+azura|kak\s+ara)\s+(?:tolong\s+|coba\s+|bisa\s+)?(?:browsing|carikan\s+(?:di\s+web\s+|di\s+internet\s+)?|cariin\s+(?:di\s+web\s+|di\s+internet\s+)?|buka\s+(?:situs|web|website|halaman|link)|kunjungi|masuk\s+ke\s+website|masuk\s+ke\s+situs|buka)\s+(.+)/i;
+      const directWebTrigger =
+        /\b(?:browsing|buka\s+website|buka\s+situs|buka\s+web|kunjungi\s+situs|masuk\s+ke\s+website)\s+(.+)/i;
+
+      const browsingMatch = transcript.match(browsingTrigger) || cleanTranscript.match(browsingTrigger) || transcript.match(directWebTrigger);
+      if (browsingMatch && browsingMatch[1] && !/\b(?:kamera|cam|camera|webcam|video|lagu|musik)\b/i.test(transcript) && !/^(?:browser|chrome|web)\s*(?:standby)?$/i.test(browsingMatch[1].trim())) {
         const query = browsingMatch[1].replace(/\b(?:dong|ya|yuk|plis|please)\b/gi, '').trim();
         if (query.length > 2) {
-          console.log(`[Voice Pipeline]: 🌐 Autonomous Browsing Action triggered via VC -> "${transcript}"`);
+          console.log(`[Voice Pipeline]: 🌐 Autonomous Browsing Action triggered via VC -> "${transcript}" (Target: "${query}")`);
+          
+          // Immediate voice acknowledgment in VC so user gets zero silence
+          const spokenAck = `Siap ${speakerName}, aku langsung buka browser dan meluncur sekarang yaa! Kamu bisa pantau layarnya live di portal web!`;
+          recordSessionEntry(guildId, 'AZURA', spokenAck);
+          const ackRes = await textToAudioResource(spokenAck, client);
+          if (ackRes) await playInVC(guildId, ackRes);
+
+          if (textChannel) {
+            textChannel.send(`🌐 **[AZURA Web Agent]** Membuka browser untuk: \`${query}\`...\nPantau layarnya live di: http://203.175.10.163:7860/browse`).catch(() => {});
+          }
+
           const { executeAutonomousBrowsingMission } = require('./webSurfAgent');
           executeAutonomousBrowsingMission(guildId, transcript, speakerName || 'Attila', textChannel, client).catch(e => {
             console.error('[Voice Pipeline Browsing Error]:', e.message);
@@ -2606,6 +2627,12 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
       activeConnections.set(guildId, connection);
       console.log(`[Voice Companion]: Connected to "${newChannel.name}" in "${guild.name}".`);
 
+      // Pre-warm Video Streamer Helper account in background for instantaneous Open Cam
+      try {
+        const { initStreamerClient } = require('./videoStreamer');
+        initStreamerClient().catch(() => {});
+      } catch (_) {}
+
       const player = createAudioPlayer();
       audioPlayers.set(guildId, player);
       connection.subscribe(player);
@@ -3025,6 +3052,12 @@ async function joinAttilaVoiceChannel(client) {
 
     await waitForConnectionReady(connection, 20_000);
     activeConnections.set(guildId, connection);
+
+    // Pre-warm Video Streamer Helper account in background for instantaneous Open Cam
+    try {
+      const { initStreamerClient } = require('./videoStreamer');
+      initStreamerClient().catch(() => {});
+    } catch (_) {}
 
     const player = createAudioPlayer();
     audioPlayers.set(guildId, player);

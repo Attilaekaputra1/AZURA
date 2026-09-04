@@ -75,6 +75,12 @@ client.once(Events.ClientReady, async () => {
   const { initLivePortal } = require('./livePortal');
   initLivePortal();
 
+  // Pre-warm Video Streamer Helper account in background for instantaneous Open Cam
+  try {
+    const { initStreamerClient } = require('./videoStreamer');
+    initStreamerClient().catch(err => console.warn('[Video Streamer Pre-warm Warning]:', err.message));
+  } catch (_) {}
+
   // Initialize Real-time Channel Listeners & Weekly Silent Channel Auto-Scanner
   const { initChannelAutoScanner } = require('./sendChannel');
   initChannelAutoScanner(client);

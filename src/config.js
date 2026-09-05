@@ -14,7 +14,7 @@ const config = {
   OWNER_ID: (process.env.OWNER_DISCORD_ID || process.env.OWNER_ID || '').trim(),
   ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || '').trim(),
   ELEVENLABS_VOICE_ID: (process.env.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T').trim(), // Kak Ceria
-  ELEVENLABS_MODEL_ID: (process.env.ELEVENLABS_MODEL_ID || 'eleven_flash_v2_5').trim(),
+  ELEVENLABS_MODEL_ID: (process.env.ELEVENLABS_MODEL_ID || 'eleven_v3').trim(),
   INDONESIAN_FEMALE_FALLBACK_VOICE: (process.env.INDONESIAN_FEMALE_FALLBACK_VOICE || 'gadis_cute').trim(), // gadis_cute | siti_mature | gadis_natural | openai_shimmer | openai_nova
   VTUBER_VOICE_MODE: (process.env.VTUBER_VOICE_MODE || 'openai_shimmer').trim(),
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '').trim(),

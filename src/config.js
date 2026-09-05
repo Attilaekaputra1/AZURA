@@ -5,22 +5,22 @@ const path = require('path');
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const config = {
-  // Credentials (loaded from .env with working fallbacks)
+  // Credentials (loaded strictly from .env)
   DISCORD_TOKEN: (process.env.DISCORD_TOKEN || '').trim(),
   DISCORD_CLIENT_ID: (process.env.DISCORD_CLIENT_ID || '').trim(),
   OPENAI_API_KEY: (process.env.OPENAI_API_KEY || '').trim(),
-  GROQ_API_KEY: (process.env.GROQ_API_KEY || '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').trim(),
-  OWNER_DISCORD_ID: (process.env.OWNER_DISCORD_ID || process.env.OWNER_ID || '759050138353664020').trim(),
-  OWNER_ID: (process.env.OWNER_DISCORD_ID || process.env.OWNER_ID || '759050138353664020').trim(),
-  ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c').trim(),
+  GROQ_API_KEY: (process.env.GROQ_API_KEY || '').trim(),
+  OWNER_DISCORD_ID: (process.env.OWNER_DISCORD_ID || process.env.OWNER_ID || '').trim(),
+  OWNER_ID: (process.env.OWNER_DISCORD_ID || process.env.OWNER_ID || '').trim(),
+  ELEVENLABS_API_KEY: (process.env.ELEVENLABS_API_KEY || '').trim(),
   ELEVENLABS_VOICE_ID: (process.env.ELEVENLABS_VOICE_ID || 'd15jrIAARvF899pDoC6T').trim(), // Kak Ceria
   ELEVENLABS_MODEL_ID: (process.env.ELEVENLABS_MODEL_ID || 'eleven_flash_v2_5').trim(),
   INDONESIAN_FEMALE_FALLBACK_VOICE: (process.env.INDONESIAN_FEMALE_FALLBACK_VOICE || 'gadis_cute').trim(), // gadis_cute | siti_mature | gadis_natural | openai_shimmer | openai_nova
   VTUBER_VOICE_MODE: (process.env.VTUBER_VOICE_MODE || 'openai_shimmer').trim(),
-  TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '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').trim(),
-  DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_9874123650abcdef0123456789abcdef').trim(),
-  MASTER_SECURITY_PASSWORD: (process.env.MASTER_SECURITY_PASSWORD || 'AzuraSecurity2026!').trim(),
-  STREAMER_USER_TOKEN: (process.env.STREAMER_USER_TOKEN || 'MTU0MzYyOTk4MTE2OTYxNDg0OQ.GeSgnW.PwkELjxfahEGcGAB0N7v5XdsPKWisN8qmsc7CY').trim(),
+  TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '').trim(),
+  DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || '').trim(),
+  MASTER_SECURITY_PASSWORD: (process.env.MASTER_SECURITY_PASSWORD || '').trim(),
+  STREAMER_USER_TOKEN: (process.env.STREAMER_USER_TOKEN || '').trim(),
   VIDEO_INTRO_PATH: path.join(__dirname, '../assets/videos/cam_intro.mp4'),
   VIDEO_LOOP_PATH: path.join(__dirname, '../assets/videos/cam_loop.mp4'),
 

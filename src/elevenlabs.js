@@ -103,7 +103,7 @@ function normalizePhonetics(text) {
 function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = null, customSettings = null) {
   return new Promise((resolve, reject) => {
     const phoneticText = normalizePhonetics(text);
-    const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
+    const apiKey = config.ELEVENLABS_API_KEY;
     if (!apiKey) {
       return reject(new Error('ELEVENLABS_API_KEY not configured'));
     }
@@ -188,7 +188,7 @@ function generateElevenLabsTTS(text, voiceId = null, modelId = null, client = nu
 function streamElevenLabsTTS(text, voiceId = null, modelId = null, client = null) {
   return new Promise((resolve, reject) => {
     const phoneticText = normalizePhonetics(text);
-    const apiKey = config.ELEVENLABS_API_KEY || 'sk_992d84bd215d95a91a68b84ba8506d4e2ed0de8034f19e8c';
+    const apiKey = config.ELEVENLABS_API_KEY;
     if (!apiKey) {
       return reject(new Error('ELEVENLABS_API_KEY not configured'));
     }

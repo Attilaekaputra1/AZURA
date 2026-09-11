@@ -26,6 +26,7 @@ const pendingMusic = new Map();           // pendingId -> { songTitle, guildId, 
 const idleTimers = new Map();             // guildId -> NodeJS.Timeout
 const deepSleepTimers = new Map();        // guildId -> NodeJS.Timeout (15-minute auto-pause & deep sleep)
 const dismissedGuilds = new Set();        // guildIds where bot was dismissed by Attila (anti auto-rejoin)
+const remoteDispatchedGuilds = new Set(); // guildIds where bot was dispatched remotely by Attila without Attila in VC
 
 // Summon-Based Conversation State Machine
 // guildId -> { mode: 'PASSIVE'|'ACTIVE'|'DEEP_SLEEP', lastActiveAt: number, turnCount: number }
@@ -2751,6 +2752,18 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
       if (channelId) {
         const channel = guild.channels.cache.get(channelId);
         if (channel && channel.members) {
+          // If Azura was remotely dispatched to this VC by Attila:
+          if (remoteDispatchedGuilds.has(guildId)) {
+            // Only leave if all human members left the VC
+            const humanMembers = channel.members.filter(m => !m.user.bot);
+            if (humanMembers.size === 0) {
+              console.log(`[Voice Companion]: 🚪 Remote VC "${channel.name}" is now completely empty. AZURA leaves.`);
+              remoteDispatchedGuilds.delete(guildId);
+              await cleanupGuild(guildId, client);
+            }
+            return;
+          }
+
           const isAttilaInChannel = channel.members.has(config.OWNER_DISCORD_ID);
           if (!isAttilaInChannel) {
             console.log(`[Voice Companion]: 🚪 Attila is not in VC "${channel.name}". AZURA strictly leaves (no staying behind without Attila).`);
@@ -2770,6 +2783,7 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
 
   // === Attila LEFT a voice channel ===
   if (oldChannel && !newChannel) {
+    remoteDispatchedGuilds.delete(guildId);
     console.log(`[Voice Companion]: 🚪 Attila keluar dari VC "${oldChannel.name}". AZURA otomatis ikut keluar (tidak tinggal di room).`);
     await cleanupGuild(guildId, client);
     return;
@@ -2777,6 +2791,7 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
 
   // === Attila JOINED or SWITCHED a voice channel ===
   if (newChannel) {
+    remoteDispatchedGuilds.delete(guildId); // Convert back to standard auto-follow session
     // If owner explicitly dismissed AZURA, DO NOT auto-follow
     if (dismissedGuilds.has(guildId)) {
       console.log(`[Voice Companion]: Attila joined/switched to "${newChannel.name}", but AZURA is currently dismissed. Skipping auto-follow.`);
@@ -3040,6 +3055,7 @@ async function cleanupGuild(guildId, client) {
     stopCameraStream(guildId).catch(() => {});
   } catch (_) {}
   conversationMode.delete(guildId);
+  remoteDispatchedGuilds.delete(guildId);
   clearActiveExpireTimer(guildId);
   if (hummingTimers.has(guildId)) {
     clearTimeout(hummingTimers.get(guildId));
@@ -3415,6 +3431,7 @@ async function joinSpecificVoiceChannel(client, guildId, channelId) {
 
     await waitForConnectionReady(connection, 20_000);
     activeConnections.set(guildId, connection);
+    remoteDispatchedGuilds.add(guildId);
 
     // Pre-warm Video Streamer Helper account
     try {
@@ -3506,6 +3523,7 @@ async function leaveVoiceChannel(client, guildId = null, sendFarewellText = true
   // If specific guild, cleanup that guild and mark dismissed
   if (guildId) {
     dismissedGuilds.add(guildId);
+    remoteDispatchedGuilds.delete(guildId);
     await cleanupGuild(guildId, client);
   }
 
@@ -3529,6 +3547,7 @@ async function leaveVoiceChannel(client, guildId = null, sendFarewellText = true
     }
   }
   activeConnections.clear();
+  remoteDispatchedGuilds.clear();
   audioPlayers.clear();
   companionTextChannels.clear();
   isBotSpeaking.clear();

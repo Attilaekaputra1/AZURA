@@ -1586,6 +1586,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
           }
           return;
         }
+      }
+
       // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream) ──
       const openCamPattern = /\b(?:buka|nyalain|nyalakan|aktifkan|start|open|show|pasang|hidupkan|hidupin|tampilkan|play)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)|(?:kamera|cam|camera|webcam|video)\s*(?:dong|nya)?\s*(?:buka|nyalain|nyalakan|aktifkan|on|hidupin)\b/i;
       if (openCamPattern.test(transcript) || openCamPattern.test(cleanTranscript) || openCamPattern.test(normalizedVoiceTranscript) || openCamPattern.test(normalizedCleanTranscript)) {

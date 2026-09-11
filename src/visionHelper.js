@@ -1,13 +1,14 @@
 /**
- * AZURA Vision Media Extraction & Context Resolution Module
- * Handles: Attachments, Discord Stickers (PNG, APNG, Lottie JSON, GIF), Tenor/Giphy GIF embeds, and Direct Image URLs.
+ * AZURA Vision Media Extraction & Context Resolution Module (Enhanced)
+ * Handles: Images, Photos, Screenshots, High-Res Discord Stickers, Video Attachments (MP4, MOV, WEBM, MKV), Tenor/Giphy GIF embeds.
  */
 
 const https = require('https');
 const http = require('http');
+const { isVideoMedia, processVideoAttachment } = require('./videoVision');
 
 /**
- * Extract all visual media (Images, Stickers, GIFs, Embeds) and visual context from a Discord message.
+ * Extract all visual media (Images, Videos, Stickers, GIFs, Embeds) and visual context from a Discord message.
  * @param {import('discord.js').Message} message 
  * @returns {Promise<{ imageUrls: string[], visualContextPrompt: string, hasVisualMedia: boolean }>}
  */
@@ -15,17 +16,38 @@ async function extractVisualMedia(message) {
   const imageUrls = [];
   const contextNotes = [];
 
-  // ── 1. Image & GIF Attachments ──
+  // ── 1. Image, Photo & Video Attachments ──
   if (message.attachments && message.attachments.size > 0) {
     for (const att of message.attachments.values()) {
-      const isImg = att.contentType && (att.contentType.startsWith('image/') || att.contentType.startsWith('video/'));
-      const isImgExt = /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(att.name || att.url);
-      if (isImg || isImgExt) {
+      const isVideo = isVideoMedia(att.name || att.url, att.contentType || '');
+      const isImg = att.contentType && att.contentType.startsWith('image/');
+      const isImgExt = /\.(png|jpe?g|gif|webp|bmp|svg|tiff)(\?|$)/i.test(att.name || att.url);
+
+      if (isVideo) {
+        // Process Video Attachment into timeline keyframes + audio transcription
+        try {
+          const videoRes = await processVideoAttachment(att.url, att.name || 'video.mp4');
+          if (videoRes.success && videoRes.frames.length > 0) {
+            for (const f of videoRes.frames) {
+              imageUrls.push(f.dataUrl);
+            }
+            contextNotes.push(videoRes.videoPrompt);
+          } else {
+            contextNotes.push(videoRes.videoPrompt || `[Pengguna mengunggah video: "${att.name}"]`);
+          }
+        } catch (vErr) {
+          console.warn('[VisionHelper]: Video processing error:', vErr.message);
+          contextNotes.push(`[Pengguna mengunggah video: "${att.name || 'video.mp4'}"].`);
+        }
+      } else if (isImg || isImgExt) {
         imageUrls.push(att.url);
         if (/\.gif(\?|$)/i.test(att.name || att.url) || att.contentType === 'image/gif') {
-          contextNotes.push(`[Pengguna mengunggah file GIF animasi: "${att.name || 'animation.gif'}"]`);
+          contextNotes.push(`[Pengguna mengunggah file GIF animasi: "${att.name || 'animation.gif'}"]. Analisis gerakan, karakter, dan konteks visual animasinya secara detail!`);
         } else {
-          contextNotes.push(`[Pengguna mengunggah gambar lampiran: "${att.name || 'image.png'}"]`);
+          contextNotes.push(
+            `[PENGGUNA MENGUNGGAH GAMBAR / FOTO: "${att.name || 'image.png'}"]\n` +
+            `Analisis gambar ini dengan ketajaman tinggi (High-Definition Vision): perhatikan objek, ekspresi wajah, teks tertulis (OCR), suasana, gaya seni, detail kode/grafik jika ada, dan berikan tanggapan yang sangat akurat dan mendalam!`
+          );
         }
       }
     }
@@ -40,14 +62,13 @@ async function extractVisualMedia(message) {
       const isLottie = sticker.format === 3 || (sticker.url && sticker.url.endsWith('.json'));
 
       if (isLottie) {
-        // Lottie is vector JSON (default Discord animated stickers).
-        // OpenAI Vision cannot parse .json URLs, so we pass full semantic & visual description
+        // Lottie vector JSON
         contextNotes.push(
           `[PENGGUNA MENGIRIM STIKER ANIMASI DISCORD: "${sName}"${sDesc}${sTags} | Tipe: Animasi Bergerak Default Discord]. ` +
           `Tanggapi ekspresi/gerakan stiker animasi ini secara visual dan responsif seolah kamu melihat animasinya langsung!`
         );
       } else {
-        // PNG, APNG, GIF stickers have valid image URLs for OpenAI Vision
+        // PNG, APNG, GIF stickers
         let stickerUrl = sticker.url;
         if (!stickerUrl && sticker.id) {
           const ext = sticker.format === 4 ? 'gif' : 'png';
@@ -85,7 +106,10 @@ async function extractVisualMedia(message) {
       const embedImgUrl = embed.image?.url || embed.image?.proxyURL || embed.thumbnail?.url || embed.thumbnail?.proxyURL;
       if (embedImgUrl && !imageUrls.includes(embedImgUrl) && !embedImgUrl.endsWith('.json')) {
         imageUrls.push(embedImgUrl);
-        const provider = embed.provider?.name || (embed.url?.includes('tenor') ? 'Tenor GIF' : 'GIF');
+        const providerName = embed.provider?.name || '';
+        const provider = providerName
+          ? (providerName.toLowerCase().includes('gif') ? providerName : `${providerName} GIF`)
+          : (embed.url?.includes('tenor') ? 'Tenor GIF' : 'GIF');
         const title = embed.title ? ` "${embed.title}"` : '';
         contextNotes.push(`[Pengguna mengirim ${provider}${title}. Analisis gambar/GIF animasi ini secara visual dan tanggapi konteks/reaksi/leluconnya!]`);
       }
@@ -102,7 +126,7 @@ async function extractVisualMedia(message) {
     }
   }
 
-  const visualContextPrompt = contextNotes.join('\n');
+  const visualContextPrompt = contextNotes.join('\n\n');
 
   return {
     imageUrls,

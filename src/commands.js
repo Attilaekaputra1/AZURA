@@ -571,7 +571,22 @@ const commands = [
         .addChoices(
           { name: '🎥 Buka Kamera (On)', value: 'on' },
           { name: '🛑 Tutup Kamera (Off)', value: 'off' }
-        ))
+        )),
+
+  new SlashCommandBuilder()
+    .setName('embargo')
+    .setDescription('Kelola & lihat daftar Server & User yang sedang di-embargo loyalitas (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addSubcommand(sub =>
+      sub.setName('list')
+        .setDescription('Lihat daftar server & user yang sedang di-blacklist loyalty embargo'))
+    .addSubcommand(sub =>
+      sub.setName('unblock')
+        .setDescription('Cabut embargo untuk server ID atau user ID tertentu')
+        .addStringOption(opt =>
+          opt.setName('target')
+            .setDescription('ID Server (Guild ID) atau ID User Discord yang ingin dibuka blokirnya')
+            .setRequired(true)))
 ];
 
 const fs = require('fs');
@@ -654,6 +669,18 @@ async function registerSlashCommands(client) {
  */
 async function handleSlashCommand(interaction, startTime) {
   const { commandName, user } = interaction;
+
+  // Loyalty Embargo Guard: Check if interacting user is embargoed
+  try {
+    const { checkUserEmbargo } = require('./ownerLoyalty');
+    const embargoCheck = checkUserEmbargo(user.id);
+    if (embargoCheck.isEmbargoed) {
+      if (embargoCheck.shouldSendFinalWarning) {
+        return interaction.reply({ content: embargoCheck.warningMessage, ephemeral: true });
+      }
+      return interaction.reply({ content: '🚫 Akses ditolak.', ephemeral: true });
+    }
+  } catch (_) {}
 
   if (commandName === 'help') {
     const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
@@ -2084,6 +2111,36 @@ async function handleSlashCommand(interaction, startTime) {
       const { stopCameraStream } = require('./videoStreamer');
       const res = await stopCameraStream(guildId);
       return interaction.editReply(res.message);
+    }
+  } else if (commandName === 'embargo') {
+    const isOwner = config.OWNER_DISCORD_ID && user.id === config.OWNER_DISCORD_ID;
+    if (!isOwner) {
+      return interaction.reply({ content: '⛔ Perintah ini eksklusif hanya untuk Attila (Owner).', ephemeral: true });
+    }
+
+    const sub = interaction.options.getSubcommand();
+    const { getEmbargoSummary, unblockEmbargoTarget } = require('./ownerLoyalty');
+
+    if (sub === 'list') {
+      const summary = getEmbargoSummary();
+      const guildEntries = Object.values(summary.guilds);
+      const embed = new EmbedBuilder()
+        .setColor(0xE74C3C)
+        .setTitle('🚫 [DAFTAR LOYALTY EMBARGO & SERVER BLACKLIST]')
+        .setDescription(
+          `📊 **Total Server Ter-embargo:** \`${summary.guildCount}\`\n` +
+          `👥 **Total User Terblokir:** \`${summary.userCount}\`\n\n` +
+          (guildEntries.length === 0
+            ? '*Saat ini tidak ada server atau user yang sedang di-embargo.*'
+            : guildEntries.map(g => `• **${g.guildName}** (\`${g.memberCount} member\`) - Tindakan: \`${g.actionType}\` oleh **${g.executor?.displayName || 'Admin'}** (\`${g.executor?.id}\`)`).join('\n'))
+        )
+        .setFooter({ text: 'AZURA Absolute Loyalty System' })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    } else if (sub === 'unblock') {
+      const targetId = interaction.options.getString('target');
+      const res = unblockEmbargoTarget(targetId);
+      return interaction.reply({ content: res.message, ephemeral: true });
     }
   }
 }

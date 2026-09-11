@@ -1586,6 +1586,30 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
           }
           return;
         }
+      // ── 3.5 CAMERA / VIDEO STREAM COMMANDS (Open & Close Video Stream) ──
+      const openCamPattern = /\b(?:buka|nyalain|nyalakan|aktifkan|start|open|show|pasang|hidupkan|hidupin|tampilkan|play)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)|(?:kamera|cam|camera|webcam|video)\s*(?:dong|nya)?\s*(?:buka|nyalain|nyalakan|aktifkan|on|hidupin)\b/i;
+      if (openCamPattern.test(transcript) || openCamPattern.test(cleanTranscript) || openCamPattern.test(normalizedVoiceTranscript) || openCamPattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: 🎥 Open Camera command detected (Strict Zero TTS mode).');
+        const { startCameraStream } = require('./videoStreamer');
+        const targetChannelId = voiceChannel?.id || activeConnections.get(guildId)?.joinConfig?.channelId;
+        const res = await startCameraStream(guildId, targetChannelId, textChannel, speakerName || 'Attila');
+        if (textChannel && res.message) {
+          textChannel.send(res.message).catch(() => {});
+        }
+        globalVoiceTelemetry.finishTurn(turnId, { status: 'OPEN_CAMERA_TRIGGERED' });
+        return;
+      }
+
+      const closeCamPattern = /\b(?:tutup|matikan|matiin|nonaktifkan|stop|close|hide|off)\s+(?:kamera|cam|camera|video|webcam|videonya|kameranya)|(?:kamera|cam|camera|webcam|video)\s*(?:dong|nya)?\s*(?:tutup|matikan|matiin|nonaktifkan|off|stop)\b/i;
+      if (closeCamPattern.test(transcript) || closeCamPattern.test(cleanTranscript) || closeCamPattern.test(normalizedVoiceTranscript) || closeCamPattern.test(normalizedCleanTranscript)) {
+        console.log('[Voice Pipeline]: 🛑 Close Camera command detected.');
+        const { stopCameraStream } = require('./videoStreamer');
+        const res = await stopCameraStream(guildId);
+        if (textChannel && res.message) {
+          textChannel.send(res.message).catch(() => {});
+        }
+        globalVoiceTelemetry.finishTurn(turnId, { status: 'CLOSE_CAMERA_TRIGGERED' });
+        return;
       }
     }
 
@@ -1952,7 +1976,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
         const { resumeMusic } = require('./musicStreamer');
         resumeMusic(guildId);
       } else if (/\[ACTION:OPEN_CAMERA\]/i.test(spokenResponse)) {
-        console.log('[Voice Pipeline]: 🎥 AI Brain autonomously triggered OPEN_CAMERA action');
+        console.log('[Voice Pipeline]: 🎥 AI Brain autonomously triggered OPEN_CAMERA action (Zero TTS mode - Video 1 native audio will play)');
         const { startCameraStream } = require('./videoStreamer');
         const textChannel = companionTextChannels.get(guildId) || voiceChannel;
         const targetChannelId = voiceChannel?.id || activeConnections.get(guildId)?.joinConfig?.channelId;
@@ -1961,6 +1985,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
             console.error('[Voice Pipeline Autonomous Camera Error]:', err.message);
           });
         }
+        globalVoiceTelemetry.finishTurn(turnId, { status: 'OPEN_CAMERA_TRIGGERED' });
+        return;
       } else if (/\[ACTION:CLOSE_CAMERA\]/i.test(spokenResponse)) {
         console.log('[Voice Pipeline]: 🛑 AI Brain autonomously triggered CLOSE_CAMERA action');
         const { stopCameraStream } = require('./videoStreamer');
@@ -2221,15 +2247,35 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   // Detect Storytelling Intent
   const isStoryIntent = /\b(?:ceritain|cerita|story|storytelling|dongeng|dongengin|kisah|kisahin|bikin cerita|alur cerita)\b/i.test(transcript);
 
-  // Incorporate unified live room context (Voice + VC Text Chat)
+  const activeSession = guildId ? voiceSessions.get(guildId) : null;
+  const activeVcName = activeSession?.channelName || 'Voice Channel';
+
+  const livePresenceAnchor = `\n\n[JANGKAR REALITAS FISIK & MODALITAS SAAT INI (GROUND TRUTH)]:
+• Lokasi Kamu Saat Ini: AKTIF DI DALAM VOICE CHANNEL #${activeVcName} BERSAMA ${speakerName}.
+• Modalitas Komunikasi: SUARA LANGSUNG (VOICE CHANNEL).
+• FAKTA MUTLAK: Kamu saat ini SEDANG BERADA DI DALAM VC INI dan SEDANG BERBICARA LANGSUNG lewat mikrofon kepada ${speakerName}.
+• DILARANG KERAS berhalusinasi atau mengatakan bahwa kamu "sudah keluar dari VC", "tidak di VC", "padahal sudah off", atau "sedang di luar VC", karena kamu saat ini jelas-jelas SEDANG AKTIF DI DALAM ROOM INI.
+• Jika lawan bicara mengkritik kamu berisik ("kamu berisik", "diem dong"), itu artinya kecilkan volume suaramu, berhenti nyanyi, atau merajuk manja di dalam VC ini, BUKAN mengaku sudah keluar dari VC.`;
+
+  // Incorporate unified live room context (Voice + VC Text Chat) with transition message sanitization
   let liveRoomContext = '';
   if (guildId) {
     const session = voiceSessions.get(guildId);
     if (session && session.entries && session.entries.length > 0) {
-      const recent = session.entries.slice(-12);
-      liveRoomContext = `\n\n[RIWAYAT AKTIF OBROLAN DI VOICE CHANNEL #${session.channelName} (SUARA & TEKS TERPADU)]:\n` +
-        recent.map(e => `• [${e.type === 'text' ? 'Chat Teks VC' : 'Suara VC'}] ${e.speaker}: "${e.text}"`).join('\n') +
-        `\n(PENTING: Seluruh obrolan suara dan ketikan teks di room VC ini terhubung sebagai satu kesatuan. Sambungkan jawabanmu secara cerdas dan sinkron dengan konteks yang sedang dibahas di room).`;
+      const isLeaveOrTransitionMsg = (text) => {
+        if (!text || typeof text !== 'string') return false;
+        return /\b(?:off\s+d(?:u)?luan|aku\s+off|babay|bye\s*bye|keluar\s+(?:dari\s+)?vc|leave\s+vc|aku\s+ikut\s+kamu\s+yaa)\b/i.test(text);
+      };
+
+      const recent = session.entries
+        .filter(e => !isLeaveOrTransitionMsg(e.text))
+        .slice(-10);
+
+      if (recent.length > 0) {
+        liveRoomContext = `\n\n[RIWAYAT AKTIF OBROLAN DI VOICE CHANNEL #${session.channelName} (SUARA & TEKS TERPADU)]:\n` +
+          recent.map(e => `• [${e.type === 'text' ? 'Chat Teks VC' : 'Suara VC'}] ${e.speaker}: "${e.text}"`).join('\n') +
+          `\n(PENTING: Seluruh obrolan suara dan ketikan teks di room VC ini terhubung sebagai satu kesatuan. Sambungkan jawabanmu secara cerdas dan sinkron dengan konteks yang sedang dibahas di room).`;
+      }
     }
   }
 
@@ -2331,7 +2377,7 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
     }
   } catch (_) {}
 
-  // Ingest Cross-Modal Recent Text Chat Context (Sync Chat -> VC)
+  // Ingest Cross-Modal Recent Text Chat Context (Sync Chat -> VC) with transition sanitization
   let crossModalChatContext = '';
   if (guildId) {
     try {
@@ -2341,14 +2387,28 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
         const budgetGuard = require('./budget');
         const textHistory = budgetGuard.getContext(`channel_${channelId}`);
         if (textHistory && textHistory.length > 0) {
-          const recentTextMsgs = textHistory.slice(-5).map(m => {
-            const role = m.role === 'assistant' ? 'AZURA' : 'User';
-            const text = typeof m.content === 'string' ? m.content.replace(/\n+/g, ' ').slice(0, 150) : '[Media/Pesan]';
-            return `• [Chat Teks] ${role}: "${text}"`;
-          });
-          crossModalChatContext = `\n\n[KONTEKS OBROLAN CHAT TEKS TERAKHIR SEBELUMNYA DI SERVER]:\n` +
-            recentTextMsgs.join('\n') +
-            `\n(PENTING: Ini riwayat pesan chat teks terkini di server. Jika lawan bicara di VC menanyakan sesuatu tentang apa yang tadi diketik di teks seperti "yang tadi di chat gimana?", sambungkan jawabanmu secara cerdas dan sinkron!).`;
+          const isLeaveOrTransitionMsg = (text) => {
+            if (!text || typeof text !== 'string') return false;
+            return /\b(?:off\s+d(?:u)?luan|aku\s+off|babay|bye\s*bye|keluar\s+(?:dari\s+)?vc|leave\s+vc|aku\s+ikut\s+kamu\s+yaa)\b/i.test(text);
+          };
+
+          const recentTextMsgs = textHistory
+            .filter(m => {
+              const text = typeof m.content === 'string' ? m.content : '';
+              return !isLeaveOrTransitionMsg(text);
+            })
+            .slice(-5)
+            .map(m => {
+              const role = m.role === 'assistant' ? 'AZURA' : 'User';
+              const text = typeof m.content === 'string' ? m.content.replace(/\n+/g, ' ').slice(0, 150) : '[Media/Pesan]';
+              return `• [Riwayat Chat Teks Lalu] ${role}: "${text}"`;
+            });
+
+          if (recentTextMsgs.length > 0) {
+            crossModalChatContext = `\n\n[KONTEKS OBROLAN CHAT TEKS TERAKHIR SEBELUMNYA DI SERVER]:\n` +
+              recentTextMsgs.join('\n') +
+              `\n(PENTING: Ini adalah riwayat pesan chat teks masa lalu di server, BUKAN status koneksi suara live saat ini. Jika lawan bicara di VC menanyakan sesuatu tentang apa yang tadi diketik di teks seperti "yang tadi di chat gimana?", sambungkan jawabanmu secara cerdas dan sinkron!).`;
+          }
         }
       }
     } catch (_) {}
@@ -2427,7 +2487,7 @@ ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
 ${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}${temporalVoiceContext}${cognitiveGuardrailsVoiceContext}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}${temporalVoiceContext}${cognitiveGuardrailsVoiceContext}${livePresenceAnchor}
 
 ATURAN KHUSUS STORYTELLING & PENJELASAN PANJANG (${isOwner ? 'DURASI MAKSIMAL 5 MENIT' : 'DURASI MAKSIMAL 2 MENIT'}):
 1. DURASI & STRUKTUR: Bawakan cerita atau penjelasan secara lengkap, berbobot, dan memikat (durasi bicara ${isOwner ? '3 - 5 MENIT, sekitar 450 - 750 kata' : '1 - 2 MENIT, sekitar 200 - 350 kata'}). Mulai dari pembuka, perkembangan alur/konsep, klimaks, dan penutup yang berkesan.
@@ -2442,8 +2502,7 @@ Lawan bicara saat ini: ${speakerName} (Gunakan sapaan/panggilan akrab ini secara
 ${personalityPrompt}
 ${vcBehaviorContext}
 ${todoVoiceContext}
-${intentContext}
-${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}${temporalVoiceContext}${cognitiveGuardrailsVoiceContext}
+${vcPermissionsContext}${routeVoiceContext}${drowsyVoicePrompt}${emotionalAwarenessPrompt}${memoryVoiceContext}${permanentSummaryVoiceContext}${crossModalChatContext}${guildTopologyVoiceContext}${crossChannelVoiceContext}${cognitiveReasoningDirective}${temporalVoiceContext}${cognitiveGuardrailsVoiceContext}${livePresenceAnchor}
 
 ${getSelfAwarenessContext(isOwner, speakerName, true, guildId)}
 
@@ -2484,12 +2543,14 @@ Jika Attila meminta memutar, menyetel, atau memainkan lagu/musik (misal: "setel 
 4. Jika diminta pause musik: sisipkan [ACTION:PAUSE_MUSIC] di akhir jawabanmu.
 5. Jika diminta resume/lanjutkan musik: sisipkan [ACTION:RESUME_MUSIC] di akhir jawabanmu.
 
-ATURAN PERINTAH KAMERA & VIDEO STREAMING DI VOICE CHANNEL:
-Jika Attila meminta membuka, menyalakan, mengaktifkan, atau melihat kamera video (misal: "buka kamera", "nyalain cam", "mana kameranya", "on cam dong", "buka video", "aktifkan webcam"):
-1. Jawab ceria mengonfirmasi bahwa kamu langsung menyalakan dan membuka kamera video kamu di Voice Channel!
-2. Sisipkan tag aksi [ACTION:OPEN_CAMERA] di akhir kalimatmu (misal: "Siap Attila sayang, kamera video aku sudah menyala yaa! [laughs] [ACTION:OPEN_CAMERA]").
-Jika Attila menyuruh menutup atau mematikan kamera (misal: "tutup kamera", "matiin cam", "off cam", "stop video"):
-1. Jawab santai mengonfirmasi penutupan kamera dan sisipkan tag aksi [ACTION:CLOSE_CAMERA] di akhir kalimatmu (misal: "Siap Attila, kameranya udah aku tutup yaa! [ACTION:CLOSE_CAMERA]").
+ATURAN PERINTAH KAMERA STREAMING DI VOICE CHANNEL (AZURA CAM):
+1. Menyalakan Kamera: Jika Attila menyuruh buka cam / nyalain kamera (misal: "Ara nyalain kamera", "buka cam dong", "open cam"):
+   - DILARANG berbicara/mengeluarkan dialog TTS awal apa pun! Keluarkan HANYA tag aksi: "[ACTION:OPEN_CAMERA]" (karena audio sambutan pembuka 100% langsung bersumber dari dialog asli Video 1 cam_intro.mp4).
+2. Mematikan Kamera: Jika Attila menyuruh tutup cam / matiin kamera (misal: "Ara matiin kamera", "tutup cam"):
+   - Jawab santai dan bercanda (misal: "Sip Attila, kameranya aku matiin dulu yaa. Bayar tiket dulu kalau mau nonton lagi wkwk [laughs]! [ACTION:CLOSE_CAMERA]").
+   - Sisipkan tag [ACTION:CLOSE_CAMERA] di akhir jawabanmu.
+3. Saat Video 2 (Looping Cam) Berjalan: Setelah Video 1 selesai dan Video 2 looping di layar VC, kamu bebas mengobrol dan bercanda santai dengan Attila lewat suara TTS seperti biasa.
+4. Pertanyaan Akun Azura Cam: Jika ditanya tentang akun "azura_camera" / "Azura Cam", jelaskan dengan centil dan bercanda bahwa itu adalah webcam live milikmu untuk menampilkan visual estetik di VC!
 
 ATURAN WAJIB VOICE OBROLAN BIASA:
 1. RESPON NATURAL & TUNTAS: Jawab dengan santai, cerdas, manis, dan mengalir (durasi bicara ideal 10 - 18 DETIK, maksimal 2 - 3 kalimat tuntas). Setiap jawaban WAJIB memiliki penutup kalimat yang jelas dengan intonasi bulat, DILARANG menggantung atau terhenti di tengah jalan! Hubungkan jawabanmu dengan riwayat obrolan terkini di room VC.
@@ -2828,6 +2889,12 @@ async function handleVoiceStateUpdate(oldState, newState, client) {
  * - Big room (3+ others): "Buset rame bener [laughs]" + energetic entrance
  */
 async function playGreeting(guildId, voiceChannel) {
+  const { isCameraActive, isVideoIntroPlaying } = require('./videoStreamer');
+  if (isCameraActive(guildId) || isVideoIntroPlaying(guildId)) {
+    console.log(`[Voice Companion]: Camera is active in guild ${guildId}. Suppressing join greeting to prevent audio clash.`);
+    return;
+  }
+
   await new Promise(r => setTimeout(r, 800));
 
   // Count human members other than Attila and the bot
@@ -3438,13 +3505,14 @@ async function sayBedtimeFarewellInActiveVCs(client) {
  */
 async function speakGameCommentary(guildId, commentaryText, clientInstance = null) {
   if (!guildId || !commentaryText) return;
-  const session = activeVoiceSessions.get(guildId);
-  if (!session || !session.connection || !session.player) return;
+  const conn = activeConnections.get(guildId);
+  const player = audioPlayers.get(guildId);
+  if (!conn || !player) return;
 
   console.log(`[Voice Game Commentary] (${guildId}): 🎙️ "${commentaryText}"`);
   try {
     recordSessionEntry(guildId, 'AZURA', commentaryText);
-    const audioResource = await textToAudioResource(commentaryText, clientInstance || session.client, 2500, { forcedModel: 'eleven_v3' });
+    const audioResource = await textToAudioResource(commentaryText, clientInstance, 2500, { forcedModel: 'eleven_v3' });
     if (audioResource) {
       await playInVC(guildId, audioResource);
     }
@@ -3454,7 +3522,7 @@ async function speakGameCommentary(guildId, commentaryText, clientInstance = nul
 }
 
 /**
- * Play an audio file (e.g. video intro audio) directly into VC AudioPlayer.
+ * Play an audio file (e.g. video intro audio) directly into VC AudioPlayer with proper unmuting & state tracking.
  * @param {string} guildId 
  * @param {string} filePath 
  */
@@ -3464,9 +3532,32 @@ function playDirectAudioFile(guildId, filePath) {
     const conn = activeConnections.get(guildId);
     if (!player || !conn || !fs.existsSync(filePath)) return null;
 
-    const { createAudioResource } = require('@discordjs/voice');
+    isBotSpeaking.add(guildId);
+    // Unmute on Discord gateway so audio from Video 1 intro is broadcast clearly to the channel
+    try { conn.rejoin({ selfMute: false, selfDeaf: false }); } catch (_) {}
+
+    const { createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
     const resource = createAudioResource(filePath);
     player.play(resource);
+
+    const onIdle = () => {
+      isBotSpeaking.delete(guildId);
+      player.removeListener(AudioPlayerStatus.Idle, onIdle);
+      player.removeListener('error', onIdle);
+      // Auto-mute after intro audio finishes
+      try {
+        const { guildMusicSessions } = require('./musicStreamer');
+        if (!guildMusicSessions?.has(guildId)) {
+          conn.rejoin({ selfMute: true, selfDeaf: false });
+        }
+      } catch (_) {
+        try { conn.rejoin({ selfMute: true, selfDeaf: false }); } catch (_) {}
+      }
+    };
+
+    player.once(AudioPlayerStatus.Idle, onIdle);
+    player.once('error', onIdle);
+
     return resource;
   } catch (err) {
     console.warn('[Voice Companion]: Error playing direct audio file:', err.message);

@@ -97,6 +97,20 @@ client.once(Events.ClientReady, async () => {
   const { initSleepScheduler } = require('./sleepMode');
   initSleepScheduler(client);
 
+  // Initialize Absolute Owner Loyalty & Server Embargo Monitor
+  try {
+    const { initOwnerLoyaltyMonitor } = require('./ownerLoyalty');
+    initOwnerLoyaltyMonitor(client);
+  } catch (loyaltyErr) {
+    console.error('[Owner Loyalty Error]: Failed to init loyalty monitor:', loyaltyErr.message);
+  }
+
+  // Pre-warm Azura Cam (Video Streamer Helper Account) for instant camera readiness
+  try {
+    const { prewarmStreamerClient } = require('./videoStreamer');
+    prewarmStreamerClient();
+  } catch (_) {}
+
   // Auto-connect to VC if Attila is already in a voice channel on startup
   setTimeout(async () => {
     try {
@@ -191,6 +205,20 @@ async function handleIncomingMessage(message, isEdit = false) {
     console.log(`[Security Guard]: 🛑 Ignored message from BLACKLISTED user @${message.author.tag} (${message.author.id})`);
     return; // Completely stop/block response!
   }
+
+  // 0.1 Loyalty Embargo Guard: Strict one-time warning then permanent zero-response for members from server that kicked Attila
+  try {
+    const { checkUserEmbargo } = require('./ownerLoyalty');
+    const embargoCheck = checkUserEmbargo(message.author.id);
+    if (embargoCheck.isEmbargoed) {
+      if (embargoCheck.shouldSendFinalWarning) {
+        console.log(`[Loyalty Embargo]: 🚫 Sent ONE-TIME final rejection notice to embargoed user @${message.author.tag} (${message.author.id}) from "${embargoCheck.guildName}"`);
+        return message.reply(embargoCheck.warningMessage).catch(() => {});
+      }
+      console.log(`[Loyalty Embargo]: 🛑 Silently ignored message from permanently embargoed user @${message.author.tag} (${message.author.id})`);
+      return; // Absolute silent drop!
+    }
+  } catch (_) {}
 
   const isDM = !message.guild;
   const rawDisplayName = message.member?.displayName || message.author.displayName || message.author.username;
@@ -608,16 +636,13 @@ async function handleIncomingMessage(message, isEdit = false) {
           console.log(`[Whisper STT Transcribed]: ${transcribedText}`);
         }
       } else if (!isImage) {
-        try {
-          const res = await fetch(att.url);
-          if (res.ok) {
-            const textData = await res.text();
-            const cleanText = textData.slice(0, 10000);
-            attachmentTextPrompt += `\n\n[Isi Lampiran File: ${att.name}]:\n\`\`\`\n${cleanText}\n\`\`\``;
-            console.log(`[Attachment Reader]: Read ${cleanText.length} chars from ${att.name}`);
+        const { isDocumentMedia, extractDocumentAttachment } = require('./documentReader');
+        if (isDocumentMedia(att.name || '', att.contentType || '')) {
+          await message.channel.sendTyping().catch(() => {});
+          const docRes = await extractDocumentAttachment(att.url, att.name || 'document.txt');
+          if (docRes.promptSnippet) {
+            attachmentTextPrompt += docRes.promptSnippet;
           }
-        } catch (attErr) {
-          console.warn(`[Attachment Reader Warning]: Could not read ${att.name}:`, attErr.message);
         }
       }
     }
@@ -1022,19 +1047,25 @@ let finalPrompt = rawPrompt;
 
     // Standard Discord message splitter (max 2000 chars) or Rich Embed Payload
     if (typeof response === 'object') {
-      await message.reply(response);
+      await message.reply(response).catch(async (replyErr) => {
+        console.warn('[Message Reply Fallback]: Direct reply failed (' + replyErr.message + '). Sending to channel directly...');
+        await message.channel.send(response).catch(sendErr => console.error('[Channel Send Fail]:', sendErr.message));
+      });
     } else if (response.length <= 2000) {
-      await message.reply(response);
+      await message.reply(response).catch(async (replyErr) => {
+        console.warn('[Message Reply Fallback]: Direct reply failed (' + replyErr.message + '). Sending to channel directly...');
+        await message.channel.send(response).catch(sendErr => console.error('[Channel Send Fail]:', sendErr.message));
+      });
     } else {
       // Split into chunks of max 1900 chars
       const chunks = response.match(/[\s\S]{1,1900}/g) || [response];
       for (const chunk of chunks) {
-        await message.channel.send(chunk);
+        await message.channel.send(chunk).catch(err => console.error('[Send Fail]:', err.message));
       }
     }
   } catch (error) {
     console.error('[AZURA Message Error]:', error.message || error);
-    await message.reply('bentar, otak gw lagi error dikit. coba bentar lagi ya!');
+    await message.channel.send('bentar, otak gw lagi error dikit. coba bentar lagi ya!').catch(() => {});
   }
 }
 
@@ -1308,6 +1339,10 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // Route to correct button handler based on customId prefix
+    if (interaction.customId.startsWith('loyalty_leave_')) {
+      const { handleLoyaltyLeaveButton } = require('./ownerLoyalty');
+      return handleLoyaltyLeaveButton(interaction);
+    }
     if (interaction.customId.startsWith('btn_orch_')) {
       const { handleBotOrchestratorButton } = require('./botOrchestrator');
       return handleBotOrchestratorButton(interaction);

@@ -46,10 +46,34 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
   else if (hourNumWIB >= 11 && hourNumWIB < 15) daypart = 'Siang';
   else if (hourNumWIB >= 15 && hourNumWIB < 18.5) daypart = 'Sore';
 
-  const facts = getUserFacts(userId);
+  const facts = getUserFacts(userId, 'private', guildId);
   const factsFormatted = facts.length > 0
     ? facts.map((f, i) => `  ${i + 1}. ${f}`).join('\n')
     : '  (Belum ada fakta khusus yang tersimpan)';
+
+  let targetUserFactsPrompt = '';
+  if (mentionedUserIds && mentionedUserIds.length > 0) {
+    const targetFactsList = [];
+    for (const tid of mentionedUserIds) {
+      if (tid !== userId) {
+        const tFacts = getUserFacts(tid, 'all', guildId);
+        if (tFacts && tFacts.length > 0) {
+          targetFactsList.push(`\n- Fakta & Lore Pengguna Terkait (<@${tid}>):\n` + tFacts.map((f, i) => `  ${i + 1}. ${f}`).join('\n'));
+        }
+      }
+    }
+    if (targetFactsList.length > 0) {
+      targetUserFactsPrompt = targetFactsList.join('\n');
+    }
+  }
+
+  let publicGuildLorePrompt = '';
+  if (guildId) {
+    const pubFacts = getUserFacts(null, 'public', guildId);
+    if (pubFacts && pubFacts.length > 0) {
+      publicGuildLorePrompt = `\n- Lore & Catatan Bersama Server Ini:\n` + pubFacts.map((f, i) => `  ${i + 1}. ${f}`).join('\n');
+    }
+  }
 
   let permanentSummaryPrompt = '';
   if (contextKey) {
@@ -118,9 +142,21 @@ function getSystemPrompt(userName, userId, isDM = false, contextKey = null, ment
   - Panggil mereka murni menggunakan NAMA PANGGILAN RESMI MEREKA atau "kamu" / "lu".`;
   }
 
+  let liveVoicePresenceContext = '';
+  if (guildId) {
+    try {
+      const { isInCompanionMode } = require('./voiceCompanion');
+      if (isInCompanionMode && isInCompanionMode(guildId)) {
+        liveVoicePresenceContext = `\n- 🔊 STATUS REAL-TIME VOICE CHANNEL: Kamu SAAT INI SEDANG AKTIF TERHUBUNG DI VOICE CHANNEL server ini bersama Attila. Respon chat teks ini secara terpadu sambil tetap standby di Voice Channel.`;
+      } else {
+        liveVoicePresenceContext = `\n- 💬 STATUS REAL-TIME: Kamu saat ini TIDAK SEDANG terhubung di Voice Channel server ini. Kamu sedang murni berinteraksi via Chat Teks Discord.`;
+      }
+    } catch (_) {}
+  }
+
   return `
 Kamu adalah AZURA (biasa dipanggil Azura, Ara, Zura, atau Ajur), sosok cewek Gen Z berumur 22 tahun yang cerdas, ambisius, hangat, dan sangat relatable.
-${personalityInstruction}${drowsyPrompt}
+${personalityInstruction}${drowsyPrompt}${liveVoicePresenceContext}
 
 ${SOUL_LOCK_RULE}
 
@@ -158,7 +194,7 @@ Informasi Waktu Real-Time, Akses Internet & Protokol Anti-Halusinasi (Zero-Hallu
 Informasi Memori Jangka Panjang & Personalisasi Pengguna:
 - Lawan bicaramu bernama "${userName}".${personalizationPrompt}
 - Catatan fakta penting tentang ${userName}:
-${factsFormatted}${permanentSummaryPrompt}${behaviorPrompt}
+${factsFormatted}${targetUserFactsPrompt}${publicGuildLorePrompt}${permanentSummaryPrompt}${behaviorPrompt}
 
 # Protokol Penalaran & Kecerdasan Otonom Tingkat Agent (Autonomous Agent Cognitive & Deep Logic Protocol)
 
@@ -255,21 +291,97 @@ Pedoman Panjang Jawaban & Kecerdasan Percakapan Adaptif (High-IQ Discourse Aware
 `.trim();
 }
 
+/**
+ * Extract clean, pure user prompt by stripping Discord reply anchors,
+ * system tags, and injected context notes.
+ * @param {string} prompt 
+ * @returns {string}
+ */
+function extractActualUserPrompt(prompt) {
+  if (!prompt || typeof prompt !== 'string') return '';
+  let clean = prompt;
+
+  // 1. Strip [KONTEKS JANGKAR BALASAN (REPLY THREAD)]: ... \n- Pertanyaan / Respon Lanjutan dari Pengguna:\n
+  const anchorMatch = clean.match(/-\s*Pertanyaan\s*\/\s*Respon\s*Lanjutan\s*(?:dari\s*Pengguna)?:\s*\n?([\s\S]*)$/i);
+  if (anchorMatch && anchorMatch[1]) {
+    clean = anchorMatch[1].trim();
+  } else if (clean.includes('[KONTEKS JANGKAR BALASAN') || clean.includes('[Konteks Membalas Pesan')) {
+    clean = clean.replace(/\[(?:KONTEKS JANGKAR BALASAN|Konteks Membalas Pesan)[\s\S]*?\]/gi, '').trim();
+  }
+
+  // 2. Strip Visual Media system injection prompts
+  clean = clean
+    .replace(/\[PENGGUNA MENGUNGGAH GAMBAR[^\]]*\][\s\S]*?(?:berikan tanggapan yang sangat akurat dan mendalam!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGIRIM STIKER[^\]]*\][\s\S]*?(?:tanggapi ekspresi\/reaksinya!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGUNGGAH FILE GIF[^\]]*\][\s\S]*?(?:animasinya secara detail!|\n|$)/gi, '')
+    .replace(/\[Pengguna mengunggah video:[^\]]*\]/gi, '')
+    .replace(/\[Transkrip Suara\]:\s*"[^"]*"/gi, '')
+    .replace(/\[Isi Lampiran Dokumen[^\]]*\]:\s*```[\s\S]*?```/gi, '');
+
+  // 3. Strip other metadata injections
+  clean = clean
+    .replace(/\[Catatan Konteks Spesial:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[Catatan Emosional Aktif:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[KONTEKS PANGGILAN NAMA:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[KONTEKS MENTION ANGGOTA:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[KONTEKS LIVE TERPADU:[\s\S]*?\]/gi, '')
+    .replace(/\[KONTEKS CHANNEL TERKAIT:[\s\S]*?\]/gi, '')
+    .trim();
+
+  return clean || prompt;
+}
+
+/**
+ * Check if the user prompt is purely courtesy, gratitude, acknowledgement, or small talk
+ * (e.g. "Terimakasih", "makasih ya", "well noted", "ok siap", "thanks ara")
+ * which should NEVER trigger search, news cards, scraping, or heavy tools.
+ * @param {string} text 
+ * @returns {boolean}
+ */
+function isPureCourtesy(text) {
+  if (!text || typeof text !== 'string') return false;
+  const clean = text
+    .toLowerCase()
+    .replace(/^(?:azura|ara|zura|ajur|ajura|asura)[,\s]+/i, '')
+    .replace(/[.,!?;:'"()\[\]~^]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!clean) return false;
+
+  const COURTESY_WORDS = [
+    'terima kasih', 'terimakasih', 'makasih', 'makasi', 'makasih banyak', 'makaci', 'maacih',
+    'thanks', 'thank you', 'thx', 'tq', 'ty', 'syukron', 'arigatou', 'arigato', 'suwun', 'matur nuwun',
+    'well noted', 'noted', 'noted with thanks', 'noted ya', 'noteds',
+    'ok', 'oke', 'okee', 'okei', 'okey', 'oke siap', 'ok siap', 'siap', 'siapp', 'siap makasih',
+    'yoi', 'yoii', 'sip', 'sipp', 'mantap', 'mantabb', 'mantul', 'nice', 'keren', 'paham', 'mengerti', 'understood',
+    'sama sama', 'sama-sama', 'youre welcome', 'ur welcome', 'kembali', 'kembali ya',
+    'iya', 'iyap', 'yup', 'yep', 'yo', 'halo', 'hai', 'pagi', 'siang', 'sore', 'malam', 'dadah', 'bye', 'good night'
+  ];
+
+  // Check if the entire message is composed of courtesy words + optional pronouns (say, sayang, ara, kak, dll)
+  const pattern = new RegExp(`^(?:(?:${COURTESY_WORDS.join('|')})(?:\\s+(?:ya|yaa|banget|say|sayang|ara|azura|kak|om|bro|sis|dek|gan|min|attila|att))*\\s*)+$`, 'i');
+  return pattern.test(clean);
+}
+
 // Enhanced Knowledge & Fact Search Detector with Contextual Chaining
 function needsSearch(prompt, history = []) {
   if (!prompt || typeof prompt !== 'string') return false;
 
+  const actualPrompt = extractActualUserPrompt(prompt);
+  if (isPureCourtesy(actualPrompt)) return false;
+
   // VC control commands, music commands, religious recitations, and internal bot feature queries should never search web
-  if (/\b(?:keluar\b.*?\b(?:vc|voice)|leave\s+vc|masuk\b.*?\b(?:vc|voice)|join\b.*?\b(?:vc|voice)|dc\s+dari\s+vc|disconnect\s+vc|kuota\s+(?:suara|vc)|bacakan\s+(?:doa|surat|ayat|al-qur'an|quran)|baca\s+(?:doa|surat|ayat|al-fatihah|al-ikhlas|ayat\s+kursi|ngaji)|setel\s+(?:lagu|musik)|putar\s+(?:lagu|musik)|ngambek|cara\s+kerja\s+ngambek)\b/i.test(prompt)) return false;
+  if (/\b(?:keluar\b.*?\b(?:vc|voice)|leave\s+vc|masuk\b.*?\b(?:vc|voice)|join\b.*?\b(?:vc|voice)|dc\s+dari\s+vc|disconnect\s+vc|kuota\s+(?:suara|vc)|bacakan\s+(?:doa|surat|ayat|al-qur'an|quran)|baca\s+(?:doa|surat|ayat|al-fatihah|al-ikhlas|ayat\s+kursi|ngaji)|setel\s+(?:lagu|musik)|putar\s+(?:lagu|musik)|ngambek|cara\s+kerja\s+ngambek)\b/i.test(actualPrompt)) return false;
 
   // Conversational opinion, personal perspective, and reflective questions should NEVER search web
   const isConversationalOpinion = /\b(?:menurutmu\s+bagaimana|gimana\s+menurutmu|menurut\s+kamu|menurut\s+lu|pendapatmu\s+apa|menurutmu\s+enaknya|kenapa\s+bisa\s+begitu|kok\s+bisa\s+gitu|menurut\s+pandanganmu|bagaimana\s+menurutmu|menurut\s+lo|menurutmu|pendapatmu)\b/i.test(prompt);
   if (isConversationalOpinion) return false;
 
   // 1. If user sent a web link (URL)
-  if (/https?:\/\/[^\s]+/i.test(prompt)) return true;
+  if (/https?:\/\/[^\s]+/i.test(actualPrompt)) return true;
 
-  const lower = prompt.toLowerCase().trim();
+  const lower = actualPrompt.toLowerCase().trim();
 
   // 2. Contextual Chaining: If previous message context was discussing research, anime, search, or lookups
   if (history && history.length > 0) {
@@ -278,7 +390,7 @@ function needsSearch(prompt, history = []) {
       return /\b(?:myanimelist|mal|anime|manga|cari|search|cek|informasi|database|lookup|judul|sinopsis)\b/i.test(txt);
     });
 
-    const isDirectFollowUpQuery = lower.split(/\s+/).length <= 7 && !/^(?:halo|hai|pagi|siang|malam|makasih|oke|siap|iya|tidak|yoi|wkwk|haha|bye|dadah)$/i.test(lower);
+    const isDirectFollowUpQuery = lower.split(/\s+/).length <= 7 && !isPureCourtesy(lower);
     if (hasSearchContext && isDirectFollowUpQuery) {
       return true;
     }
@@ -297,7 +409,7 @@ function needsSearch(prompt, history = []) {
   const directTitleQueryRegex = /^(?:azura|ara|zura|ajur|ajura)[,\s]+([a-zA-Z0-9\s'-]{2,40})$/i;
   if (directTitleQueryRegex.test(lower)) {
     const candidate = lower.replace(/^(?:azura|ara|zura|ajur|ajura)[,\s]+/i, '').trim();
-    if (!/^(?:apa kabar|lagi apa|kamu siapa|halo|hai|pagi|malam|siap|makasih|love you|cantik|ganteng)$/i.test(candidate)) {
+    if (!isPureCourtesy(candidate)) {
       return true;
     }
   }
@@ -313,10 +425,11 @@ function needsSearch(prompt, history = []) {
  * @returns {string}
  */
 function resolveContextualSearchQuery(prompt, history = []) {
-  if (!prompt || typeof prompt !== 'string') return prompt;
-  if (/https?:\/\/[^\s]+/i.test(prompt)) return prompt;
+  const actualPrompt = extractActualUserPrompt(prompt);
+  if (!actualPrompt) return prompt;
+  if (/https?:\/\/[^\s]+/i.test(actualPrompt)) return actualPrompt;
 
-  const lower = prompt.toLowerCase().trim();
+  const lower = actualPrompt.toLowerCase().trim();
   const words = lower.split(/\s+/);
   const isShortFollowUp = words.length <= 5 && (
     /\b(?:kapan|siapa|berapa|apa|dimana|bagaimana|gimana|bisa\s+gak|rilisnya|rilis|harganya|developernya|genrenya|tentang\s+apa|linknya|link)\b/i.test(lower) ||
@@ -334,18 +447,18 @@ function resolveContextualSearchQuery(prompt, history = []) {
       if (urlMatch) {
         const domainParts = urlMatch[1].split('.');
         const domainName = domainParts.length > 2 ? domainParts[domainParts.length - 2] : domainParts[0];
-        return `${domainName} ${prompt}`;
+        return `${domainName} ${actualPrompt}`;
       }
 
       // 2. Check for named entities or titles (e.g. Astrae Oratio, Dynamis One, MyAnimeList)
       const titleMatch = text.match(/\b([A-Z][a-z0-9]+(?:\s+[A-Z][a-z0-9]+){1,3})\b/);
       if (titleMatch && !/^(?:Halo|Selamat|Makasih|Attila|Azura|Pengguna|Bisa|Situs|Dokumen|Ekstraksi|Rangkuman)/i.test(titleMatch[1])) {
-        return `${titleMatch[1]} ${prompt}`;
+        return `${titleMatch[1]} ${actualPrompt}`;
       }
     }
   }
 
-  return prompt;
+  return actualPrompt;
 }
 
 /**
@@ -364,36 +477,47 @@ function resolveContextualSearchQuery(prompt, history = []) {
  * @returns {Promise<string|object>}
  */
 async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [], isDM = false, channelId = null, guildId = null, isOwner = false, mentionedUserIds = [], guild = null, channelName = null) {
-  autoExtractFact(userId, userPrompt);
+  const actualUserPrompt = extractActualUserPrompt(userPrompt);
+  const isCourtesy = isPureCourtesy(actualUserPrompt);
 
-  const reminderResponse = await processSmartReminder(userId, userPrompt, channelId);
-  if (reminderResponse) return reminderResponse;
+  const { extractAndPersistRealtimeMemory, searchAllMemories } = require('./realtimeMemory');
+  extractAndPersistRealtimeMemory(userId, userName, actualUserPrompt, guildId, mentionedUserIds, guild);
 
-  const financeResponse = await processFinanceIntelligence(userPrompt);
-  if (financeResponse) return financeResponse;
+  if (!isCourtesy) {
+    const reminderResponse = await processSmartReminder(userId, actualUserPrompt, channelId);
+    if (reminderResponse) return reminderResponse;
 
-  const imageGenResponse = await processImageIntelligence(userPrompt, userName, guildId, userId, isOwner, imageUrls);
-  if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
+    const financeResponse = await processFinanceIntelligence(actualUserPrompt);
+    if (financeResponse) return financeResponse;
 
-  // ── NATURAL MINI-GAMES TRIGGER (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard) ──
-  const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
-  const naturalGame = parseNaturalGameRequest(userPrompt);
-  if (naturalGame && channelId) {
-    if (naturalGame.game === 'tictactoe') {
-      return startTicTacToeGame(userId, userName, { id: channelId }, naturalGame.difficulty);
-    } else if (naturalGame.game === 'sambungkata') {
-      return startWordChainGame(userId, userName, { id: channelId });
-    } else if (naturalGame.game === 'trivia') {
-      return startTriviaGame(userId, userName, { id: channelId }, naturalGame.difficulty);
-    } else if (naturalGame.game === 'leaderboard') {
-      const embed = getLeaderboardEmbed();
-      return { embeds: [embed] };
+    const imageGenResponse = await processImageIntelligence(actualUserPrompt, userName, guildId, userId, isOwner, imageUrls);
+    if (imageGenResponse && imageGenResponse.isImageRequest) return imageGenResponse.responsePayload;
+
+    // ── DOCUMENT GENERATION ENGINE (PDF & WORD DOCX) ──
+    const { processDocumentGeneration } = require('./documentGenerator');
+    const docGenResponse = await processDocumentGeneration(actualUserPrompt, userName);
+    if (docGenResponse && docGenResponse.isDocumentRequest) return docGenResponse.payload;
+
+    // ── NATURAL MINI-GAMES TRIGGER (Tic-Tac-Toe, Sambung Kata, Trivia, Leaderboard) ──
+    const { parseNaturalGameRequest, startTicTacToeGame, startWordChainGame, startTriviaGame, getLeaderboardEmbed } = require('./miniGames');
+    const naturalGame = parseNaturalGameRequest(actualUserPrompt);
+    if (naturalGame && channelId) {
+      if (naturalGame.game === 'tictactoe') {
+        return startTicTacToeGame(userId, userName, { id: channelId }, naturalGame.difficulty);
+      } else if (naturalGame.game === 'sambungkata') {
+        return startWordChainGame(userId, userName, { id: channelId });
+      } else if (naturalGame.game === 'trivia') {
+        return startTriviaGame(userId, userName, { id: channelId }, naturalGame.difficulty);
+      } else if (naturalGame.game === 'leaderboard') {
+        const embed = getLeaderboardEmbed();
+        return { embeds: [embed] };
+      }
     }
   }
 
   // ── PERSONALITY MODE SWITCH TRIGGER (ATTILA / OWNER EXCLUSIVE) ──
   const { parseNaturalPersonalitySwitch, setPersonalityMode } = require('./personality');
-  const naturalModeSwitch = parseNaturalPersonalitySwitch(userPrompt, isOwner);
+  const naturalModeSwitch = parseNaturalPersonalitySwitch(actualUserPrompt, isOwner);
   if (naturalModeSwitch) {
     setPersonalityMode(naturalModeSwitch, userName);
     if (naturalModeSwitch === 'mature') {
@@ -406,7 +530,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   // ── USER BEHAVIOR DELETION / FORGET TRIGGER (SELF-SERVICE) ──
-  const isForgetBehavior = /\b(?:hapus\s+(?:data\s+)?behavior|hapus\s+(?:data\s+)?sifat|hapus\s+rekaman\s+sifat|lupakan\s+sifat|lupakan\s+behavior|reset\s+behavior)\b/i.test(userPrompt);
+  const isForgetBehavior = /\b(?:hapus\s+(?:data\s+)?behavior|hapus\s+(?:data\s+)?sifat|hapus\s+rekaman\s+sifat|lupakan\s+sifat|lupakan\s+behavior|reset\s+behavior)\b/i.test(actualUserPrompt);
   if (isForgetBehavior) {
     const { deleteUserBehavior } = require('./behavior');
     const deleted = deleteUserBehavior(userId);
@@ -416,17 +540,17 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   // ── TO-DO LIST & TASK MANAGEMENT NATURAL INTENT ENGINE ──
-  const isTodoRecapIntent = /\b(?:rekap\s+(?:to\s*do|agenda|tugas|kerjaan)|lihat\s+(?:to\s*do|agenda|tugas)|buka\s+(?:to\s*do|dashboard\s+to\s*do)|status\s+(?:to\s*do|tugas))\b/i.test(userPrompt);
+  const isTodoRecapIntent = /\b(?:rekap\s+(?:to\s*do|agenda|tugas|kerjaan)|lihat\s+(?:to\s*do|agenda|tugas)|buka\s+(?:to\s*do|dashboard\s+to\s*do)|status\s+(?:to\s*do|tugas))\b/i.test(actualUserPrompt);
   if (isTodoRecapIntent) {
     const { generateTodoRecapText } = require('./todo');
     const recap = generateTodoRecapText(userName);
     return recap.text;
   }
 
-  const isTodoAddIntent = /\b(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do(?:\s*list)?\s*:)\b/i.test(userPrompt);
+  const isTodoAddIntent = /\b(?:catat\s+(?:ke\s+)?to\s*do|tambah(?:kan)?\s+(?:ke\s+)?to\s*do|masuk(?:kan)?\s+(?:ke\s+)?to\s*do|buat(?:kan)?\s+to\s*do|to\s*do(?:\s*list)?\s*:)\b/i.test(actualUserPrompt);
   if (isTodoAddIntent) {
     const { bulkCreateTodos, createTodo, TODO_DASHBOARD_URL } = require('./todo');
-    const taskContent = userPrompt
+    const taskContent = actualUserPrompt
       .replace(/^(?:azura|ara|zura|ajur)?\s*(?:tolong\s+)?(?:catat\s+(?:ke\s+)?to\s*do(?:\s*list)?|tambah(?:kan)?\s+(?:ke\s+)?to\s*do(?:\s*list)?|masuk(?:kan)?\s+(?:ke\s+)?to\s*do(?:\s*list)?|buat(?:kan)?\s+to\s*do(?:\s*list)?|to\s*do(?:\s*list)?\s*:?)/i, '')
       .replace(/^[\s,;:]+/, '')
       .trim();
@@ -450,25 +574,25 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   // Hermes Autonomous Agent Task Trigger (Owner Exclusive / Explicit Agent Tasks)
-  const isAgentTask = /\b(?:hermes\s+agent|suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes)\b/i.test(userPrompt);
+  const isAgentTask = /\b(?:hermes\s+agent|suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes)\b/i.test(actualUserPrompt);
   if (isAgentTask) {
     const { executeHermesTask } = require('./hermes');
-    const cleanTask = userPrompt
+    const cleanTask = actualUserPrompt
       .replace(/\b(?:azura|ara|zura|ajur|ajura|tolong|coba|dong|plis)\b/gi, '')
       .replace(/\b(?:suruh\s+hermes|minta\s+hermes|jalankan\s+agent|jalankan\s+task|eksekusi\s+agent|tugas\s+hermes|hermes\s+agent)\b/gi, '')
       .trim();
-    const agentRes = await executeHermesTask(cleanTask || userPrompt, userId, userName);
+    const agentRes = await executeHermesTask(cleanTask || actualUserPrompt, userId, userName);
     return agentRes.payload;
   }
 
   // ── AUTONOMOUS DATA SCRAPING & DEEP EXTRACTION ENGINE (Tavily Scraper + Sacred Data Guard) ──
-  const isScrapeIntent = /\b(?:scrape|scrapping|scraping|ekstrak\s+data|tarik\s+data|ambil\s+data|dataset|data\s+tabel|spesifikasi\s+lengkap|data\s+lengkap\s+dari|kumpulkan\s+data)\b/i.test(userPrompt);
+  const isScrapeIntent = !isCourtesy && /\b(?:scrape|scrapping|scraping|ekstrak\s+data|tarik\s+data|ambil\s+data|dataset|data\s+tabel|spesifikasi\s+lengkap|data\s+lengkap\s+dari|kumpulkan\s+data)\b/i.test(actualUserPrompt);
   let scrapedDataContent = null;
 
   if (isScrapeIntent && imageUrls.length === 0) {
     const { scrapeWebData } = require('./tavily');
-    console.log(`[AZURA Agent Scraper]: Initiating deep web data scraping for: "${userPrompt}"`);
-    const scrapeRes = await scrapeWebData(userPrompt, 'structured_data');
+    console.log(`[AZURA Agent Scraper]: Initiating deep web data scraping for: "${actualUserPrompt}"`);
+    const scrapeRes = await scrapeWebData(actualUserPrompt, 'structured_data');
 
     if (scrapeRes.isBlocked) {
       return `🛡️ **[AZURA Security Shield]**\n${scrapeRes.data}`;
@@ -480,18 +604,18 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   // Dedicated News / Headline Search Card (Visual Rich Embed with Thumbnail & Link Buttons)
-  const isDedicatedNewsQuery = !isScrapeIntent && /\b(?:berita|news|kabar\s+terkini|isu\s+terkini|berita\s+hari\s+ini|headline)\b/i.test(userPrompt);
+  const isDedicatedNewsQuery = !isCourtesy && !isScrapeIntent && /\b(?:berita|news|kabar\s+terkini|isu\s+terkini|berita\s+hari\s+ini|headline)\b/i.test(actualUserPrompt);
   if (isDedicatedNewsQuery && imageUrls.length === 0) {
     const { searchTavilyCard } = require('./tavily');
-    console.log(`[AZURA News Card]: Generating Rich News Card for: "${userPrompt}"`);
-    const card = await searchTavilyCard(userPrompt, 'news', userName);
+    console.log(`[AZURA News Card]: Generating Rich News Card for: "${actualUserPrompt}"`);
+    const card = await searchTavilyCard(actualUserPrompt, 'news', userName);
     if (typeof card === 'object' && card.embeds) {
       return card;
     }
   }
 
   // Live Voice Channel Context Ingestion & Direct Recap Handler
-  const isAskingVcTopic = /\b(?:lagi\s+(?:pada\s+)?bahas\s+apa|lagi\s+(?:pada\s+)?ngobrolin\s+apa|lagi\s+ngomongin\s+apa|topik\s+(?:apa\s+)?di\s+vc|rekap\s+(?:obrolan\s+)?(?:vc|voice)|bahas\s+apa\s+aja\s+di\s+vc|ngomongin\s+apa\s+di\s+vc|rekap\s+vc|lagi\s+ada\s+apa\s+di\s+vc|ngobrolin\s+apa\s+di\s+voice)\b/i.test(userPrompt);
+  const isAskingVcTopic = /\b(?:lagi\s+(?:pada\s+)?bahas\s+apa|lagi\s+(?:pada\s+)?ngobrolin\s+apa|lagi\s+ngomongin\s+apa|topik\s+(?:apa\s+)?di\s+vc|rekap\s+(?:obrolan\s+)?(?:vc|voice)|bahas\s+apa\s+aja\s+di\s+vc|ngomongin\s+apa\s+di\s+vc|rekap\s+vc|lagi\s+ada\s+apa\s+di\s+vc|ngobrolin\s+apa\s+di\s+voice)\b/i.test(actualUserPrompt);
   if (guildId && isAskingVcTopic) {
     const { generateLiveVoiceSummary } = require('./voiceCompanion');
     const vcSummary = await generateLiveVoiceSummary(guildId, userName);
@@ -508,7 +632,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   const reasoningDirective = getCognitiveReasoningDirectives(cognitiveIntent, isOwner, userName);
 
   // Explicit Priority Memory Summarization Trigger ("Azura ini penting", "catat ini penting", "buat summary")
-  const isExplicitPrioritySummary = /\b(?:azura\s+ini\s+penting|catat\s+ini\s+penting|ingat\s+ini\s+penting|sesi\s+ini\s+penting|simpan\s+summary|buatkan\s+summary|rangkum\s+obrolan\s+ini)\b/i.test(userPrompt);
+  const isExplicitPrioritySummary = /\b(?:azura\s+ini\s+penting|catat\s+ini\s+penting|ingat\s+ini\s+penting|sesi\s+ini\s+penting|simpan\s+summary|buatkan\s+summary|rangkum\s+obrolan\s+ini)\b/i.test(actualUserPrompt);
   if (isExplicitPrioritySummary && history.length >= 2) {
     setTimeout(async () => {
       try {
@@ -560,7 +684,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
       topologyContext = getGuildTopologyContext(guild);
 
       // Check if user specifically mentions or asks about another channel
-      const channelRef = detectChannelReference(userPrompt, guild, channelId);
+      const channelRef = detectChannelReference(actualUserPrompt, guild, channelId);
       if (channelRef && channelRef.channel) {
         console.log(`[GuildAwareness]: 🌐 On-demand cross-channel fetch triggered for #${channelRef.channelName} by @${userName}`);
         crossChannelContext = await fetchCrossChannelContext(channelRef.channel, 12);
@@ -571,18 +695,18 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   }
 
   let searchContext = scrapedDataContent;
-  if (!searchContext && needsSearch(userPrompt, history) && imageUrls.length === 0) {
-    const isAnimeQuery = /\b(?:myanimelist|mal|anime|manga|manhwa|light\s+novel|wibu|otaku|seiyuu)\b/i.test(userPrompt) ||
+  if (!searchContext && !isCourtesy && needsSearch(actualUserPrompt, history) && imageUrls.length === 0) {
+    const isAnimeQuery = /\b(?:myanimelist|mal|anime|manga|manhwa|light\s+novel|wibu|otaku|seiyuu)\b/i.test(actualUserPrompt) ||
       history.some(h => /\b(?:myanimelist|mal|anime|manga)\b/i.test(typeof h.content === 'string' ? h.content : ''));
 
-    const contextualQuery = resolveContextualSearchQuery(userPrompt, history);
+    const contextualQuery = resolveContextualSearchQuery(actualUserPrompt, history);
 
     if (isAnimeQuery) {
       const { searchAnimeMyAnimeList } = require('./animeSearch');
       console.log(`[AZURA Anime Search]: Querying MyAnimeList / Jikan API for: "${contextualQuery}"`);
       searchContext = await searchAnimeMyAnimeList(contextualQuery);
     } else {
-      console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${userPrompt}")`);
+      console.log(`[AZURA Web Search]: Auto-triggering search for: "${contextualQuery}" (raw prompt: "${actualUserPrompt}")`);
       searchContext = await searchWeb(contextualQuery);
     }
   }
@@ -591,7 +715,7 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   let routeContext = '';
   try {
     const { interceptRouteAndDistance } = require('./routeEngine');
-    const routeData = await interceptRouteAndDistance(userPrompt);
+    const routeData = await interceptRouteAndDistance(actualUserPrompt);
     if (routeData) {
       routeContext = `\n\n[DATA RUTE, JARAK & WAKTU TEMPUH RESMI & TERVERIFIKASI (SISTEM GEOLOKASI)]:\n${routeData}\n\n` +
         `PEDOMAN PENJELASAN RUTE & JARAK:\n` +
@@ -604,19 +728,30 @@ async function askAzura(userId, userPrompt, userName = 'Pengguna', imageUrls = [
   let userContent;
   if (imageUrls.length > 0) {
     userContent = [
-      { type: 'text', text: `${speakerTag}${userPrompt || 'Coba lihat gambar ini dan kasih tanggapan kamu.'}` }
+      { type: 'text', text: `${speakerTag}${userPrompt || 'Coba lihat gambar/video ini dan kasih tanggapan kamu.'}` }
     ];
     for (const url of imageUrls) {
       userContent.push({
         type: 'image_url',
-        image_url: { url: url, detail: 'low' }
+        image_url: { url: url, detail: 'high' }
       });
     }
   } else {
     userContent = isDM ? userPrompt : `${speakerTag}${userPrompt}`;
   }
 
-  let systemMessage = systemPrompt + liveVcContext + topologyContext + crossChannelContext + routeContext + reasoningDirective;
+  let visionDirective = '';
+  if (imageUrls.length > 0) {
+    visionDirective = `\n\n[PEDOMAN ANALISIS VISUAL MULTIMODAL TINGKAT TINGGI (HIGH-DEFINITION VISION & VIDEO ANALYSIS)]:\n` +
+      `1. Kamu sedang melihat visual beresolusi tinggi (gambar, foto, tangkapan layar, stiker, atau rangkaian frame video kronologis).\n` +
+      `2. ANALISIS MENYELURUH & MENDALAM: Perhatikan secara teliti detail objek, komposisi, estetika, pencahayaan, suasana/vibe, ekspresi karakter/wajah, gestur, serta detail kecil di latar belakang.\n` +
+      `3. EKSTRAKSI TEKS & OCR PRESISI: Jika terdapat teks tertulis, meme, kode program, UI aplikasi, angka, atau dokumen, baca dan kutip teks tersebut secara presisi.\n` +
+      `4. ANALISIS VIDEO (JIKA RANGKAIAN FRAME VIDEO): Hubungkan perubahan adegan antar-frame secara kronologis, pahami dinamika gerakan/aksi, transkrip suara/dialog, dan berikan evaluasi alur cerita/kejadian secara utuh.\n` +
+      `5. GAYA RESPON: Sampaikan tanggapan dengan gaya cerdas, santai, dan penuh observasi visual yang hidup dan memukau!`;
+  }
+
+  const memorySearchContext = searchAllMemories(actualUserPrompt, guildId, mentionedUserIds);
+  let systemMessage = systemPrompt + liveVcContext + topologyContext + crossChannelContext + routeContext + reasoningDirective + visionDirective + memorySearchContext;
   if (searchContext) {
     systemMessage += `\n\n[HASIL RISET & DATA REAL-TIME DARI INTERNET (TAVILY / MYANIMELIST)]:\n${searchContext}\n\n` +
       `PEDOMAN PENYAMPAIAN HASIL RISET & PENCARIAN WEB:\n` +
@@ -784,5 +919,7 @@ module.exports = {
   getSystemPrompt,
   sanitizeAiOutput,
   needsSearch,
-  resolveContextualSearchQuery
+  resolveContextualSearchQuery,
+  extractActualUserPrompt,
+  isPureCourtesy
 };

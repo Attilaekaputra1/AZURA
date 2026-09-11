@@ -8,9 +8,15 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const QUOTA_FILE = path.join(DATA_DIR, 'voice_quota.enc');
 const MEMBER_VC_QUOTA_FILE = path.join(DATA_DIR, 'member_vc_quota.enc');
 
-// Default monthly limit (40,000 characters as indicated by user dashboard)
-const DEFAULT_MONTHLY_LIMIT = 40000;
 const MAX_MEMBER_DAILY_VC = 3;
+
+// Dashboard-verified total credits (source: ElevenLabs dashboard screenshot)
+// API key may lack 'user_read' permission, so this serves as the known baseline
+const DASHBOARD_TOTAL_CREDITS = 90000;
+
+// Auto-sync interval: every 30 minutes
+const SYNC_INTERVAL_MS = 30 * 60 * 1000;
+let _lastSyncTimestamp = 0;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -41,13 +47,17 @@ function loadQuotaData() {
     console.error('[VoiceQuota Error]: Failed to read secure voice_quota.enc:', err.message);
   }
 
-  // New month or fresh initialization
+  // New month or fresh initialization — will be overwritten on first API sync
   const freshData = {
     monthKey: currentMonth,
-    usedChars: 0,
-    maxMonthlyChars: DEFAULT_MONTHLY_LIMIT,
+    usedCredits: 0,
+    totalCredits: DASHBOARD_TOTAL_CREDITS,
+    remainingCredits: DASHBOARD_TOTAL_CREDITS,
+    tier: 'unknown',
+    nextResetDate: '-',
     warning80Sent: false,
     warning100Sent: false,
+    lastApiSync: null,
     updatedAt: new Date().toISOString()
   };
   saveQuotaData(freshData);
@@ -125,9 +135,14 @@ function consumeMemberDailyVcQuota(userId) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  LIVE ELEVENLABS API SYNC (Source of Truth)
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * Fetch live subscription & quota data directly from ElevenLabs API
- * @returns {Promise<{ character_count: number, character_limit: number, percent: string, status: string, tier: string, next_reset: string }>}
+ * Syncs local cache with real dashboard numbers (credits-based)
+ * @returns {Promise<{ character_count: number, character_limit: number, remaining: number, percent: string, status: string, tier: string, next_reset: string }>}
  */
 function fetchLiveElevenLabsQuota() {
   return new Promise((resolve) => {
@@ -135,11 +150,12 @@ function fetchLiveElevenLabsQuota() {
     if (!apiKey) {
       const fallback = getQuotaStatus();
       return resolve({
-        character_count: fallback.usedChars,
-        character_limit: fallback.maxMonthlyChars,
+        character_count: fallback.usedCredits,
+        character_limit: fallback.totalCredits,
+        remaining: fallback.remainingCredits,
         percent: fallback.percentage,
-        status: 'local_tracking',
-        tier: 'free',
+        status: 'no_api_key',
+        tier: 'unknown',
         next_reset: '-'
       });
     }
@@ -152,65 +168,101 @@ function fetchLiveElevenLabsQuota() {
         'xi-api-key': apiKey,
         'User-Agent': 'AZURA-Bot/3.0'
       },
-      timeout: 6000
+      timeout: 8000
     }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
+      let rawData = '';
+      res.on('data', chunk => rawData += chunk);
       res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.character_count !== undefined && json.character_limit !== undefined) {
-            const count = json.character_count;
-            const limit = json.character_limit;
-            const percent = limit > 0 ? ((count / limit) * 100).toFixed(1) : '0.0';
-            let resetDateStr = '-';
-            if (json.next_character_count_reset_unix) {
-              resetDateStr = new Date(json.next_character_count_reset_unix * 1000).toLocaleDateString('id-ID', {
-                year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta'
-              });
-            }
-
-            // Sync with local tracking file
-            const local = loadQuotaData();
-            local.usedChars = count;
-            local.maxMonthlyChars = limit;
+        // Handle auth errors gracefully (API key missing 'user_read' permission)
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          console.warn(`[VoiceQuota]: ⚠️ ElevenLabs API returned ${res.statusCode} (API key lacks 'user_read' permission). Using local tracking with dashboard baseline (${DASHBOARD_TOTAL_CREDITS.toLocaleString('id-ID')} credits).`);
+          const local = loadQuotaData();
+          if (local.totalCredits === 0) {
+            local.totalCredits = DASHBOARD_TOTAL_CREDITS;
+            local.remainingCredits = Math.max(0, DASHBOARD_TOTAL_CREDITS - local.usedCredits);
             saveQuotaData(local);
+          }
+          _lastSyncTimestamp = Date.now();
+          return resolve({
+            character_count: local.usedCredits,
+            character_limit: local.totalCredits,
+            remaining: local.remainingCredits,
+            percent: local.totalCredits > 0 ? ((local.usedCredits / local.totalCredits) * 100).toFixed(1) : '0.0',
+            status: 'api_permission_denied',
+            tier: local.tier || 'starter',
+            next_reset: local.nextResetDate || '-'
+          });
+        }
 
-            return resolve({
-              character_count: count,
-              character_limit: limit,
-              percent: percent,
-              status: json.status || 'active',
-              tier: json.tier || 'starter',
-              next_reset: resetDateStr
+        try {
+          const json = JSON.parse(rawData);
+
+          // ElevenLabs API returns character_count and character_limit
+          const used = json.character_count ?? 0;
+          const total = json.character_limit ?? 0;
+          const remaining = Math.max(0, total - used);
+          const percent = total > 0 ? ((used / total) * 100).toFixed(1) : '0.0';
+
+          let resetDateStr = '-';
+          if (json.next_character_count_reset_unix) {
+            resetDateStr = new Date(json.next_character_count_reset_unix * 1000).toLocaleDateString('id-ID', {
+              year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jakarta'
             });
           }
+
+          const tier = json.tier || 'unknown';
+
+          // Sync local cache with live API data
+          const local = loadQuotaData();
+          local.usedCredits = used;
+          local.totalCredits = total;
+          local.remainingCredits = remaining;
+          local.tier = tier;
+          local.nextResetDate = resetDateStr;
+          local.lastApiSync = new Date().toISOString();
+          saveQuotaData(local);
+
+          _lastSyncTimestamp = Date.now();
+          console.log(`[VoiceQuota]: ✅ Synced with ElevenLabs API — ${used.toLocaleString('id-ID')} / ${total.toLocaleString('id-ID')} credits used (${percent}%) | Tier: ${tier} | Reset: ${resetDateStr}`);
+
+          return resolve({
+            character_count: used,
+            character_limit: total,
+            remaining,
+            percent,
+            status: json.status || 'active',
+            tier,
+            next_reset: resetDateStr
+          });
         } catch (e) {
-          console.error('[VoiceQuota Live API Parse Error]:', e.message);
+          console.error('[VoiceQuota API Parse Error]:', e.message);
         }
-        // Fallback to local
+
+        // Fallback to local cache
         const fallback = getQuotaStatus();
         resolve({
-          character_count: fallback.usedChars,
-          character_limit: fallback.maxMonthlyChars,
+          character_count: fallback.usedCredits,
+          character_limit: fallback.totalCredits,
+          remaining: fallback.remainingCredits,
           percent: fallback.percentage,
-          status: 'cached',
-          tier: 'starter',
-          next_reset: '-'
+          status: 'parse_error_cached',
+          tier: fallback.tier,
+          next_reset: fallback.nextResetDate
         });
       });
     });
 
     req.on('error', (err) => {
-      console.error('[VoiceQuota Live API Error]:', err.message);
+      console.error('[VoiceQuota API Error]:', err.message);
       const fallback = getQuotaStatus();
       resolve({
-        character_count: fallback.usedChars,
-        character_limit: fallback.maxMonthlyChars,
+        character_count: fallback.usedCredits,
+        character_limit: fallback.totalCredits,
+        remaining: fallback.remainingCredits,
         percent: fallback.percentage,
-        status: 'cached',
-        tier: 'starter',
-        next_reset: '-'
+        status: 'error_cached',
+        tier: fallback.tier,
+        next_reset: fallback.nextResetDate
       });
     });
 
@@ -218,12 +270,13 @@ function fetchLiveElevenLabsQuota() {
       req.destroy();
       const fallback = getQuotaStatus();
       resolve({
-        character_count: fallback.usedChars,
-        character_limit: fallback.maxMonthlyChars,
+        character_count: fallback.usedCredits,
+        character_limit: fallback.totalCredits,
+        remaining: fallback.remainingCredits,
         percent: fallback.percentage,
         status: 'timeout_cached',
-        tier: 'starter',
-        next_reset: '-'
+        tier: fallback.tier,
+        next_reset: fallback.nextResetDate
       });
     });
 
@@ -232,7 +285,33 @@ function fetchLiveElevenLabsQuota() {
 }
 
 /**
- * Check if ElevenLabs can be used
+ * Background auto-sync: called periodically to keep local cache accurate
+ */
+function backgroundSyncIfNeeded() {
+  const elapsed = Date.now() - _lastSyncTimestamp;
+  if (elapsed >= SYNC_INTERVAL_MS) {
+    fetchLiveElevenLabsQuota().catch(() => {});
+  }
+}
+
+// Auto-sync on module load (startup)
+setTimeout(() => {
+  fetchLiveElevenLabsQuota().then(() => {
+    console.log('[VoiceQuota]: 🚀 Initial startup sync completed.');
+  }).catch(() => {});
+}, 5000);
+
+// Periodic auto-sync every 30 minutes
+setInterval(() => {
+  fetchLiveElevenLabsQuota().catch(() => {});
+}, SYNC_INTERVAL_MS);
+
+// ═══════════════════════════════════════════════════════════════════
+//  CORE QUOTA FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check if ElevenLabs can be used (always true — let API handle actual limits)
  * @returns {boolean}
  */
 function canUseElevenLabs() {
@@ -246,24 +325,28 @@ function canUseElevenLabs() {
  */
 async function recordVoiceUsage(charCount, client = null) {
   const data = loadQuotaData();
-  data.usedChars += charCount;
+  data.usedCredits += charCount;
+  data.remainingCredits = Math.max(0, data.totalCredits - data.usedCredits);
 
-  const usageRatio = data.usedChars / data.maxMonthlyChars;
-  const percentage = (usageRatio * 100).toFixed(1);
+  const usagePercent = data.totalCredits > 0
+    ? ((data.usedCredits / data.totalCredits) * 100).toFixed(1)
+    : '0.0';
 
-  console.log(`[VoiceQuota]: Recorded +${charCount} chars. Total this month: ${data.usedChars} / ${data.maxMonthlyChars} (${percentage}%)`);
+  console.log(`[VoiceQuota]: +${charCount} credits → ${data.usedCredits.toLocaleString('id-ID')} / ${data.totalCredits.toLocaleString('id-ID')} (${usagePercent}%) | Sisa: ${data.remainingCredits.toLocaleString('id-ID')}`);
 
-  // Warning at 80% (32,000 chars)
+  const usageRatio = data.totalCredits > 0 ? data.usedCredits / data.totalCredits : 0;
+
+  // Warning at 80%
   if (usageRatio >= 0.8 && !data.warning80Sent && client && config.OWNER_DISCORD_ID) {
     data.warning80Sent = true;
     try {
       const owner = await client.users.fetch(config.OWNER_DISCORD_ID);
       if (owner) {
         await owner.send(
-          `⚠️ **[PERINGATAN KUOTA VOICE ELEVENLABS - 80%]**\n` +
-          `Penggunaan karakter ElevenLabs bulan ini telah mencapai **${data.usedChars.toLocaleString('id-ID')} / ${data.maxMonthlyChars.toLocaleString('id-ID')} karakter (${percentage}%)**.\n` +
-          `Sisa kuota: **${(data.maxMonthlyChars - data.usedChars).toLocaleString('id-ID')} karakter** (~${Math.floor((data.maxMonthlyChars - data.usedChars) / 150)} percakapan lagi).\n\n` +
-          `*Begitu kuota mencapai 100%, AZURA akan otomatis beralih ke OpenAI TTS (nova) agar kamu tidak terkena biaya tambahan.*`
+          `⚠️ **[PERINGATAN KUOTA VOICE ELEVENLABS — 80%]**\n` +
+          `Penggunaan ElevenLabs bulan ini: **${data.usedCredits.toLocaleString('id-ID')} / ${data.totalCredits.toLocaleString('id-ID')} credits (${usagePercent}%)**.\n` +
+          `Sisa kuota: **${data.remainingCredits.toLocaleString('id-ID')} credits**.\n\n` +
+          `*Begitu kuota mencapai 100%, AZURA akan otomatis beralih ke OpenAI TTS (nova).*`
         );
         console.log('[VoiceQuota]: Sent 80% quota warning to Owner DM.');
       }
@@ -272,17 +355,17 @@ async function recordVoiceUsage(charCount, client = null) {
     }
   }
 
-  // Alert at 100% (40,000 chars) -> Auto-fallback activated
+  // Alert at 100% -> Auto-fallback activated
   if (usageRatio >= 1.0 && !data.warning100Sent && client && config.OWNER_DISCORD_ID) {
     data.warning100Sent = true;
     try {
       const owner = await client.users.fetch(config.OWNER_DISCORD_ID);
       if (owner) {
         await owner.send(
-          `🛑 **[KUOTA VOICE ELEVENLABS HABIS (100%) - AUTO-FALLBACK AKTIF]**\n` +
-          `Penggunaan karakter ElevenLabs bulan ini telah mencapai batas **${data.maxMonthlyChars.toLocaleString('id-ID')} karakter**.\n\n` +
+          `🛑 **[KUOTA VOICE ELEVENLABS HABIS (100%) — AUTO-FALLBACK AKTIF]**\n` +
+          `Penggunaan ElevenLabs bulan ini telah mencapai batas **${data.totalCredits.toLocaleString('id-ID')} credits**.\n\n` +
           `🛡️ **Pengamanan Otomatis:**\n` +
-          `AZURA sekarang otomatis mengalihkan seluruh suara Voice Channel & Voice Note ke **OpenAI TTS (suara Nova)**. Kamu tetap bisa ngobrol normal tanpa takut kena tagihan overage di kartu kredit kamu!`
+          `AZURA sekarang otomatis beralih ke **OpenAI TTS (Nova)**. Kamu tetap bisa ngobrol normal tanpa kena biaya tambahan!`
         );
         console.log('[VoiceQuota]: Sent 100% quota auto-fallback alert to Owner DM.');
       }
@@ -292,25 +375,36 @@ async function recordVoiceUsage(charCount, client = null) {
   }
 
   saveQuotaData(data);
+
+  // Trigger background sync if stale
+  backgroundSyncIfNeeded();
 }
 
 /**
- * Get formatted quota status report
+ * Get formatted quota status report (from local cache, synced with API)
  */
 function getQuotaStatus() {
   const data = loadQuotaData();
-  const remaining = Math.max(0, data.maxMonthlyChars - data.usedChars);
-  const percentage = ((data.usedChars / data.maxMonthlyChars) * 100).toFixed(1);
-  const estConversationsRemaining = Math.floor(remaining / 150);
+  const remaining = Math.max(0, data.totalCredits - data.usedCredits);
+  const percentage = data.totalCredits > 0
+    ? ((data.usedCredits / data.totalCredits) * 100).toFixed(1)
+    : '0.0';
 
   return {
     monthKey: data.monthKey,
-    usedChars: data.usedChars,
-    maxMonthlyChars: data.maxMonthlyChars,
+    usedCredits: data.usedCredits || 0,
+    totalCredits: data.totalCredits || 0,
+    remainingCredits: remaining,
+    percentage,
+    isQuotaAvailable: data.usedCredits < data.totalCredits,
+    tier: data.tier || 'unknown',
+    nextResetDate: data.nextResetDate || '-',
+    lastApiSync: data.lastApiSync || null,
+    // Backward compat aliases
+    usedChars: data.usedCredits || 0,
+    maxMonthlyChars: data.totalCredits || 0,
     remainingChars: remaining,
-    percentage: percentage,
-    isQuotaAvailable: data.usedChars < data.maxMonthlyChars,
-    estConversationsRemaining
+    estConversationsRemaining: Math.floor(remaining / 150)
   };
 }
 

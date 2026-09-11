@@ -361,5 +361,7 @@ module.exports = {
   autoExtractFact,
   loadMemories,
   loadGuildMemories,
+  saveMemories,
+  flushMemoriesSync,
   buildMemoryEmbedAndDropdown
 };

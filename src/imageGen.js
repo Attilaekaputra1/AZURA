@@ -13,7 +13,7 @@ function getOpenAIClient() {
     }
     openaiClient = new OpenAI({
       apiKey: config.OPENAI_API_KEY,
-      timeout: 60000,
+      timeout: 120000,
       maxRetries: 2
     });
   }
@@ -60,166 +60,131 @@ function saveQuotaData(data) {
  * @returns {{ allowed: boolean, reason?: string, remainingToday?: number, usedToday?: number, isOwner?: boolean }}
  */
 function checkImageQuota(guildId, userId, isOwner = false) {
+  // Owner has unlimited access
   if (isOwner) {
-    return { allowed: true, remainingToday: 999, usedToday: 0, isOwner: true };
+    return { allowed: true, isOwner: true };
   }
 
   const now = Date.now();
-  const lastTime = imageCooldowns.get(userId) || 0;
-  const diff = now - lastTime;
-
-  // Enforce 5-second cooldown
-  if (diff < COOLDOWN_MS) {
-    const remainingSec = ((COOLDOWN_MS - diff) / 1000).toFixed(1);
+  const lastCall = imageCooldowns.get(userId) || 0;
+  if (now - lastCall < COOLDOWN_MS) {
+    const waitSec = Math.ceil((COOLDOWN_MS - (now - lastCall)) / 1000);
     return {
       allowed: false,
-      reason: `⏳ **Cooldown Aktif!** Harap tunggu **${remainingSec} detik** lagi sebelum generate gambar berikutnya.`
+      reason: `⏳ Mohon tunggu **${waitSec} detik** lagi sebelum membuat gambar baru yaa! ✨`
     };
   }
 
-  const scopeKey = guildId || `dm_${userId}`;
-  const today = getTodayKey();
-  const allData = loadQuotaData();
+  const quota = loadQuotaData();
+  const todayKey = getTodayKey();
+  const serverQuotaKey = `${todayKey}:${guildId || 'dm'}`;
 
-  if (!allData[today]) {
-    allData[today] = {};
-  }
-
-  const used = allData[today][scopeKey] || 0;
-
-  if (used >= DAILY_LIMIT_PER_SERVER) {
+  const currentCount = quota[serverQuotaKey] || 0;
+  if (currentCount >= DAILY_LIMIT_PER_SERVER) {
     return {
       allowed: false,
-      reason: `🛑 **Kuota Harian Server Habis!**\nJatah kuota **${DAILY_LIMIT_PER_SERVER} gambar per hari** untuk server ini sudah terpakai semua (*sistem siapa cepat dia dapat*).\n\n⏰ Kuota akan otomatis direset kembali besok pada pukul **00:00 WIB**!`
+      reason: `🛑 **Batas Kuota Gambar Harian Tercapai!**\nServer ini sudah menggunakan **${DAILY_LIMIT_PER_SERVER}/${DAILY_LIMIT_PER_SERVER}** kuota gambar untuk hari ini. Kuota akan direset otomatis setiap pukul 00:00 WIB.`
     };
   }
 
   return {
     allowed: true,
-    usedToday: used,
-    remainingToday: DAILY_LIMIT_PER_SERVER - used,
+    remainingToday: DAILY_LIMIT_PER_SERVER - currentCount,
+    usedToday: currentCount,
     isOwner: false
   };
 }
 
 /**
- * Record a successful image generation
+ * Record an image generation against the daily quota
  * @param {string} guildId 
  * @param {string} userId 
  * @param {boolean} isOwner 
- * @returns {{ usedToday: number, remainingToday: number }}
  */
 function recordImageGeneration(guildId, userId, isOwner = false) {
   imageCooldowns.set(userId, Date.now());
 
   if (isOwner) {
-    return { usedToday: 0, remainingToday: 999, isOwner: true };
+    return { isOwner: true };
   }
 
-  const scopeKey = guildId || `dm_${userId}`;
-  const today = getTodayKey();
-  const allData = loadQuotaData();
+  const quota = loadQuotaData();
+  const todayKey = getTodayKey();
+  const serverQuotaKey = `${todayKey}:${guildId || 'dm'}`;
 
-  if (!allData[today]) {
-    allData[today] = {};
-  }
-
-  const newUsed = (allData[today][scopeKey] || 0) + 1;
-  allData[today][scopeKey] = newUsed;
-  saveQuotaData(allData);
-
-  try {
-    const { recordDailyMetric } = require('./digest');
-    recordDailyMetric('imagesGenerated', 1);
-  } catch (_) {}
+  const newCount = (quota[serverQuotaKey] || 0) + 1;
+  quota[serverQuotaKey] = newCount;
+  saveQuotaData(quota);
 
   return {
-    usedToday: newUsed,
-    remainingToday: Math.max(0, DAILY_LIMIT_PER_SERVER - newUsed),
-    isOwner: false
+    isOwner: false,
+    usedToday: newCount,
+    remainingToday: Math.max(0, DAILY_LIMIT_PER_SERVER - newCount)
   };
 }
 
-// Dimensions mapping for Portrait, Landscape, and Square
+// Aspect Ratio Dimensions Map
 const DIMENSIONS = {
-  portrait: {
-    size: '1024x1792',
-    label: 'Portrait (9:16 Vertikal)',
-    resolution: '1024 x 1792 px'
-  },
-  landscape: {
-    size: '1792x1024',
-    label: 'Landscape (16:9 Horizontal)',
-    resolution: '1792 x 1024 px'
-  },
-  square: {
-    size: '1024x1024',
-    label: 'Square (1:1 Kotak)',
-    resolution: '1024 x 1024 px'
-  }
+  square: { size: '1024x1024', label: 'Square (1:1 Kotak)', resolution: '1024 x 1024 px' },
+  portrait: { size: '1024x1792', label: 'Portrait (9:16 Vertikal)', resolution: '1024 x 1792 px' },
+  landscape: { size: '1792x1024', label: 'Landscape (16:9 Horizontal)', resolution: '1792 x 1024 px' }
 };
 
 /**
- * Generate an image using OpenAI GPT Image 2 API (with graceful fallback)
+ * Generate an image using OpenAI GPT Image 2 API (with graceful fallback & clean parameter guard)
  * @param {string} prompt 
  * @param {'portrait' | 'landscape' | 'square'} orientation 
- * @param {'standard' | 'hd'} quality 
- * @param {'vivid' | 'natural'} style 
+ * @param {'standard' | 'hd' | 'high' | 'auto'} quality 
  * @returns {Promise<{ success: boolean, imageUrl?: string, imageBuffer?: Buffer, revisedPrompt?: string, error?: string, orientationInfo?: typeof DIMENSIONS['square'], modelUsed?: string }>}
  */
-async function generateAiImage(prompt, orientation = 'square', quality = 'standard', style = 'vivid') {
+async function generateAiImage(prompt, orientation = 'square', quality = 'standard') {
   const openai = getOpenAIClient();
   const normalizedOrientation = (orientation || 'square').toLowerCase().trim();
   const orientationConfig = DIMENSIONS[normalizedOrientation] || DIMENSIONS.square;
 
   const targetModel = config.IMAGE_MODEL || 'gpt-image-2';
 
-  console.log(`[GPT Image 2 Engine]: Generating image using model "${targetModel}" (${orientationConfig.label}) for prompt: "${prompt}"`);
+  // Sanitize and trim prompt if extremely long to avoid gateway timeouts
+  let sanitizedPrompt = prompt.trim();
+  if (sanitizedPrompt.length > 1200) {
+    sanitizedPrompt = sanitizedPrompt.substring(0, 1200).trim();
+  }
+
+  console.log(`[GPT Image 2 Engine]: Generating image using model "${targetModel}" (${orientationConfig.label}) for prompt: "${sanitizedPrompt.substring(0, 100)}..."`);
 
   let response;
   let modelUsed = targetModel;
 
+  // Primary Payload - clean without legacy 'style' parameter
+  const requestPayload = {
+    model: targetModel,
+    prompt: sanitizedPrompt,
+    n: 1,
+    size: orientationConfig.size
+  };
+
+  if (quality && targetModel.includes('dall-e')) {
+    requestPayload.quality = (quality === 'high' || quality === 'hd') ? 'hd' : 'standard';
+  }
+
   try {
-    // Primary attempt with gpt-image-2 (does not use legacy 'style' parameter)
-    const requestPayload = {
-      model: targetModel,
-      prompt: prompt,
-      n: 1,
-      size: orientationConfig.size,
-    };
-
-    if (quality && quality !== 'standard') {
-      requestPayload.quality = quality;
-    }
-
-    if (targetModel.includes('dall-e') && style) {
-      requestPayload.style = style;
-    }
-
     response = await openai.images.generate(requestPayload);
   } catch (err) {
-    console.warn(`[GPT Image 2 Warning]: Direct call with "${targetModel}" returned: ${err.message}. Trying fallback to DALL·E 3...`);
-    if (targetModel !== 'dall-e-3') {
-      try {
-        response = await openai.images.generate({
-          model: 'dall-e-3',
-          prompt: prompt,
-          n: 1,
-          size: orientationConfig.size,
-          quality: quality || 'standard',
-          style: style || 'vivid',
-        });
-        modelUsed = 'dall-e-3';
-      } catch (fallbackErr) {
-        return {
-          success: false,
-          error: fallbackErr.message || err.message
-        };
-      }
-    } else {
+    console.warn(`[GPT Image 2 Warning]: First attempt with "${targetModel}" returned: ${err.message}. Retrying with minimalist payload...`);
+
+    // Retry: Minimalist payload (no quality flag)
+    try {
+      response = await openai.images.generate({
+        model: targetModel,
+        prompt: sanitizedPrompt,
+        n: 1,
+        size: orientationConfig.size
+      });
+    } catch (retryErr) {
+      console.error(`[GPT Image 2 Error]: Retry failed:`, retryErr.message);
       return {
         success: false,
-        error: err.message
+        error: retryErr.message || err.message
       };
     }
   }
@@ -335,8 +300,9 @@ function buildImageEmbed(prompt, userName, result, quotaInfo = {}) {
  * @param {{ success: boolean, imageUrl?: string, imageBuffer?: Buffer, revisedPrompt?: string, error?: string, orientationInfo?: any, modelUsed?: string }} result 
  * @param {string} referenceUrl 
  * @param {{ usedToday?: number, remainingToday?: number, isOwner?: boolean }} quotaInfo 
+ * @param {{ processType?: string, styleDna?: string }} metadata
  */
-function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quotaInfo = {}) {
+function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quotaInfo = {}, metadata = {}) {
   if (!result.success) {
     return {
       embeds: [
@@ -352,16 +318,24 @@ function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quot
   }
 
   const embed = new EmbedBuilder()
-    .setTitle('✨ Transformasi Gambar AI Berhasil!')
-    .setDescription(`Hasil karya visual **Image-to-Image** dari referensi gambar untuk **${userName}**:`)
+    .setTitle(`✨ ${metadata.processType || 'Transformasi Gambar AI'} Berhasil!`)
+    .setDescription(`Karya visual hasil **Vision AI Forensic Synthesis** dari referensi gambar untuk **${userName}**:`)
     .setColor(0x9B59B6) // Amethyst Purple for Img2Img
     .addFields(
       { name: '🎨 Instruksi Modifikasi', value: `>>> "${userInstruction}"` },
-      { name: '📐 Format & Resolusi', value: `\`${result.orientationInfo.label}\` (${result.orientationInfo.resolution})`, inline: true },
-      { name: '🤖 Engine Model', value: `\`${result.modelUsed || 'gpt-image-2'}\``, inline: true }
+      { name: '📐 Format & Resolusi', value: `\`${result.orientationInfo?.label || 'Square'}\` (${result.orientationInfo?.resolution || '1024x1024'})`, inline: true },
+      { name: '🤖 Engine Model', value: `\`${result.modelUsed || 'gpt-image-2'} (HD)\``, inline: true }
     )
-    .setFooter({ text: 'AZURA Vision & Creative Engine • Powered by GPT Image 2' })
+    .setFooter({ text: 'AZURA Vision & Creative Engine • Style DNA Lock & Surgical Inpaint' })
     .setTimestamp();
+
+  if (metadata.styleDna) {
+    embed.addFields({
+      name: '🧬 Style DNA Terkunci',
+      value: `*${metadata.styleDna}*`,
+      inline: false
+    });
+  }
 
   if (referenceUrl) {
     embed.setThumbnail(referenceUrl);
@@ -413,8 +387,9 @@ function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quot
 }
 
 /**
- * Image-to-Image Transformation Processor
- * Uses Vision AI to understand reference image and synthesizes edit generation prompt
+ * Advanced Image-to-Image & Photoshop-Style Surgical Transformation Processor
+ * Uses Deep Forensic Vision AI to deconstruct reference image (Style DNA, Lighting, Subject Blueprint)
+ * and synthesizes precision prompts for 100% style locking or surgical element modification.
  * @param {string} prompt 
  * @param {Array<string>} imageUrls 
  * @param {string} userName 
@@ -426,27 +401,55 @@ function buildImg2ImgEmbed(userInstruction, userName, result, referenceUrl, quot
 async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', guildId = null, userId = null, isOwner = false) {
   if (!imageUrls || imageUrls.length === 0) return { isImageRequest: false };
 
-  const cleanPrompt = prompt.trim();
+  // Sanitize prompt from any system-injected tags
+  let cleanPrompt = (prompt || '')
+    .replace(/\[PENGGUNA MENGUNGGAH GAMBAR[^\]]*\][\s\S]*?(?:berikan tanggapan yang sangat akurat dan mendalam!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGIRIM STIKER[^\]]*\][\s\S]*?(?:tanggapi ekspresi\/reaksinya!|\n|$)/gi, '')
+    .replace(/\[PENGGUNA MENGUNGGAH FILE GIF[^\]]*\][\s\S]*?(?:animasinya secara detail!|\n|$)/gi, '')
+    .replace(/\[Pengguna mengunggah video:[^\]]*\]/gi, '')
+    .replace(/\[Transkrip Suara\]:\s*"[^"]*"/gi, '')
+    .replace(/\[Isi Lampiran Dokumen[^\]]*\]:\s*```[\s\S]*?```/gi, '')
+    .replace(/\[Catatan Konteks Spesial:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[Catatan Emosional Aktif:[\s\S]*?\]:\s*\n?/gi, '')
+    .replace(/\[KONTEKS[^\]]*\][\s\S]*?(?:\n|$)/gi, '')
+    .trim();
+
+  // Strip leading bot name mention
+  cleanPrompt = cleanPrompt.replace(/^(?:azura|ara|zura|ajur|ajura)[,\s:]+/i, '').trim();
+
+  if (!cleanPrompt || cleanPrompt.length < 2) {
+    cleanPrompt = 'Recreate this image in high resolution masterpiece quality';
+  }
+
   const lower = cleanPrompt.toLowerCase();
 
-  // Keywords that indicate image-to-image modification/transformation intent
+  // Broad intent detection for Image-to-Image / Visual Modification / Pose / Styling
   const img2imgKeywords = [
     'ubah', 'ganti', 'edit', 'modifikasi', 'transformasi', 'jadikan', 'jadikanlah',
-    'bikin jadi', 'buat jadi', 'restyle', 'remix', 'variasi', 'anime',
-    'kartun', 'background', 'tambahin', 'tambahkan', 'versi', 'style',
-    'gaya', 'convert', 'transform', 'make this', 'turn this', 'change',
-    'modify', 'gambar ini', 'foto ini', '3d', 'lukisan', 'cyberpunk',
-    'realistis', 'pixel art', 'vektor', 'vector'
+    'bikin', 'buat', 'restyle', 'remix', 'variasi', 'anime', 'kartun', 'background',
+    'tambahin', 'tambahkan', 'versi', 'style', 'gaya', 'convert', 'transform',
+    'make this', 'turn this', 'change', 'modify', 'gambar', 'foto', '3d',
+    'lukisan', 'cyberpunk', 'realistis', 'pixel art', 'vektor', 'vector',
+    'sama persis', 'style sama', 'gaya sama', 'stylenya sama', 'mirip',
+    'photoshop', 'inpaint', 'bajunya', 'latarnya', 'warnanya', 'mukanya',
+    'karakternya', 'rambutnya', 'topinya', 'duduk', 'berdiri', 'pose',
+    'senyum', 'nangis', 'tidur', 'lari', 'teras', 'kamar', 'pantai', 'outdoor'
   ];
 
+  // Pure conversational inquiries about the image should be handled by text LLM
+  const isPureImageQuestion = /^(?:ini\s+(?:gambar|foto|siapa|apa)|jelaskan|apa\s+isi|siapakah|baca\s+teks|ada\s+apa)/i.test(lower);
+  if (isPureImageQuestion) {
+    return { isImageRequest: false };
+  }
+
   const isImg2ImgIntent = img2imgKeywords.some(kw => lower.includes(kw)) ||
-    (lower.includes('gambar') && (lower.includes('bikin') || lower.includes('buat') || lower.includes('generate')));
+    (cleanPrompt.length >= 3 && !isPureImageQuestion);
 
   if (!isImg2ImgIntent) {
     return { isImageRequest: false };
   }
 
-  console.log(`[Image-to-Image]: Processing transformation request: "${cleanPrompt}" with reference image.`);
+  console.log(`[Vision Image Engine]: 🔍 Processing Forensic Style & Transformation for: "${cleanPrompt}" with reference image.`);
 
   // Check Quota and Cooldown
   const quotaCheck = checkImageQuota(guildId, userId, isOwner);
@@ -457,55 +460,113 @@ async function processImageToImage(prompt, imageUrls, userName = 'Pengguna', gui
     };
   }
 
-  // Detect orientation from natural language
+  // Detect orientation / aspect ratio from natural language
   let orientation = 'square';
-  if (lower.includes('portrait') || lower.includes('potrait') || lower.includes('vertikal') || lower.includes('tegak') || lower.includes('wallpaper hp') || lower.includes('story')) {
+  if (/\b(?:portrait|potrait|vertikal|tegak|wallpaper\s*hp|story|9:16|tall)\b/i.test(lower)) {
     orientation = 'portrait';
-  } else if (lower.includes('landscape') || lower.includes('horizontal') || lower.includes('lebar') || lower.includes('wallpaper pc') || lower.includes('desktop') || lower.includes('banner')) {
+  } else if (/\b(?:landscape|horizontal|lebar|wallpaper\s*pc|desktop|banner|16:9|wide)\b/i.test(lower)) {
     orientation = 'landscape';
   }
 
   const client = getOpenAIClient();
 
-  // Step 1: Multimodal Vision Perception & Prompt Synthesis
+  // Step 1: Deep Forensic Vision Analysis & Master Prompt Synthesis
   let synthesizedPrompt = cleanPrompt;
+  let detectedStyleInfo = 'Adaptive AI Vision Reference';
+  let processTypeLabel = 'Transformasi Visual AI';
+
   try {
-    const visionMessages = [
-      {
-        role: 'system',
-        content: `You are an expert Image-to-Image AI Prompt Engineer. Your task is to analyze the provided reference image (subject identity, pose, clothing, facial features, lighting, composition, signature colors) and synthesize a detailed master prompt for an AI Image Generator (like GPT Image 2 / DALL-E 3).
-The user wants to transform / edit this image with the following instruction: "${cleanPrompt}".
-Synthesize a comprehensive English prompt that:
-1. Keeps the core recognizable subject identity and structure from the reference.
-2. Implements all the user's requested style transformations, additions, background changes, or artistic edits.
-3. Uses vivid artistic keywords (e.g. masterpiece, highly detailed, expressive lighting).
-Output ONLY the synthesized prompt in English as plain text without any markdown or conversational filler.`
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: `Please transform this reference image according to this instruction: "${cleanPrompt}"` },
-          { type: 'image_url', image_url: { url: imageUrls[0], detail: 'high' } }
-        ]
-      }
-    ];
+    const visionSystemPrompt = `You are an elite Anime, Game Character, and Pop-Culture Vision Specialist.
+Your task is to identify the character, game/anime franchise, and art medium from the image, and synthesize an ultra-accurate image generation prompt.
 
-    const visionRes = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: visionMessages,
-      max_completion_tokens: 350
-    });
+USER GOAL / INSTRUCTION: "${cleanPrompt}"
 
-    synthesizedPrompt = visionRes.choices[0]?.message?.content?.trim() || cleanPrompt;
-    console.log(`[Image-to-Image Vision Prompt]: "${synthesizedPrompt}"`);
+CRITICAL RULES FOR 100% CHARACTER FIDELITY & LIGHTNING SPEED:
+1. [PUBLIC / KNOWN CHARACTER IDENTIFICATION]:
+   - If the subject is a known anime, game, VTuber, or pop-culture character (e.g. Sandrone / The Marionette from Genshin Impact, Raiden Shogun, Furina, Hatsune Miku, Frieren, Saber, 2B, etc.):
+     * EXPLICITLY NAME THE EXACT CHARACTER AND FRANCHISE in "masterPrompt" (e.g., "Official game character Sandrone (The Marionette) from Genshin Impact").
+     * This activates the image generator's pre-trained official character weights for 100% authentic outfit, hair, eyes, and ornaments!
+2. [STRICT ART MEDIUM & MEDIUM CONTINUITY]:
+   - If the reference is Anime / 3D Cel-shaded (like Genshin Impact / Anime CGI), the masterPrompt MUST specify "authentic 3D cel-shaded anime game key-visual illustration style". NEVER make them photorealistic humans!
+   - If the reference is an Original Character or Real Person, describe their 3-4 key visual traits concisely.
+3. [APPLY REQUESTED POSE & SETTING]:
+   - Place the character in the requested action: "${cleanPrompt}" (e.g., "sitting gracefully on a traditional wooden porch / outdoor terrace with natural warm daylight, lush green garden in background").
+4. [CONCISE & PUNCHY]:
+   - Keep "masterPrompt" strictly between 50 to 90 words (300-600 characters) for ultra-fast generation.
+
+OUTPUT FORMAT:
+Provide ONLY a valid JSON object with the following schema:
+{
+  "characterName": "Name of character (e.g. Sandrone / The Marionette) or 'Original Anime Character'",
+  "franchise": "Game/Anime title (e.g. Genshin Impact) or 'Original'",
+  "processType": "Identifikasi Karakter & Transformasi Pose",
+  "styleDnaSummary": "Short 5-8 word summary (e.g. Sandrone • Genshin Impact 3D Cel-shaded)",
+  "masterPrompt": "Official character [Name] from [Franchise], [requested action/pose], [clothing/hair traits], authentic [art medium] style, masterpiece quality, no watermark, no text"
+}`;
+
+    const targetVisionModel = config.OPENAI_MODEL || 'gpt-5.6-luna';
+    let visionRes;
+    try {
+      visionRes = await client.chat.completions.create({
+        model: targetVisionModel,
+        messages: [
+          { role: 'system', content: visionSystemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Identify character and synthesize image prompt for: "${cleanPrompt}"` },
+              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'low' } }
+            ]
+          }
+        ],
+        response_format: { type: 'json_object' }
+      });
+    } catch (primaryVisionErr) {
+      console.warn(`[Vision Image Engine Warning]: Primary model "${targetVisionModel}" failed (${primaryVisionErr.message}), falling back to secondary vision...`);
+      visionRes = await client.chat.completions.create({
+        model: 'gpt-5.6-luna',
+        messages: [
+          { role: 'system', content: visionSystemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Identify character and synthesize image prompt for: "${cleanPrompt}"` },
+              { type: 'image_url', image_url: { url: imageUrls[0], detail: 'auto' } }
+            ]
+          }
+        ],
+        response_format: { type: 'json_object' }
+      });
+    }
+
+    const rawContent = visionRes.choices[0]?.message?.content || '{}';
+    let parsedVision = {};
+    try {
+      parsedVision = JSON.parse(rawContent);
+    } catch (_) {
+      const match = rawContent.match(/\{[\s\S]*\}/);
+      if (match) parsedVision = JSON.parse(match[0]);
+    }
+
+    const masterPrompt = parsedVision.masterPrompt || parsedVision.master_prompt || parsedVision.prompt || parsedVision.image_prompt;
+    if (masterPrompt && typeof masterPrompt === 'string' && masterPrompt.length > 10) {
+      synthesizedPrompt = masterPrompt.trim();
+      detectedStyleInfo = parsedVision.styleDnaSummary || parsedVision.style_dna_summary || (parsedVision.characterName ? `${parsedVision.characterName} (${parsedVision.franchise || 'Anime'})` : detectedStyleInfo);
+      processTypeLabel = parsedVision.processType || parsedVision.process_type || processTypeLabel;
+    }
+    console.log(`[Vision Image Engine]: ✅ Character: ${parsedVision.characterName || 'Unknown'} | Franchise: ${parsedVision.franchise || 'Unknown'}`);
+    console.log(`[Vision Image Engine]: ✅ Synthesized Prompt via ${targetVisionModel} (${processTypeLabel}): "${synthesizedPrompt}"`);
   } catch (visionErr) {
-    console.warn('[Image-to-Image Warning]: Vision synthesis fallback, using direct prompt:', visionErr.message);
+    console.warn('[Vision Image Engine Warning]: Vision synthesis fallback, using direct prompt:', visionErr.message);
   }
 
-  // Step 2: Generate Transformed Image via GPT Image 2 / Fallback
+  // Step 2: High-Fidelity Image Generation with Fast Render
   const result = await generateAiImage(synthesizedPrompt, orientation);
   const quotaInfo = recordImageGeneration(guildId, userId, isOwner);
-  const payload = buildImg2ImgEmbed(cleanPrompt, userName, result, imageUrls[0], quotaInfo);
+  const payload = buildImg2ImgEmbed(cleanPrompt, userName, result, imageUrls[0], quotaInfo, {
+    processType: processTypeLabel,
+    styleDna: detectedStyleInfo
+  });
 
   return {
     isImageRequest: true,
@@ -651,7 +712,7 @@ async function processImageIntelligence(prompt, userName = 'Pengguna', guildId =
       console.log(`[Multi-Step Visual Engine]: Step 2 - Synthesizing key points and crafting visual prompt...`);
       const client = getOpenAIClient();
       const synthRes = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: config.OPENAI_MODEL || 'gpt-5.6-luna',
         messages: [
           {
             role: 'system',

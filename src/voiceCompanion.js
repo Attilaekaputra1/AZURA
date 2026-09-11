@@ -2250,6 +2250,15 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
   const openai = getOpenAI();
   if (!openai) return { spoken: 'Iya Attila, ada apa?', isStory: false };
 
+  const isOwner = (userId === config.OWNER_DISCORD_ID);
+
+  // Get speaker identity & alias early (Must be initialized before livePresenceAnchor)
+  let speakerName = isOwner ? 'Attila' : 'Teman';
+  try {
+    const { getUserCallingName } = require('./vault');
+    speakerName = getUserCallingName(userId, isOwner ? 'Attila' : 'Teman');
+  } catch (_) {}
+
   const history = voiceChatHistories.get(userId) || [];
 
   // Detect Storytelling Intent
@@ -2287,7 +2296,6 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
     }
   }
 
-  const isOwner = (userId === config.OWNER_DISCORD_ID);
   let personalityPrompt = '';
   try {
     const { getPersonalityMode, getPersonalityPrompt, POLYGLOT_LANGUAGE_POLICY, SOUL_LOCK_RULE } = require('./personality');
@@ -2303,13 +2311,6 @@ async function generateVoiceAIResponse(transcript, userId, guildId = null, inten
 
   let systemPrompt = '';
   let maxTokens = 250;
-
-  // Get speaker identity & alias
-  let speakerName = isOwner ? 'Attila' : 'Teman';
-  try {
-    const { getUserCallingName } = require('./vault');
-    speakerName = getUserCallingName(userId, isOwner ? 'Attila' : 'Teman');
-  } catch (_) {}
 
   // Contextual To-Do integration for Voice Channel
   let todoVoiceContext = '';

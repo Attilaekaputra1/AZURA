@@ -184,6 +184,7 @@ const commands = [
     .setName('sendch')
     .setDescription('Kirim pesan ke channel server melalui AZURA (Khusus Owner - Global / DM / Server)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(true)
     .addStringOption(option =>
       option.setName('pesan')
         .setDescription('Isi pesan atau poin/instruksi yang ingin disampaikan ke channel')
@@ -593,6 +594,7 @@ const commands = [
     .setName('joinvc')
     .setDescription('Kirim AZURA masuk ke Voice Channel tertentu dari jarak jauh (Khusus Owner)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(true)
 ];
 
 const fs = require('fs');

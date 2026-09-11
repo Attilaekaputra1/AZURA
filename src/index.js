@@ -795,6 +795,17 @@ let finalPrompt = rawPrompt;
     // Direct Voice Channel Join & Leave trigger for Attila (Only when NOT a 3rd-person nimbrung mention)
     if (isOwner && !isThirdPersonNimbrung) {
       const userText = message.content.toLowerCase().trim();
+      const isRemoteVcTrigger =
+        /\b(?:kirim|dispatch|send)\s+(?:(?:azura|ara)\s+)?(?:ke\s+)?(?:vc|voice|channel\s+voice|voice\s+channel)\b/i.test(userText) ||
+        /\b(?:azura|ara)\s+(?:tolong\s+)?(?:masuk|join|kirim)\s+(?:ke\s+)?(?:vc|voice)\s*(?:lain|server|channel)?\b/i.test(userText) ||
+        /\b(?:pilih\s+vc|daftar\s+vc|list\s+vc|join\s+vc\s+remote)\b/i.test(userText);
+
+      if (isRemoteVcTrigger) {
+        console.log(`[Remote VC Dispatch]: Attila triggered remote VC picker from text chat (${message.channel.name || 'DM'}).`);
+        const { handleRemoteVcFromDm } = require('./remoteVcDispatch');
+        return handleRemoteVcFromDm(message, client);
+      }
+
       const isJoinTrigger =
         /\b(?:join\s+vc\s+lagi|masuk\s+vc\s+lagi|masuk\s+vc\s+lagi\s+dong|join\s+vc\s+lagi\s+dong)\b/i.test(userText) ||
         /\b(?:join\s+vc|masuk\s+vc|masuk\s+voice|join\s+voice|masuk\s+voice\s+channel|join\s+voice\s+channel|masuk\s+ke\s+vc|join\s+lagi|masuk\s+lagi)\b/i.test(userText);
@@ -1348,6 +1359,13 @@ client.on('interactionCreate', async (interaction) => {
       return handleBotOrchestratorButton(interaction);
     }
     if (
+      interaction.customId.startsWith('cancelvc_') ||
+      interaction.customId.startsWith('pickvcguild_')
+    ) {
+      const { handleVcDispatchButton } = require('./remoteVcDispatch');
+      return handleVcDispatchButton(interaction);
+    }
+    if (
       interaction.customId.startsWith('confirmch_') ||
       interaction.customId.startsWith('cancelch_') ||
       interaction.customId.startsWith('rephrasech_') ||
@@ -1398,6 +1416,14 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('select_orchestrator_') || interaction.customId.startsWith('select_orch_')) {
       const { handleBotOrchestratorSelectMenu } = require('./botOrchestrator');
       return handleBotOrchestratorSelectMenu(interaction);
+    }
+    if (interaction.customId.startsWith('selectvcguild_')) {
+      const { handleVcGuildSelectMenu } = require('./remoteVcDispatch');
+      return handleVcGuildSelectMenu(interaction);
+    }
+    if (interaction.customId.startsWith('selectvc_')) {
+      const { handleVcSelectMenu } = require('./remoteVcDispatch');
+      return handleVcSelectMenu(interaction);
     }
     if (interaction.customId.startsWith('selectguild_')) {
       return handleSendChannelGuildSelectMenu(interaction);

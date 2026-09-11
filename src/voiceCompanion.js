@@ -3348,6 +3348,139 @@ async function joinAttilaVoiceChannel(client) {
 }
 
 /**
+ * Randomized Remote VC Dispatch Greetings (Azura joins VC on Attila's command without Attila being present)
+ */
+const REMOTE_VC_GREETINGS = [
+  'Hai semuanya! Attila minta aku nemenin kalian di sini yaa, ada yang mau ngobrol? [laughs]',
+  'Haii gais! Aku dateng nih, siapa yang mau ngobrol? [laughs]',
+  'Yo gais! Attila nyuruh aku join sini nih, yuk kita ngobrol bareng! [laughs]',
+  'Halo halo! Aku dikirimin sama Attila buat nemenin kalian di sini yaa, apa kabar? [laughs]',
+  'Hai semuanya! Aku nongol dulu ya buat nemenin kalian, ada topik seru gak nih? [laughs]',
+  'Gais gais! Attila bilang aku harus join sini, jadi yaa aku dateng deh. Ada yang mau cerita? [laughs]',
+  'Haii! Aku dateng nih buat nemenin kalian ngobrol, siapa yang mau mulai duluan? [laughs]',
+  'Yoo semuanya! Aku di-dispatch sama bos buat join sini, jadi yuk kita ngobrol santai! [laughs]',
+];
+
+/**
+ * Remote VC Dispatch: Join a specific Voice Channel without requiring Attila to be present
+ * @param {import('discord.js').Client} client 
+ * @param {string} guildId 
+ * @param {string} channelId 
+ * @returns {Promise<{ success: boolean, message: string }>}
+ */
+async function joinSpecificVoiceChannel(client, guildId, channelId) {
+  const { isAzuraSleeping } = require('./sleepMode');
+  if (isAzuraSleeping && isAzuraSleeping()) {
+    return { success: false, message: '🌙 AZURA sedang dalam Mode Tidur (Deep Sleep). Bangunkan dulu dengan `/sleep aksi:bangun password:@Timetosleepara`.' };
+  }
+
+  const guild = client.guilds.cache.get(guildId);
+  if (!guild) {
+    return { success: false, message: '❌ Server tidak ditemukan.' };
+  }
+
+  const targetVoiceChannel = guild.channels.cache.get(channelId);
+  if (!targetVoiceChannel || !targetVoiceChannel.isVoiceBased || !targetVoiceChannel.isVoiceBased()) {
+    return { success: false, message: '❌ Voice Channel tidak ditemukan atau bukan channel suara.' };
+  }
+
+  // Clear dismissed state so AZURA is officially active again
+  dismissedGuilds.delete(guildId);
+
+  // Clean up any existing connection before creating a new one
+  try {
+    const existingDjsConn = getVoiceConnection(guildId);
+    if (existingDjsConn) {
+      existingDjsConn.destroy();
+      await new Promise(r => setTimeout(r, 400));
+    }
+  } catch (_) {}
+  activeConnections.delete(guildId);
+
+  try {
+    voiceSessions.set(guildId, {
+      startTime: new Date(),
+      channelName: targetVoiceChannel.name,
+      guildName: guild.name,
+      entries: []
+    });
+
+    const connection = joinVoiceChannel({
+      channelId: targetVoiceChannel.id,
+      guildId: guildId,
+      adapterCreator: guild.voiceAdapterCreator,
+      selfMute: false,
+      selfDeaf: false,
+    });
+
+    await waitForConnectionReady(connection, 20_000);
+    activeConnections.set(guildId, connection);
+
+    // Pre-warm Video Streamer Helper account
+    try {
+      const { initStreamerClient } = require('./videoStreamer');
+      initStreamerClient().catch(() => {});
+    } catch (_) {}
+
+    const player = createAudioPlayer();
+    audioPlayers.set(guildId, player);
+    connection.subscribe(player);
+
+    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 8_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 8_000),
+        ]);
+        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+      } catch {
+        await cleanupGuild(guildId, client);
+      }
+    });
+
+    // Pick a random greeting
+    const greeting = REMOTE_VC_GREETINGS[Math.floor(Math.random() * REMOTE_VC_GREETINGS.length)];
+    const cleanGreeting = greeting.replace(/\[.*?\]/g, '').trim();
+
+    const textChannel = findBestTextChannel(guild, targetVoiceChannel, client);
+    if (textChannel) {
+      companionTextChannels.set(guildId, textChannel);
+      await textChannel.send(cleanGreeting).catch(() => {});
+    }
+
+    startVoiceListener(connection, guildId, client, targetVoiceChannel);
+
+    // Play greeting TTS
+    const audioResource = await textToAudioResource(greeting, client);
+    if (audioResource) {
+      await playInVC(guildId, audioResource);
+    }
+
+    // Always PASSIVE mode since Attila is not present — requires wake-word
+    setPassiveMode(guildId);
+    console.log(`[Remote VC Dispatch]: AZURA joined #${targetVoiceChannel.name} in "${guild.name}" (Mode: PASSIVE, wake-word required).`);
+
+    resetIdleTimer(guildId, client, targetVoiceChannel);
+
+    return {
+      success: true,
+      message: `✅ AZURA berhasil masuk ke 🔊 **#${targetVoiceChannel.name}** di **${guild.name}**!\n> ${cleanGreeting}`
+    };
+  } catch (err) {
+    console.error('[Remote VC Dispatch Error]:', err.message);
+    try {
+      const failedConn = getVoiceConnection(guildId);
+      if (failedConn) failedConn.destroy();
+    } catch (_) {}
+    activeConnections.delete(guildId);
+    return {
+      success: false,
+      message: `❌ Gagal join ke VC #${targetVoiceChannel.name}: ${err.message}`
+    };
+  }
+}
+
+/**
  * Programmatically leave Voice Channel (Forced Guaranteed Disconnect)
  * Uses 3-layer disconnect: setChannel(null) -> destroy() -> raw Gateway Opcode 4
  * @param {import('discord.js').Client} client 
@@ -3573,6 +3706,7 @@ module.exports = {
   isInCompanionMode,
   handleMusicButton,
   joinAttilaVoiceChannel,
+  joinSpecificVoiceChannel,
   leaveVoiceChannel,
   sayBedtimeFarewellInActiveVCs,
   playMusicAutonomous,

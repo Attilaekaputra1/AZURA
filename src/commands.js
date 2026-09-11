@@ -10,6 +10,7 @@ const { getCryptoPrice, getExchangeRate } = require('./finance');
 const { getTopAnime, searchAnime, getAnimeRecommendations } = require('./media');
 const { handleSendDmCommand, handleListScheduledCommand } = require('./ownerDm');
 const { handleSendChannelCommand } = require('./sendChannel');
+const { handleJoinVcCommand } = require('./remoteVcDispatch');
 const { generateAiImage, buildImageEmbed, checkImageQuota, recordImageGeneration } = require('./imageGen');
 const { verifyMasterPassword, createAuthSession, isAuthSessionActive, isSacredData } = require('./security');
 
@@ -586,7 +587,12 @@ const commands = [
         .addStringOption(opt =>
           opt.setName('target')
             .setDescription('ID Server (Guild ID) atau ID User Discord yang ingin dibuka blokirnya')
-            .setRequired(true)))
+            .setRequired(true))),
+
+  new SlashCommandBuilder()
+    .setName('joinvc')
+    .setDescription('Kirim AZURA masuk ke Voice Channel tertentu dari jarak jauh (Khusus Owner)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ];
 
 const fs = require('fs');
@@ -2142,6 +2148,8 @@ async function handleSlashCommand(interaction, startTime) {
       const res = unblockEmbargoTarget(targetId);
       return interaction.reply({ content: res.message, ephemeral: true });
     }
+  } else if (commandName === 'joinvc') {
+    return handleJoinVcCommand(interaction);
   }
 }
 

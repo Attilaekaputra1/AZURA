@@ -1236,6 +1236,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     }
 
   const isOwner = userId === config.OWNER_DISCORD_ID;
+  const { isApprovedFriend } = require('./accessControl');
+  const isFriend = !isOwner && isApprovedFriend(userId);
 
   // ── Strict Noise Cancellation & Energy Gate: RMS, Peak & Crest Factor (Wind / Fan / Breath Filter) ──
   const { rms, peak, crestFactor } = calculateCrestFactorAndRms(pcmBuffer);
@@ -1248,8 +1250,9 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   }
 
   // Adaptive Energy Gate: filters quiet room noise while keeping natural speech responsive
-  const minRms = isOwner ? 160 : 250;
-  const minPeak = isOwner ? 550 : 750;
+  // Both Owner and Approved Friends get sensitive acoustic threshold (160 RMS / 550 Peak)
+  const minRms = (isOwner || isFriend) ? 160 : 250;
+  const minPeak = (isOwner || isFriend) ? 550 : 750;
   if (rms < minRms || peak < minPeak) {
     // Pure silence, shallow breath, or below speech acoustic threshold -> skip Whisper API
     return;
@@ -1260,7 +1263,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   const { globalPipecatBridge } = require('./pipecatBridge');
   const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const sessionId = `guild_${guildId}`;
-  globalVoiceTelemetry.startTurn(turnId, sessionId, guildId, isOwner ? 'Att' : 'Member');
+  globalVoiceTelemetry.startTurn(turnId, sessionId, guildId, isOwner ? 'Att' : (isFriend ? 'Friend' : 'Member'));
   globalVoiceTelemetry.markTimestamp(turnId, 't1');
 
   voiceCooldowns.set(userId, Date.now());
@@ -1268,7 +1271,8 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
 
   const sizeKB = (pcmBuffer.length / 1024).toFixed(0);
   const durationSec = (pcmBuffer.length / (48000 * 2 * 2)).toFixed(1);
-  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s, RMS=${rms.toFixed(0)}, Peak=${peak}) from ${isOwner ? 'Attila' : 'Member'}. [Engine: ${config.AZURA_VOICE_ENGINE.toUpperCase()}]`);
+  const speakerRole = isOwner ? 'Attila' : (isFriend ? `Approved Friend (${userId})` : 'Member');
+  console.log(`[Voice Pipeline]: Captured ${sizeKB}KB (${durationSec}s, RMS=${rms.toFixed(0)}, Peak=${peak}) from ${speakerRole}. [Engine: ${config.AZURA_VOICE_ENGINE.toUpperCase()}]`);
 
   // ── Step 1: PCM → WAV → Whisper ──
   globalVoiceTelemetry.markTimestamp(turnId, 't2');
@@ -1836,8 +1840,7 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
   // ── Step 3: SUMMON GATE (Attila & Approved Friends) ─────────
   // ══════════════════════════════════════════════════════════════
 
-  const { isApprovedFriend, checkFriendDailyVoiceQuota, recordFriendVoiceUsage } = require('./accessControl');
-  const isFriend = !isOwner && isApprovedFriend(userId);
+  const { checkFriendDailyVoiceQuota, recordFriendVoiceUsage } = require('./accessControl');
 
   // Block unauthorized non-owner and non-approved users
   if (!isOwner && !isFriend) {
@@ -1854,11 +1857,13 @@ async function processVoiceSpeech(guildId, userId, pcmChunks, client, voiceChann
     return;
   }
 
-  // 3. STRICT OWNER-PRESENCE GUARD: Approved friends can ONLY interact if Attila is in the VC!
+  // 3. OWNER-PRESENCE GUARD:
+  // Approved friends can interact if Attila is in the VC OR if Azura was dispatched remotely to this VC by Attila!
   if (isFriend) {
+    const isRemoteDispatch = remoteDispatchedGuilds.has(guildId);
     const isAttilaInVc = voiceChannel?.members ? voiceChannel.members.has(config.OWNER_DISCORD_ID) : false;
-    if (!isAttilaInVc) {
-      console.log(`[Voice Pipeline]: 🔒 Approved Friend ${userId} spoke, but Attila (Owner) is not in VC. Ignoring without deducting quota.`);
+    if (!isAttilaInVc && !isRemoteDispatch) {
+      console.log(`[Voice Pipeline]: 🔒 Approved Friend ${userId} spoke, but Attila (Owner) is not in VC and bot was not dispatched remotely. Ignoring without deducting quota.`);
       return;
     }
 
@@ -3367,14 +3372,14 @@ async function joinAttilaVoiceChannel(client) {
  * Randomized Remote VC Dispatch Greetings (Azura joins VC on Attila's command without Attila being present)
  */
 const REMOTE_VC_GREETINGS = [
-  'Hai semuanya! Attila minta aku nemenin kalian di sini yaa, ada yang mau ngobrol? [laughs]',
-  'Haii gais! Aku dateng nih, siapa yang mau ngobrol? [laughs]',
-  'Yo gais! Attila nyuruh aku join sini nih, yuk kita ngobrol bareng! [laughs]',
-  'Halo halo! Aku dikirimin sama Attila buat nemenin kalian di sini yaa, apa kabar? [laughs]',
-  'Hai semuanya! Aku nongol dulu ya buat nemenin kalian, ada topik seru gak nih? [laughs]',
-  'Gais gais! Attila bilang aku harus join sini, jadi yaa aku dateng deh. Ada yang mau cerita? [laughs]',
-  'Haii! Aku dateng nih buat nemenin kalian ngobrol, siapa yang mau mulai duluan? [laughs]',
-  'Yoo semuanya! Aku di-dispatch sama bos buat join sini, jadi yuk kita ngobrol santai! [laughs]',
+  'Hai semuanya! Attila minta aku nemenin kalian di sini yaa. Kalau mau ngobrol, tinggal panggil nama aku "Azura" atau "Ara" yaa! [laughs]',
+  'Haii gais! Aku dateng nih disuruh Attila buat nemenin kalian. Panggil "Azura" atau "Ara" kalau ada yang mau diobrolin yaa! [laughs]',
+  'Yo gais! Attila nyuruh aku join ke sini nih. Panggil nama aku "Azura" atau "Ara" aja ya kalau mau ngobrol bareng! [laughs]',
+  'Halo halo semuanya! Aku dikirimin sama bos buat nemenin kalian di sini. Panggil "Azura" yaa kalau mau nanya atau ngobrol! [laughs]',
+  'Hai semuanya! Aku nongol dulu ya nemenin kalian. Kalau mau ngobrol santai atau cerita-cerita, panggil "Azura" atau "Ara" yaa! [laughs]',
+  'Gais gais! Kata Attila aku harus nemenin kalian di room ini. Panggil nama aku "Azura" ya kalau mau mulai ngobrol! [laughs]',
+  'Haii! Aku dateng nih buat nemenin kalian. Tinggal panggil "Azura" atau "Ara" aja yaa kalau mau ngobrol! [laughs]',
+  'Yoo semuanya! Aku di-dispatch sama Si Bos buat nemenin kalian di sini. Panggil "Azura" atau "Ara" ya kalau mau ngobrol seru! [laughs]',
 ];
 
 /**

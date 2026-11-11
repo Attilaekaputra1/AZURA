@@ -12,8 +12,11 @@ const urlParser = require('url');
 const { WebSocketServer, WebSocket } = require('ws');
 const config = require('./config');
 
-const PORT = process.env.STREAM_PORT || 7860;
-const VPS_PUBLIC_IP = process.env.VPS_IP || '203.175.10.163';
+const PORT = Number.parseInt(process.env.STREAM_PORT || '7860', 10);
+// The portal exposes browser/game control and owner data. Keep it loopback-only by default.
+// Use an authenticated reverse proxy if remote access is required.
+const HOST = process.env.STREAM_HOST || '127.0.0.1';
+const VPS_PUBLIC_IP = process.env.VPS_IP || '127.0.0.1';
 const STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/live`;
 const BROWSE_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/browse`;
 const GAME_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/game`;
@@ -36,13 +39,9 @@ function initLivePortal() {
   if (server) return;
 
   server = http.createServer(async (req, res) => {
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
+    // No wildcard CORS: the portal is intended to be served same-origin.
     if (req.method === 'OPTIONS') {
-      res.writeHead(200);
+      res.writeHead(405, { 'Allow': 'GET, POST' });
       return res.end();
     }
 
@@ -301,8 +300,11 @@ function initLivePortal() {
     });
   });
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Live Portal]: 🚀 High-Speed Live Stream Server running at ${STREAM_URL}`);
+  server.listen(PORT, HOST, () => {
+    console.log(`[Live Portal]: 🚀 Server listening on ${HOST}:${PORT}.`);
+    if (HOST !== '127.0.0.1' && HOST !== '::1' && HOST !== 'localhost') {
+      console.warn('[Live Portal Security]: Non-loopback bind enabled. Put the portal behind an authenticated HTTPS reverse proxy and firewall; do not expose this port directly.');
+    }
   });
 }
 

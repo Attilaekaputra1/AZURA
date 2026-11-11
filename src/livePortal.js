@@ -39,7 +39,23 @@ function initLivePortal() {
   if (server) return;
 
   server = http.createServer(async (req, res) => {
-    // No wildcard CORS: the portal is intended to be served same-origin.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+    if (req.method === 'POST') {
+      let originHost = '';
+      try { originHost = new URL(req.headers.origin || '').host; } catch (_) {}
+      if (!originHost || originHost !== req.headers.host) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Forbidden origin' }));
+      }
+      const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (contentType !== 'application/json') {
+        res.writeHead(415, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Content-Type must be application/json' }));
+      }
+    }
     if (req.method === 'OPTIONS') {
       res.writeHead(405, { 'Allow': 'GET, POST' });
       return res.end();
@@ -186,7 +202,15 @@ function initLivePortal() {
   });
 
   // Attach WebSocket Server
-  wss = new WebSocketServer({ server });
+  wss = new WebSocketServer({
+    server,
+    maxPayload: 16 * 1024,
+    verifyClient: ({ origin, req }, done) => {
+      let originHost = '';
+      try { originHost = new URL(origin || '').host; } catch (_) {}
+      done(Boolean(originHost && originHost === req.headers.host), 403, 'Forbidden origin');
+    }
+  });
 
   wss.on('connection', (ws) => {
     connectedClients.add(ws);

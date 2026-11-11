@@ -20,6 +20,7 @@ const config = {
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '').trim(),
   DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || '').trim(),
   MASTER_SECURITY_PASSWORD: (process.env.MASTER_SECURITY_PASSWORD || '').trim(),
+  SESSION_SIGNING_KEY: (process.env.SESSION_SIGNING_KEY || '').trim(),
   STREAMER_USER_TOKEN: (process.env.STREAMER_USER_TOKEN || '').trim(),
   VIDEO_INTRO_PATH: path.join(__dirname, '../assets/videos/cam_intro.mp4'),
   VIDEO_LOOP_PATH: path.join(__dirname, '../assets/videos/cam_loop.mp4'),

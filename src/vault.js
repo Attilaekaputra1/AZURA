@@ -105,10 +105,11 @@ function loadVault() {
     if (fs.existsSync(VAULT_FILE_PATH)) {
       const encryptedData = fs.readFileSync(VAULT_FILE_PATH, 'utf8');
       const decrypted = decryptPayload(encryptedData);
-      if (decrypted && typeof decrypted === 'object') {
-        userVaultCache = new Map(Object.entries(decrypted));
-        console.log(`[User Vault Engine]: 🔒 Decrypted and loaded ${userVaultCache.size} user profiles from AES-256-GCM storage.`);
+      if (!decrypted || typeof decrypted !== 'object' || Array.isArray(decrypted)) {
+        throw new Error('User vault could not be decrypted or has an invalid payload. Check DATABASE_ENCRYPTION_KEY; existing data was left untouched.');
       }
+      userVaultCache = new Map(Object.entries(decrypted));
+      console.log(`[User Vault Engine]: 🔒 Decrypted and loaded ${userVaultCache.size} user profiles from AES-256-GCM storage.`);
     } else {
       userVaultCache = new Map();
       saveVault();
@@ -118,10 +119,11 @@ function loadVault() {
     if (fs.existsSync(BLACKLIST_FILE_PATH)) {
       const encryptedBl = fs.readFileSync(BLACKLIST_FILE_PATH, 'utf8');
       const decryptedBl = decryptPayload(encryptedBl);
-      if (decryptedBl && typeof decryptedBl === 'object') {
-        userBlacklistCache = new Map(Object.entries(decryptedBl));
-        console.log(`[User Vault Engine]: 🛡️ Decrypted and loaded ${userBlacklistCache.size} blacklisted identities.`);
+      if (!decryptedBl || typeof decryptedBl !== 'object' || Array.isArray(decryptedBl)) {
+        throw new Error('Blacklist vault could not be decrypted or has an invalid payload. Check DATABASE_ENCRYPTION_KEY; existing data was left untouched.');
       }
+      userBlacklistCache = new Map(Object.entries(decryptedBl));
+      console.log(`[User Vault Engine]: 🛡️ Decrypted and loaded ${userBlacklistCache.size} blacklisted identities.`);
     } else {
       userBlacklistCache = new Map();
     }

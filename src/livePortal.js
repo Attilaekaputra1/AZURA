@@ -272,6 +272,17 @@ function initLivePortal() {
     ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
+        if (msg.type === 'game_command' || msg.type === 'browser_command') {
+          const clientAddress = ws._socket?.remoteAddress || 'unknown';
+          if (isCommandRateLimited(clientAddress)) {
+            ws.send(JSON.stringify({ type: 'azura_error', error: 'Too many commands. Please wait before trying again.' }));
+            return;
+          }
+          if (typeof msg.command !== 'string' || msg.command.length > 2000) {
+            ws.send(JSON.stringify({ type: 'azura_error', error: 'Command must be a string of at most 2000 characters.' }));
+            return;
+          }
+        }
 
         // 1. Game Command (2048)
         if (msg.type === 'game_command') {

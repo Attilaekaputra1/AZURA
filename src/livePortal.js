@@ -16,7 +16,7 @@ const PORT = Number.parseInt(process.env.STREAM_PORT || '7860', 10);
 // The portal exposes browser/game control and owner data. Keep it loopback-only by default.
 // Use an authenticated reverse proxy if remote access is required.
 const HOST = process.env.STREAM_HOST || '127.0.0.1';
-const VPS_PUBLIC_IP = process.env.VPS_IP || '127.0.0.1';
+const VPS_PUBLIC_IP = process.env.VPS_IP || '203.175.10.163';
 const STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/live`;
 const BROWSE_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/browse`;
 const GAME_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/game`;

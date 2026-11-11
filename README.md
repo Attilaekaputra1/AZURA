@@ -2,96 +2,81 @@
 ### One Mind. Endless Wonder.
 
 <p align="center">
+  <img src="https://img.shields.io/badge/✦_AZURA-Celestial_AI_Companion-8957E5?style=for-the-badge&labelColor=211432" />
+  <img src="https://img.shields.io/badge/PLATFORM-DISCORD-7B61C8?style=for-the-badge&labelColor=211432" />
+  <img src="https://img.shields.io/badge/STATUS-IN_DEVELOPMENT-BB9AFF?style=for-the-badge&labelColor=211432" />
+</p>
+
+<p align="center">
   <i>A little intelligence, a little magic, and a world of possibilities.</i>
 </p>
 
 ---
 
-<p align="center">
-  <img src="assets/azura.png" alt="Azura — Celestial AI Companion" width="320" />
-</p>
-
-<p align="center">
-  <b>Your companion among the stars.</b>
-  <br/>
-  An AI companion created to bring intelligence, curiosity, and a little personality into Discord.
-</p>
-
-<p align="center">
-  ✦ &nbsp; Discord Community Project &nbsp; ✦
-</p>
-
----
+> ✧ *Somewhere between imagination and intelligence, a new companion comes to life.*
 
 ## ☾ About Azura
 
-Azura is a personal AI companion project built for a Discord community.
+Azura is a personal AI companion project built for Discord communities.
 
-More than just another bot that responds to commands, Azura is envisioned as a conversational presence: approachable, thoughtful, and capable of making everyday interactions feel a little more personal.
+More than just another bot that responds to commands, Azura is envisioned as a conversational presence: approachable, thoughtful, and enjoyable to interact with.
 
-The idea is simple. Technology should not always feel like technology. Sometimes, it should feel like having someone around to think with, talk to, and explore ideas together.
+Whether it's a casual conversation, an interesting question, or an idea worth exploring, Azura is here to make the experience a little more personal.
 
-Azura is an ongoing project, shaped through experimentation, development, and the little details that make an AI feel more personal.
-
-## ✧ The Idea Behind Her
+## ✧ The Vision
 
 **One Mind. Endless Wonder.**
 
 One intelligence, countless possibilities.
 
-Azura represents curiosity without boundaries. Whether it's a casual conversation, an interesting question, or a new idea worth exploring, she is designed around the experience of having an AI companion within the community.
+Azura represents curiosity without boundaries. Her purpose is to bring a more personal experience to the way people interact with AI.
 
-Her identity draws inspiration from celestial imagery: the stars, the vastness of the universe, and the quiet elegance of something beyond the ordinary.
+The idea is simple: technology doesn't always have to feel mechanical. Sometimes, it should feel like having someone around to think with, talk to, and explore ideas together.
 
-## ❖ Personality & Identity
+## ❖ Personality
 
-| Element | Description |
-|:--|:--|
-| Name | Azura |
-| Nature | AI Companion |
-| Home | Discord |
-| Personality | Warm, elegant, curious, and thoughtful |
-| Theme | Celestial / Cosmic Fantasy |
-| Signature Colors | Violet, Lavender, Gold & Midnight Blue |
-| Motto | One Mind. Endless Wonder. |
-
-Azura's visual identity reflects a balance between elegance and intelligence. Her celestial appearance is not just decoration; it represents the personality and atmosphere behind the project.
+| Trait | Description |
+|:---|:---|
+| ♡ Warm | Friendly and approachable. |
+| ✧ Curious | Always ready to explore new ideas. |
+| ☾ Thoughtful | Values meaningful conversations. |
+| ❀ Playful | Knows when to keep things light. |
+| ✦ Elegant | Calm, composed, and distinctive. |
 
 ## ✦ What We're Building
 
-Azura is being developed as a community-oriented AI companion.
+- **Natural Conversations** — Making interactions feel less mechanical.
+- **Community Presence** — Bringing an AI companion into Discord.
+- **Personal Identity** — Developing Azura's own character and personality.
+- **Continuous Development** — Experimenting, learning, and improving over time.
 
-The project focuses on:
+<sub>These are development goals, not claims of currently implemented features.</sub>
 
-- **Natural Conversations** — Making interactions feel less mechanical and more engaging.
-- **Community Presence** — Bringing an AI companion directly into the Discord environment.
-- **Personal Identity** — Giving Azura a recognizable character, personality, and visual direction.
-- **Continuous Development** — Improving her capabilities through experimentation and iteration.
+## ☽ Project Status
 
-These are the project's design goals, not a claim that every capability is already implemented.
+<p>
+  <img src="https://img.shields.io/badge/Development-Ongoing-8957E5?style=flat-square" />
+  <img src="https://img.shields.io/badge/Documentation-Evolving-BB9AFF?style=flat-square" />
+</p>
 
-## ☽ A Work in Progress
+Azura is still evolving. New ideas will come, some things will change, and others may lead somewhere unexpected.
 
-Azura is still evolving.
+That's part of building something from the ground up.
 
-There is no rush to turn her into something bigger than she needs to be. The focus is on building something meaningful, understanding what works, and improving the experience one step at a time.
+## ♡ Project Philosophy
 
-Some ideas will change. Some features will take time. That's part of the process.
-
-For now, Azura is a small project with a bigger imagination.
-
-## ✧ Project Philosophy
-
-> Not everything needs to be complicated to be meaningful.
+> Technology becomes more meaningful when it feels personal.
 >
-> Sometimes, all it takes is a little curiosity and one mind willing to explore.
+> The goal isn't simply to build another Discord bot. It's to create something worth spending time with.
 
 ---
 
 <p align="center">
-  <b>AZURA</b>
+  <img src="https://img.shields.io/badge/✦-AZURA-8957E5?style=for-the-badge&labelColor=211432" />
   <br/>
   <i>One Mind. Endless Wonder.</i>
   <br/><br/>
-  ✦ &nbsp; Made with curiosity, imagination, and a touch of stardust. &nbsp; ✦
+  ✧ Made with curiosity, imagination, and a touch of stardust. ✧
+  <br/>
+  <sub>Thank you for being part of Azura's journey.</sub>
 </p>

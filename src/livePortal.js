@@ -12,7 +12,10 @@ const urlParser = require('url');
 const { WebSocketServer, WebSocket } = require('ws');
 const config = require('./config');
 
-const PORT = process.env.STREAM_PORT || 7860;
+const PORT = Number.parseInt(process.env.STREAM_PORT || '7860', 10);
+// The portal exposes browser/game control and owner data. Keep it loopback-only by default.
+// Use an authenticated reverse proxy if remote access is required.
+const HOST = process.env.STREAM_HOST || '127.0.0.1';
 const VPS_PUBLIC_IP = process.env.VPS_IP || '203.175.10.163';
 const STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/live`;
 const BROWSE_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/browse`;
@@ -21,6 +24,20 @@ const GAME_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/game`;
 let server = null;
 let wss = null;
 const connectedClients = new Set();
+const commandRateLimits = new Map();
+
+function isCommandRateLimited(clientAddress) {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxRequests = 30;
+  const current = commandRateLimits.get(clientAddress);
+  if (!current || now - current.windowStart >= windowMs) {
+    commandRateLimits.set(clientAddress, { windowStart: now, count: 1 });
+    return false;
+  }
+  current.count += 1;
+  return current.count > maxRequests;
+}
 let latestFrame = null;
 let currentMeta = {
   title: 'AZURA Companion Standby',
@@ -36,13 +53,30 @@ function initLivePortal() {
   if (server) return;
 
   server = http.createServer(async (req, res) => {
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+    if (req.method === 'POST') {
+      const clientAddress = req.socket.remoteAddress || 'unknown';
+      if (isCommandRateLimited(clientAddress)) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+        return res.end(JSON.stringify({ success: false, error: 'Too many requests' }));
+      }
+      let originHost = '';
+      try { originHost = new URL(req.headers.origin || '').host; } catch (_) {}
+      if (!originHost || originHost !== req.headers.host) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Forbidden origin' }));
+      }
+      const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (contentType !== 'application/json') {
+        res.writeHead(415, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Content-Type must be application/json' }));
+      }
+    }
     if (req.method === 'OPTIONS') {
-      res.writeHead(200);
+      res.writeHead(405, { 'Allow': 'GET, POST' });
       return res.end();
     }
 
@@ -81,11 +115,25 @@ function initLivePortal() {
     // ── REST API: HEADLESS BROWSING COMMANDS ──
     if (pathname === '/api/browser/command' && req.method === 'POST') {
       let body = '';
-      req.on('data', chunk => body += chunk);
+      let bodySize = 0;
+      let bodyTooLarge = false;
+      req.on('data', chunk => {
+        bodySize += chunk.length;
+        if (bodySize > 16 * 1024) bodyTooLarge = true;
+        else body += chunk;
+      });
       return req.on('end', async () => {
+        if (bodyTooLarge) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'Request body too large' }));
+        }
         try {
           const payload = JSON.parse(body || '{}');
-          const rawCmd = (payload.command || '').trim();
+          if (typeof payload.command !== 'string' || payload.command.length > 2000) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: false, error: 'Command must be a string of at most 2000 characters' }));
+          }
+          const rawCmd = payload.command.trim();
           const cleanCmd = rawCmd.toLowerCase();
           const { scrollWebpage, takeScreenshotOnDemand, closeBrowserSession, typeIntoWebpage, clickOnWebpage, getWebpageSummary, openWebpage } = require('./headlessBrowser');
           const { executeAutonomousBrowsingMission } = require('./webSurfAgent');
@@ -153,10 +201,24 @@ function initLivePortal() {
     // ── REST API: INTERACTIVE 2048 GAME COMMANDS ──
     if (pathname === '/api/game/command' && req.method === 'POST') {
       let body = '';
-      req.on('data', chunk => body += chunk);
+      let bodySize = 0;
+      let bodyTooLarge = false;
+      req.on('data', chunk => {
+        bodySize += chunk.length;
+        if (bodySize > 16 * 1024) bodyTooLarge = true;
+        else body += chunk;
+      });
       return req.on('end', async () => {
+        if (bodyTooLarge) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'Request body too large' }));
+        }
         try {
           const payload = JSON.parse(body || '{}');
+          if (typeof payload.command !== 'string' || payload.command.length > 2000) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: false, error: 'Command must be a string of at most 2000 characters' }));
+          }
           const { executeInteractiveMove } = require('./browserGameAgent');
           const result = await executeInteractiveMove(payload.command, payload.userName || 'Attila');
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -187,7 +249,15 @@ function initLivePortal() {
   });
 
   // Attach WebSocket Server
-  wss = new WebSocketServer({ server });
+  wss = new WebSocketServer({
+    server,
+    maxPayload: 16 * 1024,
+    verifyClient: ({ origin, req }, done) => {
+      let originHost = '';
+      try { originHost = new URL(origin || '').host; } catch (_) {}
+      done(Boolean(originHost && originHost === req.headers.host), 403, 'Forbidden origin');
+    }
+  });
 
   wss.on('connection', (ws) => {
     connectedClients.add(ws);
@@ -202,6 +272,17 @@ function initLivePortal() {
     ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
+        if (msg.type === 'game_command' || msg.type === 'browser_command') {
+          const clientAddress = ws._socket?.remoteAddress || 'unknown';
+          if (isCommandRateLimited(clientAddress)) {
+            ws.send(JSON.stringify({ type: 'azura_error', error: 'Too many commands. Please wait before trying again.' }));
+            return;
+          }
+          if (typeof msg.command !== 'string' || msg.command.length > 2000) {
+            ws.send(JSON.stringify({ type: 'azura_error', error: 'Command must be a string of at most 2000 characters.' }));
+            return;
+          }
+        }
 
         // 1. Game Command (2048)
         if (msg.type === 'game_command') {
@@ -301,8 +382,11 @@ function initLivePortal() {
     });
   });
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Live Portal]: 🚀 High-Speed Live Stream Server running at ${STREAM_URL}`);
+  server.listen(PORT, HOST, () => {
+    console.log(`[Live Portal]: 🚀 Server listening on ${HOST}:${PORT}.`);
+    if (HOST !== '127.0.0.1' && HOST !== '::1' && HOST !== 'localhost') {
+      console.warn('[Live Portal Security]: Non-loopback bind enabled. Put the portal behind an authenticated HTTPS reverse proxy and firewall; do not expose this port directly.');
+    }
   });
 }
 

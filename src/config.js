@@ -20,6 +20,7 @@ const config = {
   TAVILY_API_KEY: (process.env.TAVILY_API_KEY || '').trim(),
   DATABASE_ENCRYPTION_KEY: (process.env.DATABASE_ENCRYPTION_KEY || '').trim(),
   MASTER_SECURITY_PASSWORD: (process.env.MASTER_SECURITY_PASSWORD || '').trim(),
+  SESSION_SIGNING_KEY: (process.env.SESSION_SIGNING_KEY || '').trim(),
   STREAMER_USER_TOKEN: (process.env.STREAMER_USER_TOKEN || '').trim(),
   VIDEO_INTRO_PATH: path.join(__dirname, '../assets/videos/cam_intro.mp4'),
   VIDEO_LOOP_PATH: path.join(__dirname, '../assets/videos/cam_loop.mp4'),
@@ -45,6 +46,10 @@ const config = {
     if (!this.DISCORD_TOKEN) missing.push('DISCORD_TOKEN');
     if (!this.DISCORD_CLIENT_ID) missing.push('DISCORD_CLIENT_ID');
     if (!this.OPENAI_API_KEY) missing.push('OPENAI_API_KEY');
+    if (!this.OWNER_DISCORD_ID) missing.push('OWNER_DISCORD_ID');
+    if (!this.DATABASE_ENCRYPTION_KEY) missing.push('DATABASE_ENCRYPTION_KEY');
+    if (!this.MASTER_SECURITY_PASSWORD) missing.push('MASTER_SECURITY_PASSWORD');
+    if (!this.SESSION_SIGNING_KEY) missing.push('SESSION_SIGNING_KEY');
     return missing;
   }
 };

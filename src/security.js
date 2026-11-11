@@ -24,7 +24,10 @@ const activeSessions = new Map();
  * @returns {Buffer}
  */
 function getDerivedKey(customKey = null, salt = MASTER_SALT) {
-  const secret = customKey || config.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_fallback_2026';
+  const secret = customKey || config.DATABASE_ENCRYPTION_KEY;
+  if (!secret) {
+    throw new Error('DATABASE_ENCRYPTION_KEY is required. Refusing to use an insecure fallback key.');
+  }
   return crypto.scryptSync(secret, salt, 32);
 }
 
@@ -180,7 +183,11 @@ function writeSecureJson(encFilePath, data) {
  */
 function verifyMasterPassword(inputPassword) {
   if (!inputPassword || typeof inputPassword !== 'string') return false;
-  const master = config.MASTER_SECURITY_PASSWORD || 'AzuraSecurity2026!';
+  const master = config.MASTER_SECURITY_PASSWORD;
+  if (!master) {
+    console.error('[Security]: MASTER_SECURITY_PASSWORD is not configured; master-password authentication is disabled.');
+    return false;
+  }
   const inputBuf = Buffer.from(inputPassword.trim());
   const masterBuf = Buffer.from(master.trim());
   if (inputBuf.length !== masterBuf.length) return false;

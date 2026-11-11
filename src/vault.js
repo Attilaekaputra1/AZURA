@@ -24,7 +24,10 @@ let isVaultLoaded = false;
  * @returns {Buffer}
  */
 function getDerivedKey(masterKey) {
-  const secret = masterKey || config.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_fallback';
+  const secret = masterKey || config.DATABASE_ENCRYPTION_KEY;
+  if (!secret) {
+    throw new Error('DATABASE_ENCRYPTION_KEY is required. Refusing to use an insecure vault fallback key.');
+  }
   return crypto.scryptSync(secret, VAULT_SALT, 32);
 }
 
@@ -102,10 +105,11 @@ function loadVault() {
     if (fs.existsSync(VAULT_FILE_PATH)) {
       const encryptedData = fs.readFileSync(VAULT_FILE_PATH, 'utf8');
       const decrypted = decryptPayload(encryptedData);
-      if (decrypted && typeof decrypted === 'object') {
-        userVaultCache = new Map(Object.entries(decrypted));
-        console.log(`[User Vault Engine]: 🔒 Decrypted and loaded ${userVaultCache.size} user profiles from AES-256-GCM storage.`);
+      if (!decrypted || typeof decrypted !== 'object' || Array.isArray(decrypted)) {
+        throw new Error('User vault could not be decrypted or has an invalid payload. Check DATABASE_ENCRYPTION_KEY; existing data was left untouched.');
       }
+      userVaultCache = new Map(Object.entries(decrypted));
+      console.log(`[User Vault Engine]: 🔒 Decrypted and loaded ${userVaultCache.size} user profiles from AES-256-GCM storage.`);
     } else {
       userVaultCache = new Map();
       saveVault();
@@ -115,20 +119,21 @@ function loadVault() {
     if (fs.existsSync(BLACKLIST_FILE_PATH)) {
       const encryptedBl = fs.readFileSync(BLACKLIST_FILE_PATH, 'utf8');
       const decryptedBl = decryptPayload(encryptedBl);
-      if (decryptedBl && typeof decryptedBl === 'object') {
-        userBlacklistCache = new Map(Object.entries(decryptedBl));
-        console.log(`[User Vault Engine]: 🛡️ Decrypted and loaded ${userBlacklistCache.size} blacklisted identities.`);
+      if (!decryptedBl || typeof decryptedBl !== 'object' || Array.isArray(decryptedBl)) {
+        throw new Error('Blacklist vault could not be decrypted or has an invalid payload. Check DATABASE_ENCRYPTION_KEY; existing data was left untouched.');
       }
+      userBlacklistCache = new Map(Object.entries(decryptedBl));
+      console.log(`[User Vault Engine]: 🛡️ Decrypted and loaded ${userBlacklistCache.size} blacklisted identities.`);
     } else {
       userBlacklistCache = new Map();
     }
 
     isVaultLoaded = true;
   } catch (err) {
-    console.error('[User Vault Load Error]:', err.message);
-    userVaultCache = new Map();
-    userBlacklistCache = new Map();
-    isVaultLoaded = true;
+    // Fail closed: never mark an unreadable encrypted vault as loaded with empty data.
+    // This prevents later writes from silently overwriting data that could not be decrypted.
+    isVaultLoaded = false;
+    throw new Error(`[User Vault Load Error]: ${err.message}`);
   }
 }
 
@@ -193,7 +198,11 @@ process.on('beforeExit', () => { if (isVaultDirty) flushVaultSync(); });
  * @returns {string}
  */
 function generateSessionCookie(userId, firstSeen) {
-  const hmac = crypto.createHmac('sha256', config.DATABASE_ENCRYPTION_KEY || 'azura_cookie_salt');
+  const signingKey = config.SESSION_SIGNING_KEY;
+  if (!signingKey) {
+    throw new Error('SESSION_SIGNING_KEY is required to generate secure session cookies.');
+  }
+  const hmac = crypto.createHmac('sha256', signingKey);
   hmac.update(`${userId}:${firstSeen}:azura_session`);
   return `azura_sess_${hmac.digest('hex').slice(0, 32)}`;
 }

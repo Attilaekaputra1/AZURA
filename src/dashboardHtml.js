@@ -8,8 +8,10 @@
  */
 
 function generateMasterDashboardHtml(initialTodos = [], initialFeedbacks = []) {
-  const todosJson = JSON.stringify(initialTodos);
-  const feedbacksJson = JSON.stringify(initialFeedbacks);
+  // Prevent data containing a closing script tag from escaping the inline JSON context.
+  const safeJson = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+  const todosJson = safeJson(initialTodos);
+  const feedbacksJson = safeJson(initialFeedbacks);
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -704,6 +706,12 @@ function generateMasterDashboardHtml(initialTodos = [], initialFeedbacks = []) {
   </div>
 
   <script>
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>\"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' })[char]);
+    }
+    function safeExternalUrl(value) {
+      try { const url = new URL(String(value), location.origin); return url.protocol === 'https:' ? url.href : ''; } catch (_) { return ''; }
+    }
     let globalTodos = ${todosJson};
     let globalFeedbacks = ${feedbacksJson};
     let currentTab = 'all';
@@ -908,52 +916,54 @@ function generateMasterDashboardHtml(initialTodos = [], initialFeedbacks = []) {
         if (item.type === 'advice') badgeType = '<span class="badge badge-adv">💡 Advice</span>';
         if (item.type === 'report') badgeType = '<span class="badge badge-rep">🐛 Bug Report</span>';
 
-        let badgeStatus = \`<span class="badge badge-status-\${item.status}">\${item.status.toUpperCase()}</span>\`;
+        const safeStatus = ['pending', 'in_progress', 'completed', 'done', 'accepted', 'rejected'].includes(String(item.status)) ? String(item.status) : 'unknown';
+        let badgeStatus = \`<span class="badge badge-status-\${safeStatus}">\${escapeHtml(safeStatus.toUpperCase())}</span>\`;
 
         let actionBtns = '';
         if (item.type === 'todo') {
           actionBtns = \`
-            <button class="btn-circle btn-done" title="\${isDone ? 'Batal Selesai' : 'Tandai Selesai'}" onclick="toggleTask('\${item.id}')">\${isDone ? '↩️' : '✅'}</button>
-            <button class="btn-circle btn-delete" title="Hapus Tugas" onclick="deleteTask('\${item.id}')">🗑️</button>
+            <button class="btn-circle btn-done" title="\${isDone ? 'Batal Selesai' : 'Tandai Selesai'}" onclick="toggleTask(\${JSON.stringify(String(item.id))})">\${isDone ? '↩️' : '✅'}</button>
+            <button class="btn-circle btn-delete" title="Hapus Tugas" onclick="deleteTask(\${JSON.stringify(String(item.id))})">🗑️</button>
           \`;
         } else {
           // Feedback
           if (item.status === 'pending') {
             actionBtns = \`
-              <button class="btn-circle btn-done" title="Terima & Masukkan To-Do" onclick="updateFeedback('\${item.id}', 'accepted')">👍</button>
-              <button class="btn-circle btn-delete" title="Tolak Saran" onclick="updateFeedback('\${item.id}', 'rejected')">❌</button>
+              <button class="btn-circle btn-done" title="Terima & Masukkan To-Do" onclick="updateFeedback(\${JSON.stringify(String(item.id))}, 'accepted')">👍</button>
+              <button class="btn-circle btn-delete" title="Tolak Saran" onclick="updateFeedback(\${JSON.stringify(String(item.id))}, 'rejected')">❌</button>
             \`;
           } else if (item.status === 'accepted') {
             actionBtns = \`
-              <button class="btn-circle btn-done" title="Tandai Sudah Selesai Diterapkan" onclick="updateFeedback('\${item.id}', 'done')">✅</button>
-              <button class="btn-circle btn-delete" title="Hapus Tiket" onclick="deleteFeedback('\${item.id}')">🗑️</button>
+              <button class="btn-circle btn-done" title="Tandai Sudah Selesai Diterapkan" onclick="updateFeedback(\${JSON.stringify(String(item.id))}, 'done')">✅</button>
+              <button class="btn-circle btn-delete" title="Hapus Tiket" onclick="deleteFeedback(\${JSON.stringify(String(item.id))})">🗑️</button>
             \`;
           } else {
             actionBtns = \`
-              <button class="btn-circle btn-delete" title="Hapus Tiket" onclick="deleteFeedback('\${item.id}')">🗑️</button>
+              <button class="btn-circle btn-delete" title="Hapus Tiket" onclick="deleteFeedback(\${JSON.stringify(String(item.id))})">🗑️</button>
             \`;
           }
         }
 
-        const reasonBox = item.rejectReason ? \`<div class="reject-reason-box"><strong>Alasan Penolakan:</strong> \${item.rejectReason}</div>\` : '';
-        const imageBox = item.imageUrl ? \`<div style="margin-top: 8px;"><a href="\${item.imageUrl}" target="_blank" style="color: var(--neon-blue); font-size: 12px;">📎 Lihat Screenshot Lampiran</a></div>\` : '';
+        const reasonBox = item.rejectReason ? \`<div class="reject-reason-box"><strong>Alasan Penolakan:</strong> \${escapeHtml(item.rejectReason)}</div>\` : '';
+        const safeImageUrl = safeExternalUrl(item.imageUrl);
+        const imageBox = safeImageUrl ? \`<div style="margin-top: 8px;"><a href="\${escapeHtml(safeImageUrl)}" rel="noopener noreferrer" target="_blank" style="color: var(--neon-blue); font-size: 12px;">📎 Lihat Screenshot Lampiran</a></div>\` : '';
 
         return \`
           <div class="item-card \${isDone ? 'completed' : ''}">
             <div class="item-main">
               <div class="item-header">
-                <span class="item-id">#\${item.id}</span>
+                <span class="item-id">#\${escapeHtml(item.id)}</span>
                 \${badgeType}
                 \${badgeStatus}
               </div>
-              <div class="item-title">\${item.title}</div>
-              \${item.content ? \`<div class="item-notes">\${item.content}</div>\` : ''}
+              <div class="item-title">\${escapeHtml(item.title)}</div>
+              \${item.content ? \`<div class="item-notes">\${escapeHtml(item.content)}</div>\` : ''}
               \${reasonBox}
               \${imageBox}
               <div class="item-footer">
-                <span>👤 \${item.creator} \${item.guildName ? \`(\${item.guildName})\` : ''}</span>
+                <span>👤 \${escapeHtml(item.creator)} \${item.guildName ? \`(\${escapeHtml(item.guildName)})\` : ''}</span>
                 <span>📅 \${dateStr}</span>
-                <span>🏷️ \${item.category}</span>
+                <span>🏷️ \${escapeHtml(item.category)}</span>
               </div>
             </div>
             <div class="item-actions">

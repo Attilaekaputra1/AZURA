@@ -24,6 +24,20 @@ const GAME_STREAM_URL = `http://${VPS_PUBLIC_IP}:${PORT}/game`;
 let server = null;
 let wss = null;
 const connectedClients = new Set();
+const commandRateLimits = new Map();
+
+function isCommandRateLimited(clientAddress) {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxRequests = 30;
+  const current = commandRateLimits.get(clientAddress);
+  if (!current || now - current.windowStart >= windowMs) {
+    commandRateLimits.set(clientAddress, { windowStart: now, count: 1 });
+    return false;
+  }
+  current.count += 1;
+  return current.count > maxRequests;
+}
 let latestFrame = null;
 let currentMeta = {
   title: 'AZURA Companion Standby',
@@ -44,6 +58,11 @@ function initLivePortal() {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
     if (req.method === 'POST') {
+      const clientAddress = req.socket.remoteAddress || 'unknown';
+      if (isCommandRateLimited(clientAddress)) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+        return res.end(JSON.stringify({ success: false, error: 'Too many requests' }));
+      }
       let originHost = '';
       try { originHost = new URL(req.headers.origin || '').host; } catch (_) {}
       if (!originHost || originHost !== req.headers.host) {
@@ -110,7 +129,11 @@ function initLivePortal() {
         }
         try {
           const payload = JSON.parse(body || '{}');
-          const rawCmd = (payload.command || '').trim();
+          if (typeof payload.command !== 'string' || payload.command.length > 2000) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: false, error: 'Command must be a string of at most 2000 characters' }));
+          }
+          const rawCmd = payload.command.trim();
           const cleanCmd = rawCmd.toLowerCase();
           const { scrollWebpage, takeScreenshotOnDemand, closeBrowserSession, typeIntoWebpage, clickOnWebpage, getWebpageSummary, openWebpage } = require('./headlessBrowser');
           const { executeAutonomousBrowsingMission } = require('./webSurfAgent');
@@ -192,6 +215,10 @@ function initLivePortal() {
         }
         try {
           const payload = JSON.parse(body || '{}');
+          if (typeof payload.command !== 'string' || payload.command.length > 2000) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: false, error: 'Command must be a string of at most 2000 characters' }));
+          }
           const { executeInteractiveMove } = require('./browserGameAgent');
           const result = await executeInteractiveMove(payload.command, payload.userName || 'Attila');
           res.writeHead(200, { 'Content-Type': 'application/json' });

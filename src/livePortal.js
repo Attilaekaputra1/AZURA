@@ -96,8 +96,18 @@ function initLivePortal() {
     // ── REST API: HEADLESS BROWSING COMMANDS ──
     if (pathname === '/api/browser/command' && req.method === 'POST') {
       let body = '';
-      req.on('data', chunk => body += chunk);
+      let bodySize = 0;
+      let bodyTooLarge = false;
+      req.on('data', chunk => {
+        bodySize += chunk.length;
+        if (bodySize > 16 * 1024) bodyTooLarge = true;
+        else body += chunk;
+      });
       return req.on('end', async () => {
+        if (bodyTooLarge) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'Request body too large' }));
+        }
         try {
           const payload = JSON.parse(body || '{}');
           const rawCmd = (payload.command || '').trim();
@@ -168,8 +178,18 @@ function initLivePortal() {
     // ── REST API: INTERACTIVE 2048 GAME COMMANDS ──
     if (pathname === '/api/game/command' && req.method === 'POST') {
       let body = '';
-      req.on('data', chunk => body += chunk);
+      let bodySize = 0;
+      let bodyTooLarge = false;
+      req.on('data', chunk => {
+        bodySize += chunk.length;
+        if (bodySize > 16 * 1024) bodyTooLarge = true;
+        else body += chunk;
+      });
       return req.on('end', async () => {
+        if (bodyTooLarge) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'Request body too large' }));
+        }
         try {
           const payload = JSON.parse(body || '{}');
           const { executeInteractiveMove } = require('./browserGameAgent');

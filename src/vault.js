@@ -24,7 +24,10 @@ let isVaultLoaded = false;
  * @returns {Buffer}
  */
 function getDerivedKey(masterKey) {
-  const secret = masterKey || config.DATABASE_ENCRYPTION_KEY || 'azura_master_vault_key_fallback';
+  const secret = masterKey || config.DATABASE_ENCRYPTION_KEY;
+  if (!secret) {
+    throw new Error('DATABASE_ENCRYPTION_KEY is required. Refusing to use an insecure vault fallback key.');
+  }
   return crypto.scryptSync(secret, VAULT_SALT, 32);
 }
 
@@ -125,10 +128,10 @@ function loadVault() {
 
     isVaultLoaded = true;
   } catch (err) {
-    console.error('[User Vault Load Error]:', err.message);
-    userVaultCache = new Map();
-    userBlacklistCache = new Map();
-    isVaultLoaded = true;
+    // Fail closed: never mark an unreadable encrypted vault as loaded with empty data.
+    // This prevents later writes from silently overwriting data that could not be decrypted.
+    isVaultLoaded = false;
+    throw new Error(`[User Vault Load Error]: ${err.message}`);
   }
 }
 
@@ -193,7 +196,11 @@ process.on('beforeExit', () => { if (isVaultDirty) flushVaultSync(); });
  * @returns {string}
  */
 function generateSessionCookie(userId, firstSeen) {
-  const hmac = crypto.createHmac('sha256', config.DATABASE_ENCRYPTION_KEY || 'azura_cookie_salt');
+  const signingKey = config.SESSION_SIGNING_KEY;
+  if (!signingKey) {
+    throw new Error('SESSION_SIGNING_KEY is required to generate secure session cookies.');
+  }
+  const hmac = crypto.createHmac('sha256', signingKey);
   hmac.update(`${userId}:${firstSeen}:azura_session`);
   return `azura_sess_${hmac.digest('hex').slice(0, 32)}`;
 }

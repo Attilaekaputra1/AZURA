@@ -46,6 +46,10 @@ const config = {
     if (!this.DISCORD_TOKEN) missing.push('DISCORD_TOKEN');
     if (!this.DISCORD_CLIENT_ID) missing.push('DISCORD_CLIENT_ID');
     if (!this.OPENAI_API_KEY) missing.push('OPENAI_API_KEY');
+    if (!this.OWNER_DISCORD_ID) missing.push('OWNER_DISCORD_ID');
+    if (!this.DATABASE_ENCRYPTION_KEY) missing.push('DATABASE_ENCRYPTION_KEY');
+    if (!this.MASTER_SECURITY_PASSWORD) missing.push('MASTER_SECURITY_PASSWORD');
+    if (!this.SESSION_SIGNING_KEY) missing.push('SESSION_SIGNING_KEY');
     return missing;
   }
 };

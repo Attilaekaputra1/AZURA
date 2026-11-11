@@ -939,7 +939,7 @@ function generateMasterDashboardHtml(initialTodos = [], initialFeedbacks = []) {
             \`;
           } else {
             actionBtns = \`
-              <button class="btn-circle btn-delete" title="Hapus Tiket" onclick="deleteFeedback('\${item.id}')">🗑️</button>
+              <button class="btn-circle btn-delete" title="Hapus Tiket" onclick="deleteFeedback(\${JSON.stringify(String(item.id))})">🗑️</button>
             \`;
           }
         }
